@@ -1,17 +1,17 @@
 # List, count and batch-read native objects
 
-Discover `mind <record|todo|file|session> list --help` and `mind schema <kind>.list --json`. Lists default to readable text; add `--json` for the precise single-page response, counts and continuation metadata used in this guide. All four commands accept one JSON input with the same common fields. `record`, `todo` and `file` lists also support common metadata shorthand:
+Discover `mind <record|todo|file|session> list --help` and `mind schema <kind>.list --json`. Lists default to readable text; add `--json` for the precise single-page response, counts and continuation metadata used in this guide. All four commands accept JSON input or common metadata shorthand:
 
-Command examples use **Bash** binding syntax; for PowerShell, follow [Shell input](shell-input.md#powershell).
+Examples assume [runtime defaults](binding.md#runtime-defaults); use [external binding](binding.md#external-binding) when absent. Code marked Bash uses Bash syntax; for PowerShell, follow [Shell input](shell-input.md#powershell).
 
 ```bash
-mind file list --project "$PROJECT_ID" --limit 20 --query 'Report' --workspace "$WORKSPACE" --connection "$CONNECTION"
-mind record list --workspace-scope --limit 0 --workspace "$WORKSPACE" --connection "$CONNECTION" --json
+mind file list --project "$PROJECT_ID" --limit 20 --query 'Report'
+mind record list --workspace-scope --limit 0 --json
 ```
 
-Use `--cursor "$NEXT_CURSOR"` with unchanged scope/query to continue. `--query` maps to `titleQuery`, and `--budget-chars` sets the response budget. Use JSON for detail, content queries, tags and other filters; do not combine `--input-file` with shorthand scope/query/limit/cursor/budget options. Session lists continue to use JSON.
+Use `--cursor "$NEXT_CURSOR"` with unchanged scope/query to continue. `--query` maps to `titleQuery`, and `--budget-chars` sets the response budget. Use JSON for detail, content queries, tags and other filters; do not combine `--input-file` with shorthand scope/query/limit/cursor/budget options. Session lists support shorthand too; JSON adds content/detail and other filters.
 
-List `--query` is a literal title substring filter. For whitespace-separated AND terms across a Record's title and body, use [Search and read](reading.md#search-and-read).
+List `--query` is a literal title substring filter. For whitespace-separated AND terms across a source's title and body, use [Search and read](reading.md#search-and-read).
 
 Common JSON fields:
 
@@ -40,12 +40,12 @@ Voice Records are Records: `record.list` includes both `recordType:"text"` and `
 
 ## Bash examples
 
-`$PROJECT_ID`, `$WORKSPACE`, `$CONNECTION`, IDs and tag IDs must come from the current binding or native results. These examples use **Bash** JSON stdin. For PowerShell binding, JSON serialization and temporary-file input, follow [Shell input](shell-input.md#powershell) with the same DTO.
+`$PROJECT_ID`, IDs and tag IDs below stand for actual authorized scope/native results. The shell inherits runtime binding defaults; populate only the task variables used in a recipe. These examples use **Bash** JSON stdin. For PowerShell binding, JSON serialization and temporary-file input, follow [Shell input](shell-input.md#powershell) with the same DTO.
 
 Count Records in one call:
 
 ```bash
-mind record list --input-file - --workspace "$WORKSPACE" --connection "$CONNECTION" --json <<JSON
+mind record list --input-file - --json <<JSON
 {"scope":{"kind":"project","projectId":$PROJECT_ID},"limit":0}
 JSON
 ```
@@ -53,7 +53,7 @@ JSON
 Batch-read two complete Record bodies (within the response budget):
 
 ```bash
-mind record list --input-file - --workspace "$WORKSPACE" --connection "$CONNECTION" --json <<JSON
+mind record list --input-file - --json <<JSON
 {"scope":{"kind":"project","projectId":$PROJECT_ID},"ids":["$RECORD_ID_A","$RECORD_ID_B"],"mode":"detail","budgetChars":12000}
 JSON
 ```
@@ -61,7 +61,7 @@ JSON
 Find Record metadata by title, body and tag together:
 
 ```bash
-mind record list --input-file - --workspace "$WORKSPACE" --connection "$CONNECTION" --json <<JSON
+mind record list --input-file - --json <<JSON
 {"scope":{"kind":"project","projectId":$PROJECT_ID},"titleQuery":"复盘","contentQuery":"部署","tag":"研发","mode":"metadata","limit":10}
 JSON
 ```
@@ -69,10 +69,10 @@ JSON
 Count unfinished parent Todos with a tag; then read matching parent/child action text:
 
 ```bash
-mind todo list --input-file - --workspace "$WORKSPACE" --connection "$CONNECTION" --json <<JSON
+mind todo list --input-file - --json <<JSON
 {"scope":{"kind":"project","projectId":$PROJECT_ID},"status":"unfinished","tagIds":[$TAG_ID],"includeChildren":false,"limit":0}
 JSON
-mind todo list --input-file - --workspace "$WORKSPACE" --connection "$CONNECTION" --json <<JSON
+mind todo list --input-file - --json <<JSON
 {"scope":{"kind":"project","projectId":$PROJECT_ID},"ids":["$TODO_ID"],"tag":"研发","contentQuery":"验收","includeChildren":true,"mode":"detail","budgetChars":12000}
 JSON
 ```
@@ -80,10 +80,10 @@ JSON
 Find Files by title, or by extracted content with details:
 
 ```bash
-mind file list --input-file - --workspace "$WORKSPACE" --connection "$CONNECTION" --json <<JSON
+mind file list --input-file - --json <<JSON
 {"scope":{"kind":"project","projectId":$PROJECT_ID},"titleQuery":"方案","mode":"metadata"}
 JSON
-mind file list --input-file - --workspace "$WORKSPACE" --connection "$CONNECTION" --json <<JSON
+mind file list --input-file - --json <<JSON
 {"scope":{"kind":"project","projectId":$PROJECT_ID},"contentQuery":"兼容性","tagIds":[$TAG_ID],"mode":"detail","limit":5,"budgetChars":12000}
 JSON
 ```
@@ -91,10 +91,10 @@ JSON
 Find real Workspace chats, or batch-read a chosen chat's conversation text:
 
 ```bash
-mind session list --input-file - --workspace "$WORKSPACE" --connection "$CONNECTION" --json <<JSON
+mind session list --input-file - --json <<JSON
 {"scope":{"kind":"workspace"},"titleQuery":"发布","contentQuery":"回滚","mode":"metadata"}
 JSON
-mind session list --input-file - --workspace "$WORKSPACE" --connection "$CONNECTION" --json <<JSON
+mind session list --input-file - --json <<JSON
 {"scope":{"kind":"workspace"},"ids":["$SESSION_ID"],"mode":"detail","budgetChars":12000}
 JSON
 ```
@@ -102,7 +102,7 @@ JSON
 Continue an inventory with **all the original filters** and the returned cursor:
 
 ```bash
-mind record list --input-file - --workspace "$WORKSPACE" --connection "$CONNECTION" --json <<JSON
+mind record list --input-file - --json <<JSON
 {"scope":{"kind":"project","projectId":$PROJECT_ID},"tag":"研发","limit":10,"cursor":"$NEXT_CURSOR"}
 JSON
 ```
@@ -112,10 +112,10 @@ JSON
 Record read inputs (`record.get`, `record.blocks.get`, `record.versions.list/get/compare`) use `object`, matching File reads. Legacy `record` remains accepted as an input alias; never send both. Use the exact returned ObjectRef, not a reconstructed reference:
 
 ```bash
-mind record versions list --input-file - --workspace "$WORKSPACE" --connection "$CONNECTION" --json <<JSON
+mind record versions list --input-file - --json <<JSON
 {"object":$RECORD_OBJECT,"limit":10}
 JSON
-mind file versions list --input-file - --workspace "$WORKSPACE" --connection "$CONNECTION" --json <<JSON
+mind file versions list --input-file - --json <<JSON
 {"object":$FILE_OBJECT,"limit":10}
 JSON
 ```

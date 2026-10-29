@@ -3,6 +3,7 @@ pub mod cli;
 pub(crate) mod cli_install;
 pub mod client;
 mod connection_store;
+mod contacts;
 pub(crate) mod embedded;
 mod object_reads;
 mod record_writes;

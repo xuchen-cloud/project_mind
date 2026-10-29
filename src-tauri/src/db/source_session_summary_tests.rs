@@ -160,6 +160,7 @@ fn query(scope: Scope, q: &str) -> SourceSearchInput {
         include_history: false,
         limit: Some(8),
         budget_chars: Some(12000),
+        cursor: None,
     }
 }
 fn target(scope: Scope) -> SourceReadInput {

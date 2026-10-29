@@ -19,6 +19,16 @@ mod cli_help;
 use cli_help::HELP;
 #[path = "cli_presentation.rs"]
 mod cli_presentation;
+#[path = "cli_encoding.rs"]
+mod cli_encoding;
+#[path = "cli_convenience.rs"]
+mod cli_convenience;
+#[path = "cli_syntax.rs"]
+mod cli_syntax;
+#[path = "cli_grep.rs"]
+mod cli_grep;
+#[path = "cli_contacts.rs"]
+mod cli_contacts;
 
 const MAX_INPUT_BYTES: u64 = 2 * 1024 * 1024;
 
@@ -30,6 +40,9 @@ pub struct CliOutput {
 
 #[derive(Default)]
 struct Options {
+    flags: std::collections::HashSet<String>,
+    positionals: Vec<String>,
+    version_info: bool,
     workspace: Option<PathBuf>,
     connection: Option<String>,
     project: Option<i64>,
@@ -57,10 +70,17 @@ struct Options {
     direction: Option<String>,
     limit: Option<usize>,
     offset: Option<usize>,
+    format: Option<String>,
+    all: bool,
+    old_text_file: Option<String>,
+    new_text_file: Option<String>,
+    before_file: Option<String>,
     dry_run: bool,
     json: bool,
     help: bool,
     verbose: bool,
+    contact_fields: serde_json::Map<String, Value>,
+    notes_file: Option<String>,
 }
 
 fn invalid(message: &'static str) -> AgentError {
@@ -68,31 +88,43 @@ fn invalid(message: &'static str) -> AgentError {
 }
 
 fn parse_options(args: &[String]) -> AgentResult<Options> {
+    parse_options_context(args, false)
+}
+
+fn parse_options_context(args: &[String], contacts: bool) -> AgentResult<Options> {
     let mut options = Options::default();
     let mut cursor = 0;
     while cursor < args.len() {
-        let flag = args[cursor].as_str();
+        let raw = args[cursor].as_str();
+        if raw == "--" { options.positionals.extend_from_slice(&args[cursor+1..]);break; }
+        if !raw.starts_with('-') || raw == "-" { options.positionals.push(raw.to_owned());cursor+=1;continue; }
+        let (flag, attached) = cli_syntax::flag(raw);
+        let version_info = flag == "--version" && (raw == "-V" || attached.is_none() && args.get(cursor+1).is_none_or(|next|next.starts_with('-')));
+        if !options.flags.insert(flag.to_owned()) { return Err(AgentError::new(ErrorCode::InvalidArgument,format!("Duplicate {flag}"))); }
+        if matches!(flag,"--json"|"--workspace-scope"|"--all"|"--help"|"--verbose"|"--dry-run"|"--cli-version") && attached.is_some() {
+            return Err(AgentError::new(ErrorCode::InvalidArgument,format!("{flag} does not accept a value")));
+        }
+        if version_info { options.version_info=true;cursor+=1;continue; }
+        if flag == "--all" {
+            options.all = true; cursor += 1; continue;
+        }
         if flag == "--json" {
-            if options.json { return Err(invalid("Duplicate --json")); }
             options.json = true;
             cursor += 1;
             continue;
         }
         if flag == "--workspace-scope" {
-            if options.workspace_scope { return Err(invalid("Duplicate --workspace-scope")); }
             options.workspace_scope = true;
             cursor += 1;
             continue;
         }
         if flag == "--dry-run" {
-            if options.dry_run { return Err(invalid("Duplicate --dry-run")); }
             options.dry_run = true;
             cursor += 1;
             continue;
         }
         if flag == "--help" || flag == "--verbose" {
             let option = if flag == "--help" { &mut options.help } else { &mut options.verbose };
-            if *option { return Err(invalid("Duplicate option")); }
             *option = true;
             cursor += 1;
             continue;
@@ -102,70 +134,92 @@ fn parse_options(args: &[String]) -> AgentResult<Options> {
             | "--body-file" | "--name" | "--title" | "--priority" | "--due-date"
             | "--id" | "--version" | "--base-revision" | "--source-file"
             | "--expected-version" | "--expected-hash" | "--revision" | "--cursor"
-            | "--kind" | "--direction" | "--limit" | "--offset" | "--out") {
+            | "--kind" | "--direction" | "--limit" | "--offset" | "--out" | "--format" | "--old-text-file" | "--new-text-file" | "--before-file")
+            && !(contacts && cli_contacts::field_key(flag).is_some()) && !(contacts && flag == "--notes-file") {
             return Err(AgentError::new(ErrorCode::InvalidArgument, format!("Unknown option: {flag}")));
         }
-        let value = args.get(cursor + 1).ok_or_else(|| invalid("Missing option value"))?;
-        if value.starts_with("--") { return Err(invalid("Missing option value")); }
+        let (value, consumed) = match attached {
+            Some(value) => (value,1),
+            None => {
+                let value=args.get(cursor+1).filter(|value| !value.starts_with("--") && !matches!(value.as_str(),"-h"|"-V"))
+                    .ok_or_else(||AgentError::new(ErrorCode::InvalidArgument,format!("Missing value for {flag}")))?;
+                (value.as_str(),2)
+            }
+        };
         match flag {
-            "--workspace" if options.workspace.is_none() => options.workspace = Some(PathBuf::from(value)),
-            "--connection" if options.connection.is_none() => options.connection = Some(value.clone()),
-            "--project" if options.project.is_none() => {
+            "--format" => {
+                if !matches!(value, "text" | "markdown" | "json" | "plain" | "cat") { return Err(invalid("--format must be text, plain (cat), markdown or json")); }
+                options.format = Some(if value == "cat" {"plain"} else {value}.to_owned());
+            }
+            "--old-text-file" => options.old_text_file = Some(value.to_owned()),
+            "--new-text-file" => options.new_text_file = Some(value.to_owned()),
+            "--before-file" => options.before_file = Some(value.to_owned()),
+            "--workspace" => options.workspace = Some(PathBuf::from(value)),
+            "--connection" => options.connection = Some(value.to_owned()),
+            "--project" => {
                 let id = value.parse::<i64>().map_err(|_| invalid("Invalid project ID"))?;
                 if id <= 0 { return Err(invalid("Invalid project ID")); }
                 options.project = Some(id);
             }
-            "--query" if options.query.is_none() => options.query = Some(value.clone()),
-            "--budget-chars" if options.budget_chars.is_none() => {
+            "--query" => options.query = Some(value.to_owned()),
+            "--budget-chars" => {
                 let budget = value.parse::<usize>().map_err(|_| invalid("Invalid character budget"))?;
                 if !(1..=12000).contains(&budget) { return Err(invalid("Invalid character budget")); }
                 options.budget_chars = Some(budget);
             }
-            "--request-id" if options.request_id.is_none() && !value.is_empty() => options.request_id = Some(value.clone()),
-            "--out" if options.out.is_none() => options.out = Some(value.clone()),
-            "--input-file" if options.input_file.is_none() => options.input_file = Some(value.clone()),
-            "--patch-file" if options.patch_file.is_none() => options.patch_file = Some(value.clone()),
-            "--body-file" if options.body_file.is_none() => options.body_file = Some(value.clone()),
-            "--name" if options.name.is_none() => options.name = Some(value.clone()),
-            "--title" if options.title.is_none() => options.title = Some(value.clone()),
-            "--priority" if options.priority.is_none() => options.priority = Some(value.clone()),
-            "--due-date" if options.due_date.is_none() => options.due_date = Some(value.clone()),
-            "--id" if options.object_id.is_none() => options.object_id = Some(value.clone()),
-            "--version" if options.version_id.is_none() => options.version_id = Some(value.clone()),
-            "--base-revision" if options.base_revision.is_none() => {
+            "--request-id" => {
+                if value.is_empty() { return Err(invalid("--request-id must not be empty")); }
+                options.request_id = Some(value.to_owned());
+            }
+            "--out" => options.out = Some(value.to_owned()),
+            "--input-file" => options.input_file = Some(value.to_owned()),
+            "--patch-file" => options.patch_file = Some(value.to_owned()),
+            "--body-file" => options.body_file = Some(value.to_owned()),
+            "--name" => options.name = Some(value.to_owned()),
+            "--title" => options.title = Some(value.to_owned()),
+            "--priority" => options.priority = Some(value.to_owned()),
+            "--due-date" => options.due_date = Some(value.to_owned()),
+            "--id" => options.object_id = Some(value.to_owned()),
+            "--version" => options.version_id = Some(value.to_owned()),
+            "--base-revision" => {
                 let revision = value.parse::<u64>().map_err(|_| invalid("Invalid base revision"))?;
                 if revision == 0 { return Err(invalid("Invalid base revision")); }
                 options.base_revision = Some(revision);
             }
-            "--source-file" if options.source_file.is_none() => options.source_file = Some(value.clone()),
-            "--expected-version" if options.expected_version.is_none() => {
+            "--source-file" => options.source_file = Some(value.to_owned()),
+            "--expected-version" => {
                 let version = value.parse::<u32>().map_err(|_| invalid("Invalid expected version"))?;
                 if version == 0 { return Err(invalid("Invalid expected version")); }
                 options.expected_version = Some(version);
             }
-            "--expected-hash" if options.expected_hash.is_none() => options.expected_hash = Some(value.clone()),
-            "--revision" if options.revision.is_none() => options.revision = Some(value.clone()),
-            "--cursor" if options.cursor.is_none() => options.cursor = Some(value.clone()),
-            "--kind" if options.kind.is_none() => options.kind = Some(value.clone()),
-            "--direction" if options.direction.is_none() => options.direction = Some(value.clone()),
-            "--limit" if options.limit.is_none() => {
+            "--expected-hash" => options.expected_hash = Some(value.to_owned()),
+            "--revision" => options.revision = Some(value.to_owned()),
+            "--cursor" => options.cursor = Some(value.to_owned()),
+            "--kind" => options.kind = Some(value.to_owned()),
+            "--direction" => options.direction = Some(value.to_owned()),
+            "--limit" => {
                 let limit = value.parse::<usize>().map_err(|_| invalid("Invalid reference limit"))?;
                 options.limit = Some(limit);
             }
-            "--offset" if options.offset.is_none() => {
-                let offset = value.parse::<usize>().map_err(|_| invalid("Invalid line offset (must be at least 1)"))?;
-                if offset == 0 { return Err(invalid("Invalid line offset (must be at least 1)")); }
+            "--offset" => {
+                let offset = value.parse::<usize>().map_err(|_| invalid(if contacts {"Invalid contact offset (must be at least 0)"} else {"Invalid line offset (must be at least 1)"}))?;
+                if !contacts && offset == 0 { return Err(invalid("Invalid line offset (must be at least 1)")); }
                 options.offset = Some(offset);
             }
-            _ => return Err(invalid("Unknown or duplicate option")),
+            "--notes-file" if contacts => options.notes_file = Some(value.to_owned()),
+            _ if contacts && cli_contacts::field_key(flag).is_some() => {
+                options.contact_fields.insert(cli_contacts::field_key(flag).expect("contact field").into(),json!(value));
+            }
+            _ => return Err(AgentError::new(ErrorCode::InvalidArgument,format!("Invalid value for {flag}"))),
         }
-        cursor += 2;
+        cursor += consumed;
     }
     Ok(options)
 }
 
 fn required_connection(options: &Options) -> AgentResult<(&PathBuf, &str)> {
     let workspace = options.workspace.as_ref().ok_or_else(|| invalid("--workspace is required"))?;
+    if workspace.as_os_str().is_empty() { return Err(invalid("--workspace must not be empty")); }
     let connection = options.connection.as_deref().ok_or_else(|| invalid("--connection is required"))?;
     if connection.len() != 32 || !connection.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err(invalid("Invalid connection ID"));
@@ -203,7 +257,7 @@ fn parse_input(source: impl Read) -> AgentResult<Value> {
     if bytes.len() as u64 > MAX_INPUT_BYTES {
         return Err(invalid("--input-file exceeds 2 MiB"));
     }
-    serde_json::from_slice(&bytes).map_err(|_| invalid("--input-file must contain valid JSON"))
+    cli_encoding::parse_json(&bytes)
 }
 
 fn read_input(path: &str) -> AgentResult<Value> {
@@ -216,16 +270,20 @@ fn read_input(path: &str) -> AgentResult<Value> {
 }
 
 fn read_text_body(path: &str) -> AgentResult<String> {
+    read_text_file(path, "--body-file")
+}
+
+fn read_text_file(path: &str, flag: &'static str) -> AgentResult<String> {
     let source: Box<dyn Read> = if path == "-" {
         Box::new(std::io::stdin())
     } else {
-        Box::new(std::fs::File::open(path).map_err(|_| invalid("Cannot read --body-file"))?)
+        Box::new(std::fs::File::open(path).map_err(|_| AgentError::new(ErrorCode::InvalidArgument,format!("Cannot read {flag}")))?)
     };
     let mut bytes = Vec::new();
     source.take(MAX_INPUT_BYTES + 1).read_to_end(&mut bytes)
-        .map_err(|_| invalid("Cannot read --body-file"))?;
-    if bytes.len() as u64 > MAX_INPUT_BYTES { return Err(invalid("--body-file exceeds 2 MiB")); }
-    String::from_utf8(bytes).map_err(|_| invalid("--body-file must contain UTF-8 text"))
+        .map_err(|_| AgentError::new(ErrorCode::InvalidArgument,format!("Cannot read {flag}")))?;
+    if bytes.len() as u64 > MAX_INPUT_BYTES { return Err(AgentError::new(ErrorCode::InvalidArgument,format!("{flag} exceeds 2 MiB"))); }
+    cli_encoding::decode_utf8(&bytes).map(str::to_owned)
 }
 
 fn bounded_generated_params(params: Value) -> AgentResult<Value> {
@@ -286,6 +344,9 @@ fn bridge_method(command: &str, dry_run: bool) -> &str {
     match (command, dry_run) {
         ("doctor", _) => "connection.status",
         ("search", _) => "source.search",
+        ("file.get", _) => "source.read",
+        ("record.replace" | "record.append" | "record.edit", true) => "record.text.patch.preview",
+        ("record.replace" | "record.append" | "record.edit", false) => "record.text.patch",
         ("record.patch", true) => "record.patch.preview",
         ("record.create", true) => "record.create.preview",
         _ => command,
@@ -378,7 +439,9 @@ fn record_get_identity(options: &Options, id: &str) -> AgentResult<(i64, Scope)>
 
 fn record_get_params(options: &Options, record_id: i64, scope: Scope, binding: &WorkspaceBinding) -> Value {
     json!({"object":{"workspaceId":binding.workspace_id.clone(),"scope":scope,"kind":"record","id":record_id.to_string()},
-        "revision":options.revision.as_deref(),"cursor":options.cursor.as_deref(),"budgetChars":options.budget_chars})
+        "revision":options.revision.as_deref(),"cursor":options.cursor.as_deref(),"budgetChars":options.budget_chars,
+        "format":if options.format.as_deref()==Some("markdown") || (!options.json && options.format.is_none()) {"markdown"} else {"text"},
+        "offset":options.offset,"limit":options.limit})
 }
 
 fn reference_list_identity(options: &Options) -> AgentResult<(i64, Scope, &str, &str)> {
@@ -446,51 +509,25 @@ fn todo_create_params(options: &Options) -> AgentResult<Value> {
 /// During MCP serving, stdio owns stdout. Offline help exits before connecting;
 /// diagnostics go only to stderr.
 pub fn run_mcp(args: &[String]) -> i32 {
-    let parsed = (|| {
-        let mut workspace = None;
-        let mut connection = None;
-        let mut cursor = 0;
-        let mut help = false;
-        while cursor < args.len() {
-            let flag = args[cursor].as_str();
-            if flag == "--help" {
-                if help { return Err(invalid("Duplicate --help")); }
-                help = true;
-                cursor += 1;
-                continue;
+    let result = (|| {
+        let mut options = parse_options(args)?;
+        for flag in &options.flags {
+            if !matches!(flag.as_str(),"--workspace"|"--connection"|"--help"|"--version") {
+                return Err(AgentError::new(ErrorCode::InvalidArgument,format!("Unsupported option for mcp serve: {flag}")));
             }
-            if !matches!(flag, "--workspace" | "--connection") {
-                return Err(AgentError::new(ErrorCode::InvalidArgument, format!("Unknown option: {flag}")));
-            }
-            let value = args.get(cursor + 1).ok_or_else(|| invalid("Missing MCP option value"))?;
-            if value.starts_with("--") { return Err(invalid("Missing MCP option value")); }
-            match args[cursor].as_str() {
-                "--workspace" if workspace.is_none() => workspace = Some(PathBuf::from(value)),
-                "--connection" if connection.is_none() => connection = Some(value.clone()),
-                _ => return Err(invalid("Unknown or duplicate MCP option")),
-            }
-            cursor += 2;
         }
-        if help { return Ok(None); }
-        let workspace = workspace.ok_or_else(|| invalid("--workspace is required"))?;
-        let connection = connection.ok_or_else(|| invalid("--connection is required"))?;
-        if connection.len() != 32 || !connection.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-            return Err(invalid("Invalid connection ID"));
-        }
-        Ok(Some((workspace, connection)))
-    })();
-    let result = parsed.and_then(|target| {
-        let Some((workspace, connection)) = target else {
-            print!("{}", cli_help::command("mcp.serve"));
-            return Ok(());
-        };
+        if !options.positionals.is_empty() { return Err(invalid("mcp serve does not accept positional arguments")); }
+        if options.help { print!("{}",cli_help::command("mcp.serve"));return Ok(()); }
+        if options.version_info { println!("mind {}",env!("CARGO_PKG_VERSION"));return Ok(()); }
+        cli_convenience::environment(&mut options,"mcp.serve",|name|std::env::var(name).ok())?;
+        let (workspace,connection)=required_connection(&options)?;
         let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()
             .map_err(|_| AgentError::new(ErrorCode::RuntimeUnavailable, "Cannot start MCP runtime"))?;
         runtime.block_on(async {
-            let server = MindMcp::connect(&workspace, &connection).await?;
+            let server = MindMcp::connect(workspace, connection).await?;
             server.serve_stdio().await.map_err(|_| AgentError::new(ErrorCode::RuntimeUnavailable, "MCP stdio transport failed"))
         })
-    });
+    })();
     match result {
         Ok(()) => 0,
         Err(error) => {
@@ -550,6 +587,12 @@ pub fn run(args: &[String]) -> CliOutput {
     run_with_bridge(args, &mut LiveBridge::default())
 }
 
+/// Writes completed read pages immediately. Returned stdout contains only output
+/// that has not already been delivered to the callback.
+pub fn run_streamed(args: &[String], output: &mut dyn FnMut(&str) -> AgentResult<()>) -> CliOutput {
+    run_with_bridge_output(args, &mut LiveBridge::default(), Some(output))
+}
+
 #[cfg(test)]
 fn run_with_bridge_call(
     args: &[String],
@@ -568,74 +611,85 @@ fn run_with_bridge_call(
 }
 
 fn run_with_bridge(args: &[String], bridge: &mut impl CliBridge) -> CliOutput {
+    run_with_bridge_output(args, bridge, None)
+}
+
+fn run_with_bridge_output(args: &[String], bridge: &mut impl CliBridge, mut output: Option<&mut dyn FnMut(&str) -> AgentResult<()>>) -> CliOutput {
+    if args.first().is_some_and(|arg| arg == "contact") {
+        return cli_contacts::run(&args[1..],bridge);
+    }
+    if args.first().is_some_and(|arg| arg == "grep") {
+        return cli_grep::run(&args[1..],bridge,output.take());
+    }
     let words = args.iter().map(String::as_str).collect::<Vec<_>>();
     match words.as_slice() {
-        ["--version"] => return CliOutput { stdout: format!("mind {}\n", env!("CARGO_PKG_VERSION")), stderr: String::new(), exit_code: 0 },
-        [] | ["--help"] | ["help"] => return CliOutput { stdout: HELP.into(), stderr: String::new(), exit_code: 0 },
-        ["mcp", "serve", "--help"] => return CliOutput { stdout: cli_help::command("mcp.serve"), stderr: String::new(), exit_code: 0 },
+        ["--version"] | ["-V"] => return CliOutput { stdout: format!("mind {}\n", env!("CARGO_PKG_VERSION")), stderr: String::new(), exit_code: 0 },
+        [] | ["--help"] | ["-h"] | ["help"] => return CliOutput { stdout: HELP.into(), stderr: String::new(), exit_code: 0 },
+        ["mcp", "serve", "--help" | "-h"] => return CliOutput { stdout: cli_help::command("mcp.serve"), stderr: String::new(), exit_code: 0 },
         ["mcp", "serve", ..] => return CliOutput { stdout: String::new(), stderr: "MCP serve must own stdio; use the mind executable\n".into(), exit_code: 2 },
         _ => {}
     }
-    let (command, option_args, positional) = match words.as_slice() {
-        ["capabilities", ..] => ("capabilities", &args[1..], None),
-        ["schema", method, ..] if !method.starts_with("--") => ("schema", &args[2..], Some(*method)),
-        ["schema", ..] => ("schema", &args[1..], None),
-        ["doctor", ..] => ("doctor", &args[1..], None),
-        ["connection", "status", ..] => ("connection.status", &args[2..], None),
-        ["project", "list", ..] => ("project.list", &args[2..], None),
-        ["context", "get", ..] => ("context.get", &args[2..], None),
-        ["search", query, ..] if !query.starts_with("--") => ("search", &args[2..], Some(*query)),
-        ["search", ..] => ("search", &args[1..], None),
-        ["context", "overview", "get", ..] => ("context.overview.get", &args[3..], None),
-        ["knowledge", "search", ..] => ("knowledge.search", &args[2..], None),
-        ["knowledge", "get", ..] => ("knowledge.get", &args[2..], None),
-        ["source", "search", ..] => ("source.search", &args[2..], None),
-        ["source", "read", ..] => ("source.read", &args[2..], None),
-        ["reference", "list", ..] => ("reference.list", &args[2..], None),
-        ["record", "blocks", "get", ..] => ("record.blocks.get", &args[3..], None),
-        ["record", "get", id, ..] if !id.starts_with("--") => ("record.get", &args[3..], Some(*id)),
-        ["record", "get", ..] => ("record.get", &args[2..], None),
-        ["record", "create", "preview", ..] => ("record.create.preview", &args[3..], None),
-        ["record", "create", ..] => ("record.create", &args[2..], None),
-        ["record", "patch", "preview", ..] => ("record.patch.preview", &args[3..], None),
-        ["record", "patch", ..] => ("record.patch", &args[2..], None),
-        ["record", "restore", ..] => ("record.restore", &args[2..], None),
-        ["record", "versions", "list", ..] => ("record.versions.list", &args[3..], None),
-        ["record", "versions", "get", ..] => ("record.versions.get", &args[3..], None),
-        ["record", "versions", "compare", ..] => ("record.versions.compare", &args[3..], None),
-        ["todo", "get", ..] => ("todo.get", &args[2..], None),
-        ["file", "bytes", "read", ..] => ("file.bytes.read", &args[3..], None),
-        ["file", "download", ..] => ("file.bytes.read", &args[2..], None),
-        ["file", "list", ..] => ("file.list", &args[2..], None),
-        ["session", "list", ..] => ("session.list", &args[2..], None),
-        ["schedule", "list", ..] => ("schedule.list", &args[2..], None),
-        ["schedule", "create", ..] => ("schedule.create", &args[2..], None),
-        ["schedule", "update", ..] => ("schedule.update", &args[2..], None),
-        ["schedule", "run", ..] => ("schedule.run", &args[2..], None),
-        ["schedule", "delete", ..] => ("schedule.delete", &args[2..], None),
-        ["record", "list", ..] => ("record.list", &args[2..], None),
-        ["todo", "list", ..] => ("todo.list", &args[2..], None),
-        ["todo", "create", ..] => ("todo.create", &args[2..], None),
-        ["todo", "update", ..] => ("todo.update", &args[2..], None),
-        ["file", "versions", "list", ..] => ("file.versions.list", &args[3..], None),
-        ["file", "versions", "get", ..] => ("file.versions.get", &args[3..], None),
-        ["file", "source", "read", ..] => ("file.source.read", &args[3..], None),
-        ["file", "create", ..] => ("file.create", &args[2..], None),
-        ["file", "patch", ..] => ("file.patch", &args[2..], None),
-        ["file", "restore", ..] => ("file.version.restore", &args[2..], None),
-        ["file", "version", "restore", ..] => ("file.version.restore", &args[3..], None),
-        ["file", "update", ..] => ("file.update", &args[2..], None),
-        ["file", "content", "begin", ..] => ("file.content.begin", &args[3..], None),
-        ["file", "content", "chunk", ..] => ("file.content.chunk", &args[3..], None),
-        ["file", "content", "complete", ..] => ("file.content.complete", &args[3..], None),
-        ["file", "content", "status", ..] => ("file.content.status", &args[3..], None),
-        ["file", "upload", ..] => ("file.upload", &args[2..], None),
-        ["operation", "get", ..] => ("operation.get", &args[2..], None),
-        ["operation", "list", ..] => ("operation.list", &args[2..], None),
-        ["operation", "undo", ..] => ("operation.undo", &args[2..], None),
-        ["operation", "restore-created", ..] => ("operation.restore_created", &args[2..], None),
+    let (command, option_args) = match words.as_slice() {
+        ["capabilities", ..] => ("capabilities", &args[1..]),
+        ["schema", ..] => ("schema", &args[1..]),
+        ["doctor", ..] => ("doctor", &args[1..]),
+        ["connection", "status", ..] => ("connection.status", &args[2..]),
+        ["project", "list", ..] => ("project.list", &args[2..]),
+        ["context", "get", ..] => ("context.get", &args[2..]),
+        ["search", ..] => ("search", &args[1..]),
+        ["context", "overview", "get", ..] => ("context.overview.get", &args[3..]),
+        ["knowledge", "search", ..] => ("knowledge.search", &args[2..]),
+        ["knowledge", "get", ..] => ("knowledge.get", &args[2..]),
+        ["source", "search", ..] => ("source.search", &args[2..]),
+        ["source", "read", ..] => ("source.read", &args[2..]),
+        ["reference", "list", ..] => ("reference.list", &args[2..]),
+        ["record", "blocks", "get", ..] => ("record.blocks.get", &args[3..]),
+        ["record", "get", ..] => ("record.get", &args[2..]),
+        ["record", "create", "preview", ..] => ("record.create.preview", &args[3..]),
+        ["record", "create", ..] => ("record.create", &args[2..]),
+        ["record", "text", "patch", "preview", ..] => ("record.text.patch.preview", &args[4..]),
+        ["record", "text", "patch", ..] => ("record.text.patch", &args[3..]),
+        ["record", "patch", "preview", ..] => ("record.patch.preview", &args[3..]),
+        ["record", "patch", ..] => ("record.patch", &args[2..]),
+        ["record", "restore", ..] => ("record.restore", &args[2..]),
+        ["record", "versions", "list", ..] => ("record.versions.list", &args[3..]),
+        ["record", "versions", "get", ..] => ("record.versions.get", &args[3..]),
+        ["record", "versions", "compare", ..] => ("record.versions.compare", &args[3..]),
+        ["record", verb @ ("replace" | "append" | "edit"), ..] => (match *verb { "replace"=>"record.replace", "append"=>"record.append", _=>"record.edit" }, &args[2..]),
+        ["file", "get", ..] => ("file.get", &args[2..]),
+        ["todo", "get", ..] => ("todo.get", &args[2..]),
+        ["file", "bytes", "read", ..] => ("file.bytes.read", &args[3..]),
+        ["file", "download", ..] => ("file.bytes.read", &args[2..]),
+        ["file", "list", ..] => ("file.list", &args[2..]),
+        ["session", "list", ..] => ("session.list", &args[2..]),
+        ["schedule", "list", ..] => ("schedule.list", &args[2..]),
+        ["schedule", "create", ..] => ("schedule.create", &args[2..]),
+        ["schedule", "update", ..] => ("schedule.update", &args[2..]),
+        ["schedule", "run", ..] => ("schedule.run", &args[2..]),
+        ["schedule", "delete", ..] => ("schedule.delete", &args[2..]),
+        ["record", "list", ..] => ("record.list", &args[2..]),
+        ["todo", "list", ..] => ("todo.list", &args[2..]),
+        ["todo", "create", ..] => ("todo.create", &args[2..]),
+        ["todo", "update", ..] => ("todo.update", &args[2..]),
+        ["file", "versions", "list", ..] => ("file.versions.list", &args[3..]),
+        ["file", "versions", "get", ..] => ("file.versions.get", &args[3..]),
+        ["file", "source", "read", ..] => ("file.source.read", &args[3..]),
+        ["file", "create", ..] => ("file.create", &args[2..]),
+        ["file", "patch", ..] => ("file.patch", &args[2..]),
+        ["file", "restore", ..] => ("file.version.restore", &args[2..]),
+        ["file", "version", "restore", ..] => ("file.version.restore", &args[3..]),
+        ["file", "update", ..] => ("file.update", &args[2..]),
+        ["file", "content", "begin", ..] => ("file.content.begin", &args[3..]),
+        ["file", "content", "chunk", ..] => ("file.content.chunk", &args[3..]),
+        ["file", "content", "complete", ..] => ("file.content.complete", &args[3..]),
+        ["file", "content", "status", ..] => ("file.content.status", &args[3..]),
+        ["file", "upload", ..] => ("file.upload", &args[2..]),
+        ["operation", "get", ..] => ("operation.get", &args[2..]),
+        ["operation", "list", ..] => ("operation.list", &args[2..]),
+        ["operation", "undo", ..] => ("operation.undo", &args[2..]),
+        ["operation", "restore-created", ..] => ("operation.restore_created", &args[2..]),
         _ => {
-            if let [path @ .., "--help"] = words.as_slice() {
+            if let [path @ .., "--help" | "-h"] = words.as_slice() {
                 if let Some(help) = cli_help::group(&path.join(".")) {
                     return CliOutput { stdout: help, stderr: String::new(), exit_code: 0 };
                 }
@@ -643,11 +697,31 @@ fn run_with_bridge(args: &[String], bridge: &mut impl CliBridge) -> CliOutput {
             return response(request_id(), Err(invalid("Unknown command; see mind --help")));
         }
     };
-    let options = match parse_options(option_args) {
+    let mut options = match parse_options(option_args) {
         Ok(options) => options,
         Err(error) => return response(request_id(), Err(error)),
     };
-    let human = !options.json && cli_presentation::supports(command);
+    if options.version_info { return CliOutput{stdout:format!("mind {}\n",env!("CARGO_PKG_VERSION")),stderr:String::new(),exit_code:0}; }
+    if options.positionals.len()>1 {
+        return response(request_id(),Err(AgentError::new(ErrorCode::InvalidArgument,format!("{command} accepts at most one positional argument; quote a multiword query"))));
+    }
+    if !options.positionals.is_empty() && !matches!(command,"schema"|"search"|"source.search"|"record.get"|"todo.get"|"file.get"|"record.replace"|"record.append"|"record.edit") {
+        return response(request_id(),Err(AgentError::new(ErrorCode::InvalidArgument,format!("{command} does not accept positional arguments"))));
+    }
+    if options.json && options.format.as_deref().is_some_and(|f| f != "json") {
+        return response(request_id(), Err(invalid("--json conflicts with a non-JSON --format")));
+    }
+    if options.format.as_deref() == Some("json") { options.json = true; }
+    if !options.help && !matches!(command,"schema"|"capabilities") {
+        if let Err(error) = cli_convenience::environment(&mut options, command, |name| std::env::var(name).ok()) {
+            return response(request_id(), Err(error));
+        }
+    }
+    if matches!(command,"record.replace"|"record.append"|"record.edit") && options.format.is_none() {
+        options.json = true;
+    }
+    let positional=options.positionals.first().map(String::as_str);
+    let human = !options.json && (cli_presentation::supports(command) || matches!(command,"todo.get"|"file.get"|"source.read"));
     if !options.json && !options.help && !human {
         return response(request_id(), Err(invalid("This command requires --json")));
     }
@@ -658,7 +732,7 @@ fn run_with_bridge(args: &[String], bridge: &mut impl CliBridge) -> CliOutput {
         return CliOutput { stdout: cli_help::command(command), stderr: String::new(), exit_code: 0 };
     }
     if matches!(command, "capabilities" | "schema") {
-        if option_args.iter().any(|arg| !matches!(arg.as_str(), "--json" | "--verbose")) {
+        if options.flags.iter().any(|flag| !matches!(flag.as_str(), "--json" | "--verbose" | "--format")) {
             return response(request_id(), Err(invalid("Discovery commands accept only --json and capabilities --verbose")));
         }
         return response(request_id(), if command == "capabilities" {
@@ -667,40 +741,42 @@ fn run_with_bridge(args: &[String], bridge: &mut impl CliBridge) -> CliOutput {
             positional.and_then(registry::schema).ok_or_else(|| invalid("Unknown bridge method; use mind capabilities --json"))
         });
     }
+    if options.input_file.is_some() && !options.positionals.is_empty() {
+        return response(request_id(),Err(invalid("Positional query or ID cannot be combined with --input-file")));
+    }
     if options.input_file.is_some() && options.patch_file.is_some() {
         return response(request_id(), Err(invalid("--input-file and --patch-file cannot be combined")));
     }
     if options.input_file.is_some() && options.body_file.is_some() && command != "file.upload" {
         return response(request_id(), Err(invalid("--input-file and --body-file cannot be combined")));
     }
+    let mut streamed_diagnostics = String::new();
+    let text_edit = matches!(command,"record.replace"|"record.append"|"record.edit");
     let restore_flags = options.version_id.is_some() || options.base_revision.is_some();
     let file_update_flags = options.source_file.is_some() || options.expected_version.is_some() || options.expected_hash.is_some();
     let mut request_id = options.request_id.clone().unwrap_or_else(request_id);
     let result = (|| {
         let (workspace, connection) = required_connection(&options)?;
-        let inventory = matches!(command, "file.list" | "record.list" | "todo.list");
+        let inventory = matches!(command, "file.list" | "record.list" | "todo.list" | "session.list");
         if options.out.is_some() && command != "file.bytes.read" { return Err(invalid("--out is only supported by file download")); }
         if command == "file.bytes.read" && options.out.is_none() { return Err(invalid("--out is required for file download")); }
-        if restore_flags && command != "record.restore" {
+        if restore_flags && command != "record.restore" && !text_edit {
             return Err(invalid("--version and --base-revision are only supported by record restore"));
         }
         if file_update_flags && command != "file.update" && !(command == "file.create" && options.source_file.is_some() && options.expected_hash.is_none() && options.expected_version.is_none()) {
             return Err(invalid("--source-file and expected baseline options are only supported by file update"));
         }
-        if options.object_id.is_some() && !matches!(command, "record.get" | "record.restore" | "file.update" | "reference.list") {
+        if options.object_id.is_some() && !matches!(command, "record.get" | "todo.get" | "file.get" | "source.read" | "record.restore" | "file.update" | "reference.list" | "record.replace" | "record.append" | "record.edit") {
             return Err(invalid("--id is only supported by record get, record restore, file update and reference list"));
         }
-        if options.revision.is_some() && command != "record.get" {
+        if options.revision.is_some() && !matches!(command,"record.get"|"file.get"|"source.read") {
             return Err(invalid("--revision is only supported by record get"));
         }
-        if options.cursor.is_some() && !matches!(command, "record.get" | "reference.list") && !inventory {
+        if options.cursor.is_some() && !matches!(command, "record.get" | "file.get" | "source.read" | "search" | "source.search" | "reference.list") && !inventory {
             return Err(invalid("--cursor is only supported by record get and reference list"));
         }
         if options.offset.is_some() && command != "record.get" {
             return Err(invalid("--offset is only supported by record get"));
-        }
-        if command == "record.get" && options.json && (options.offset.is_some() || options.limit.is_some()) {
-            return Err(invalid("--offset and --limit require record get text output; omit --json"));
         }
         if command == "record.get" && options.limit == Some(0) {
             return Err(invalid("Invalid line limit (must be at least 1)"));
@@ -708,7 +784,7 @@ fn run_with_bridge(args: &[String], bridge: &mut impl CliBridge) -> CliOutput {
         if inventory && options.limit.is_some_and(|limit| limit > 50) {
             return Err(invalid("Invalid list limit (maximum 50)"));
         }
-        if (options.kind.is_some() || options.direction.is_some() || (options.limit.is_some() && !inventory && command != "record.get")) && command != "reference.list" {
+        if (options.kind.is_some() && !matches!(command,"search"|"source.search"|"source.read") || options.direction.is_some() || (options.limit.is_some() && !inventory && !matches!(command,"record.get"|"search"|"source.search"))) && command != "reference.list" {
             return Err(invalid("--kind, --direction and --limit are only supported by reference list"));
         }
         if options.input_file.is_some() && (restore_flags || file_update_flags || options.object_id.is_some()) {
@@ -717,7 +793,7 @@ fn run_with_bridge(args: &[String], bridge: &mut impl CliBridge) -> CliOutput {
         if options.patch_file.is_some() && !matches!(command, "record.patch" | "file.patch" | "todo.update") {
             return Err(invalid("--patch-file is only supported by record patch, file patch and todo update"));
         }
-        if options.dry_run && !matches!(command, "record.patch" | "record.create") {
+        if options.dry_run && !matches!(command, "record.patch" | "record.create") && !text_edit {
             return Err(invalid("--dry-run is only supported by record patch or record create"));
         }
         if options.title.is_some() && command != "record.create" {
@@ -734,6 +810,27 @@ fn run_with_bridge(args: &[String], bridge: &mut impl CliBridge) -> CliOutput {
         if matches!(command, "file.create" | "todo.create" | "record.create") && options.body_file.is_none() && options.source_file.is_none()
             && (options.name.is_some() || options.title.is_some() || options.priority.is_some() || options.due_date.is_some()) {
             return Err(invalid("--body-file is required with creation options"));
+        }
+        cli_convenience::validate_options(&options, command)?;
+        if text_edit {
+            let id = cli_convenience::object_id(&options, positional)?;
+            let binding = bridge.binding(workspace, connection, &request_id)?;
+            let params = cli_convenience::text_edit_params(&options, command, id, &binding)?;
+            let method = bridge_method(command, options.dry_run);
+            registry::validate(method, &params)?;
+            if !options.dry_run { request_id = write_request_id(&options, &params)?; }
+            return bridge.call(workspace, connection, method, params, &request_id);
+        }
+        if matches!(command,"todo.get"|"file.get"|"source.read") && options.input_file.is_none() {
+            let id = cli_convenience::object_id(&options, positional)?;
+            let binding = bridge.binding(workspace, connection, &request_id)?;
+            let params = cli_convenience::get_params(&options, command, id, &binding)?;
+            let method = bridge_method(command, false);
+            registry::validate(method, &params)?;
+            if command == "todo.get" { return bridge.call(workspace,connection,method,params,&request_id); }
+            return if options.format.as_deref() == Some("plain") {
+                cli_presentation::source_read_plain_with_output(params, options.json, None, None, |params| bridge.call(workspace,connection,method,params,&request_id), output.take())
+            } else { cli_presentation::source_read_with_output(params, options.json, None, None, |params| bridge.call(workspace,connection,method,params,&request_id), output.take()) };
         }
         if command == "file.create" && options.source_file.is_some() {
             if options.input_file.is_some() || options.body_file.is_some() || options.patch_file.is_some() {
@@ -798,9 +895,9 @@ fn run_with_bridge(args: &[String], bridge: &mut impl CliBridge) -> CliOutput {
             let binding = bridge.binding(workspace, connection, &request_id)?;
             let params = record_get_params(&options, record_id, scope, &binding);
             registry::validate("record.get", &params)?;
-            return cli_presentation::record_read(params, options.json, options.offset, options.limit, |params| {
+            return cli_convenience::read_record(&options, params, |params| {
                 bridge.call(workspace, connection, "record.get", params, &request_id)
-            });
+            }, output.take());
         }
         if command == "reference.list" && options.input_file.is_none() {
             if options.body_file.is_some() { return Err(invalid("reference list does not accept --body-file")); }
@@ -831,10 +928,10 @@ fn run_with_bridge(args: &[String], bridge: &mut impl CliBridge) -> CliOutput {
                     serde_json::to_value(ContextGetInput { scope: scoped(&options)?, query: options.query.clone(), budget_chars: options.budget_chars }).expect("context input JSON")
                 }
             }
-            "search" => {
+            "search" | "source.search" if options.input_file.is_none() => {
                 if options.input_file.is_some() { return Err(invalid("search does not accept --input-file; use source search for a DTO")); }
                 if positional.is_some() && options.query.is_some() { return Err(invalid("Search QUERY and --query cannot be combined")); }
-                json!({"scope":scoped(&options)?,"query":positional.or(options.query.as_deref()).ok_or_else(|| invalid("Search query is required"))?,"budgetChars":options.budget_chars})
+                cli_convenience::search_params(&options, positional)?
             }
             "record.get" => {
                 if options.project.is_some() || options.workspace_scope || options.revision.is_some()
@@ -851,7 +948,7 @@ fn run_with_bridge(args: &[String], bridge: &mut impl CliBridge) -> CliOutput {
                 }
                 read_input(options.input_file.as_deref().ok_or_else(|| invalid("--input-file is required"))?)?
             }
-            "file.list" | "record.list" | "todo.list" => {
+            "file.list" | "record.list" | "todo.list" | "session.list" => {
                 if options.input_file.is_none() && options.project.is_none() && !options.workspace_scope {
                     return Err(invalid("--input-file is required unless list shorthand supplies --project or --workspace-scope"));
                 }
@@ -914,6 +1011,12 @@ fn run_with_bridge(args: &[String], bridge: &mut impl CliBridge) -> CliOutput {
         if command == "record.patch" && !options.dry_run {
             request_id = write_request_id(&options, &params)?;
         }
+        if command == "record.get" && options.input_file.is_some() {
+            if !options.json && options.format.is_none() && params.get("format").is_none_or(Value::is_null) { params["format"]=json!("markdown"); }
+            if let Some(format) = options.format.as_deref().filter(|f| *f != "json") { params["format"] = json!(format); }
+            if let Some(offset) = options.offset { params["offset"] = json!(offset); }
+            if let Some(limit) = options.limit { params["limit"] = json!(limit); }
+        }
         registry::validate(method, &params)?;
         if registry::is_read_only(method) == Some(false) && command != "record.patch" {
             request_id = write_request_id(&options, &params)?;
@@ -925,10 +1028,16 @@ fn run_with_bridge(args: &[String], bridge: &mut impl CliBridge) -> CliOutput {
                 ErrorCode::WorkspaceNotOpen, "Workspace path is unavailable"))?)
         } else { None };
         let workspace = canonical_workspace.as_deref().unwrap_or(workspace.as_path());
-        let data = if command == "record.get" {
-            cli_presentation::record_read(params, options.json, options.offset, options.limit, |params| {
+        let data = if method == "source.search" && options.all {
+            return cli_convenience::search_all(params, options.format.as_deref()==Some("plain"), |params| bridge.call(workspace,connection,method,params,&request_id), output.take(), &mut streamed_diagnostics);
+        } else if command == "record.get" {
+            cli_convenience::read_record(&options, params, |params| {
                 bridge.call(workspace, connection, method, params, &request_id)
-            })?
+            }, output.take())?
+        } else if method == "source.read" && human {
+            if options.format.as_deref()==Some("plain") {
+                cli_presentation::source_read_plain_with_output(params, false, None, None, |params| bridge.call(workspace,connection,method,params,&request_id), output.take())?
+            } else { cli_presentation::source_read_with_output(params, false, None, None, |params| bridge.call(workspace,connection,method,params,&request_id), output.take())? }
         } else {
             bridge.call(workspace, connection, method, params, &request_id)?
         };
@@ -941,7 +1050,11 @@ fn run_with_bridge(args: &[String], bridge: &mut impl CliBridge) -> CliOutput {
         Ok(data)
     })();
     if human {
-        return cli_presentation::response(command, result);
+        let mut out = if options.all && result.is_ok() {
+            CliOutput { stdout: result.unwrap().as_str().unwrap_or("").to_owned(), stderr:String::new(), exit_code:0 }
+        } else if options.format.as_deref()==Some("plain") { cli_presentation::response_plain(command,result) } else { cli_presentation::response(command, result) };
+        out.stderr.insert_str(0, &streamed_diagnostics);
+        return out;
     }
     let mut out = response(request_id, result);
     if command == "record.get" && out.exit_code == 2 {
@@ -968,6 +1081,89 @@ mod tests {
                 Ok(json!({}))
             });
             assert_eq!(out.exit_code, 0, "{}", out.stderr);
+        }
+    }
+    #[test]
+    fn shared_syntax_preserves_literal_shell_characters_and_terminator_queries() {
+        let literal = "中文 空格 ' \" ` $ () & | ; [] {} * ? ! % # <> = \\\\?\\D:\\路径";
+        for query_args in [vec![format!("--query={literal}")],vec!["--query".into(),literal.into()],vec!["--".into(),literal.into()],vec!["--".into(),"--starts-with-dashes".into()],vec!["--query=--starts-with-dashes".into()]] {
+            let mut args=read_args(&["search","--workspace-scope","--format=json"]);
+            let expected=if query_args.last().unwrap().starts_with("--query=") {query_args[0].strip_prefix("--query=").unwrap().to_owned()} else {query_args.last().unwrap().to_owned()};
+            args.extend(query_args);
+            let out=run_with_bridge_call(&args,|_,_,method,params,_| {
+                assert_eq!(method,"source.search");assert_eq!(params["query"],expected);Ok(json!({"items":[],"hasMore":false,"staleCount":0}))
+            });assert_eq!(out.exit_code,0,"{}",out.stderr);
+        }
+        for words in [vec!["-h"],vec!["search","-h"],vec!["record","-h"],vec!["-V"],vec!["record","get","-V"],vec!["record","get","--version"]] {
+            let out=invoke(&words);assert_eq!(out.exit_code,0,"{words:?}: {}",out.stderr);
+        }
+        for (words,message) in [
+            (vec!["search","--query=a","--query","b"],"Duplicate --query"),
+            (vec!["search","--query"],"Missing value for --query"),
+            (vec!["search","--all=yes"],"--all does not accept a value"),
+            (vec!["search","--","a","b"],"at most one positional argument")
+        ] { let out=invoke(&words);assert_eq!(out.exit_code,2);assert!(out.stderr.contains(message),"{}",out.stderr); }
+        let out=invoke(&["schema","record.get","--format=json"]);assert_eq!(out.exit_code,0,"{}",out.stderr);
+    }
+    #[test]
+    fn common_get_ids_and_json_line_windows_reach_native_methods() {
+        for entity in ["record","todo","file"] {
+            for ids in [vec!["44"],vec!["--id","44"]] {
+                let mut words=vec![entity,"get"]; words.extend(ids); words.extend(["--workspace-scope","--format","json"]);
+                let out=run_with_bridge_call(&read_args(&words),|_,_,method,params,_| {
+                    let object=match entity {"todo"=>&params["target"],"file"=>&params["source"]["object"],_=>&params["object"]};
+                    assert_eq!(method,if entity=="file" {"source.read".to_string()} else {format!("{entity}.get")});
+                    assert_eq!(object["id"],"44");assert_eq!(object["kind"],entity);
+                    Ok(json!({"native":"untouched"}))
+                });
+                assert_eq!(out.exit_code,0,"{}",out.stderr);
+                let data:Value=serde_json::from_str(&out.stdout).unwrap();assert_eq!(data["data"]["native"],"untouched");
+            }
+        }
+        let out=run_with_bridge_call(&read_args(&["record","get","44","--workspace-scope","--offset","100","--limit","2","--json"]),|_,_,_,params,_| {
+            assert_eq!(params["offset"],100);assert_eq!(params["limit"],2);Ok(json!({"window":"server"}))
+        });
+        assert_eq!(out.exit_code,0,"{}",out.stderr);
+    }
+    #[test]
+    fn text_edit_shortcuts_dispatch_native_intents_and_preview_without_mutation_id() {
+        let root=tempfile::tempdir().unwrap();
+        let old=root.path().join("old.txt");let new=root.path().join("new.txt");
+        std::fs::write(&old,"旧文字").unwrap();std::fs::write(&new,"新文字").unwrap();
+        for (verb,files,kind) in [
+            ("replace",vec!["--old-text-file",old.to_str().unwrap(),"--new-text-file",new.to_str().unwrap()],"replace"),
+            ("append",vec!["--body-file",new.to_str().unwrap()],"append"),
+            ("edit",vec!["--before-file",old.to_str().unwrap(),"--body-file",new.to_str().unwrap()],"markdown")
+        ] {
+            for preview in [false,true] {
+                let mut words=vec!["record",verb,"44","--workspace-scope","--base-revision","7"];
+                words.extend(files.clone());
+                if preview {words.push("--dry-run");} else {words.extend(["--request-id","edit-1"]);}
+                let out=run_with_bridge_call(&read_args(&words),|_,_,method,params,request_id| {
+                    assert_eq!(method,if preview {"record.text.patch.preview"} else {"record.text.patch"});
+                    assert_eq!(params["record"]["id"],"44");assert_eq!(params["baseRevision"],7);assert_eq!(params["edit"]["kind"],kind);
+                    if preview {assert!(params.get("requestId").is_none());} else {assert_eq!(params["requestId"],"edit-1");assert_eq!(request_id,"edit-1");}
+                    Ok(json!({"delivered":true}))
+                });assert_eq!(out.exit_code,0,"{verb}: {}",out.stderr);
+            }
+        }
+    }
+    #[test]
+    fn session_list_and_search_shorthand_reach_registered_contracts() {
+        let out=run_with_bridge_call(&read_args(&["session","list","--project","7","--query","排期","--cursor","next","--limit","8","--json"]),|_,_,method,params,_| {
+            assert_eq!(method,"session.list");assert_eq!(params["titleQuery"],"排期");assert_eq!(params["cursor"],"next");Ok(json!({}))
+        });assert_eq!(out.exit_code,0,"{}",out.stderr);
+        for command in [vec!["search","火车"],vec!["source","search","火车"]] {
+            let mut words=command;words.extend(["--workspace-scope","--kind","record,file","--limit","50","--cursor","next","--json"]);
+            let out=run_with_bridge_call(&read_args(&words),|_,_,method,params,_| {
+                assert_eq!(method,"source.search");assert_eq!(params["kinds"],json!(["record","file"]));assert_eq!(params["cursor"],"next");Ok(json!({"items":[],"hasMore":false,"staleCount":0}))
+            });assert_eq!(out.exit_code,0,"{}",out.stderr);
+        }
+    }
+    #[test]
+    fn conflicting_formats_and_all_json_are_rejected_before_io() {
+        for words in [vec!["record","get","44","--workspace-scope","--format","markdown","--json"],vec!["search","terms","--workspace-scope","--all","--json"],vec!["todo","get","44","--workspace-scope","--format","markdown"]] {
+            let out=run_with_bridge_call(&read_args(&words),|_,_,_,_,_|panic!("must reject before I/O"));assert_eq!(out.exit_code,2,"{}",out.stderr);
         }
     }
     #[test]
@@ -1037,7 +1233,7 @@ mod tests {
         let group = invoke(&["connection", "--help"]);
         assert_eq!(group.exit_code, 0, "{}", group.stderr);
         assert!(group.stdout.contains("mind connection status"));
-        assert!(invoke(&["--help"]).stdout.contains("mind connection status --workspace PATH --connection ID --json"));
+        assert!(invoke(&["--help"]).stdout.contains("--workspace PATH --connection ID"));
         let doctor = invoke(&["doctor", "--help"]);
         assert!(doctor.stdout.contains("workspacePath"));
         assert!(doctor.stdout.contains("snapshot"));
@@ -1076,7 +1272,7 @@ mod tests {
             assert!(out.stdout.contains(&format!("mind {group}")));
         }
         let root = invoke(&["--help"]);
-        assert!(root.stdout.contains("mind todo get|list --input-file PATH|-"));
+        assert!(root.stdout.contains("mind record|todo|file get ID"));
         let todo = invoke(&["todo", "--help"]);
         assert!(todo.stdout.contains("list"));
         assert_eq!(invoke(&["invented", "--help"]).exit_code, 2);
@@ -1094,7 +1290,7 @@ mod tests {
             }
         }
         let out = invoke(&["todo", "get", "--input-file"]);
-        assert!(out.stderr.contains("Missing option value"));
+        assert!(out.stderr.contains("Missing value for --input-file"));
     }
     #[test]
     fn capabilities_default_is_compact_and_verbose_preserves_full_catalog() {
@@ -1234,7 +1430,7 @@ mod tests {
             assert!(out.stderr.contains("method input DTO"), "{action}: {}", out.stderr);
             let out = invoke(&["todo", action, "--workspace", "/tmp",
                 "--connection", "0123456789abcdef0123456789abcdef", "--json"]);
-            assert!(out.stderr.contains("--input-file is required"), "{action}: {}", out.stderr);
+            assert!(out.stderr.contains(if action == "get" {"Object ID or --id is required"} else {"--input-file is required"}), "{action}: {}", out.stderr);
         }
     }
     #[test]
@@ -1362,7 +1558,7 @@ mod tests {
         assert!(out.stderr.contains("method input DTO"));
         let mixed = invoke(&["source", "read", "--input-file", file.path().to_str().unwrap(), "--project", "1", "--workspace", "/tmp", "--connection", "0123456789abcdef0123456789abcdef", "--json"]);
         assert_eq!(mixed.exit_code, 2);
-        assert!(mixed.stderr.contains("cannot accompany --input-file"));
+        assert!(mixed.stderr.contains("cannot be combined"));
     }
     #[test]
     fn shorthand_search_uses_source_search_bounds() {
@@ -1666,7 +1862,7 @@ mod tests {
         check(&["file", "update", "--id", "1", "--project", "1", "--source-file", "x.bin", "--request-id", "stable"], "--expected-version is required");
         check(&["file", "update", "--id", "1", "--input-file", "x.json"], "cannot be combined");
         check(&["file", "update", "--id", "1", "--project", "1", "--expected-version", "1", "--expected-hash", "bad", "--source-file", "x.bin", "--request-id", "stable"], "Invalid expected File hash");
-        check(&["source", "read", "--id", "1", "--input-file", "x.json"], "--id is only supported");
+        check(&["source", "read", "--id", "1", "--input-file", "x.json"], "cannot be combined");
         check(&["record", "restore", "--source-file", "x.bin"], "only supported by file update");
     }
     #[test]
@@ -1816,7 +2012,7 @@ mod tests {
             assert_eq!(out.exit_code, 0, "{}", out.stderr);
             assert_eq!(bridge.binding_calls, 1);
             assert_eq!(bridge.requests.len(), 2);
-            assert!(out.stdout.contains("2 | second\nShowing lines 2–2 of 3.\n"), "{}", out.stdout);
+            assert!(out.stdout.contains("2 | second\n"), "{}", out.stdout);
             assert!(!out.stdout.contains("1 | first"));
         }
     }
@@ -1894,8 +2090,6 @@ mod tests {
             vec!["record", "get", "--id", "23", "--input-file", "-"],
             vec!["record", "get", "23", "--workspace-scope", "--offset", "0"],
             vec!["record", "get", "23", "--workspace-scope", "--limit", "0"],
-            vec!["record", "get", "23", "--workspace-scope", "--offset", "1", "--json"],
-            vec!["record", "get", "23", "--workspace-scope", "--limit", "100", "--json"],
             vec!["search", "terms", "--query", "terms", "--workspace-scope"],
             vec!["search", "terms", "--offset", "1", "--workspace-scope"],
             vec!["record", "list", "--workspace-scope", "--limit", "51"],
@@ -1948,3 +2142,7 @@ mod tests {
     }
 
 }
+
+#[cfg(test)]
+#[path = "cli_adapter_tests.rs"]
+mod adapter_tests;

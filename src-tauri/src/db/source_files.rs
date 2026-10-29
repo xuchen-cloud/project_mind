@@ -470,16 +470,12 @@ mod tests {
                         include_history: false,
                         limit: None,
                         budget_chars: None,
+                        cursor: None,
                     },
                 )
                 .await;
             match scenario {
-                "exclude" => {
-                    let page = result.unwrap();
-                    assert!(page.items.is_empty());
-                    assert_eq!(page.stale_count, 0);
-                    assert!(!page.has_more);
-                }
+                "exclude" => assert_eq!(result.unwrap_err().code, ErrorCode::SourceChanged),
                 "switch" => assert_eq!(result.unwrap_err().code, ErrorCode::WorkspaceChanged),
                 _ => assert_eq!(result.unwrap_err().code, ErrorCode::SourceChanged),
             }
@@ -588,6 +584,7 @@ mod tests {
             include_history: false,
             limit: None,
             budget_chars: Some(12000),
+            cursor: None,
         };
         let mixed = service.search(&request, &query).await.unwrap();
         assert_eq!(mixed.items.len(), 5);
@@ -672,6 +669,7 @@ mod tests {
                     include_history: false,
                     limit: Some(1),
                     budget_chars: None,
+                    cursor: None,
                 },
             )
             .await
@@ -712,6 +710,7 @@ mod tests {
             include_history: false,
             limit: None,
             budget_chars: None,
+            cursor: None,
         };
         service
             .index_file(
@@ -870,6 +869,7 @@ mod tests {
             include_history: false,
             limit: None,
             budget_chars: None,
+            cursor: None,
         };
         let page = service.search(&request, &query).await.unwrap();
         assert_eq!(page.items.len(), 1);
@@ -1180,6 +1180,7 @@ mod tests {
                     include_history: false,
                     limit: None,
                     budget_chars: None,
+                    cursor: None,
                 },
             )
             .await

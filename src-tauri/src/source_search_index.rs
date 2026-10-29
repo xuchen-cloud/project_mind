@@ -6,6 +6,8 @@ use crate::agent::{
     models::{ObjectKind, ObjectRef, Scope, SourceLocator, SourceRef, WorkspaceBinding},
 };
 use rusqlite::{params, Connection};
+#[path = "source_search_cursor.rs"]
+pub(crate) mod cursor;
 use serde::{Deserialize, Serialize};
 
 pub(crate) struct SourceIndex<'a> {
@@ -43,6 +45,8 @@ pub(crate) struct SearchCandidate {
     pub title: String,
     pub excerpt: String,
     pub score: f64,
+    #[serde(skip)]
+    pub updated_at: String,
     pub source_ref: SourceRef,
     pub coverage: IndexCoverage,
 }
@@ -244,7 +248,7 @@ impl<'a> SourceIndex<'a> {
         limit: usize,
         kinds: Option<&[ObjectKind]>,
     ) -> AgentResult<SearchPage> {
-        self.search_cached(request, binding, scope, query, selected, include_history, limit, kinds, true)
+        self.search_cached(request, binding, scope, query, selected, include_history, limit, kinds, true, None)
     }
     pub(crate) fn search_cached(
         &self,
@@ -257,6 +261,7 @@ impl<'a> SourceIndex<'a> {
         limit: usize,
         kinds: Option<&[ObjectKind]>,
         current_records: bool,
+        after: Option<&cursor::Position>,
     ) -> AgentResult<SearchPage> {
         request.authorize(binding, scope, "source.read")?;
         if query.trim().is_empty() {
@@ -276,96 +281,55 @@ impl<'a> SourceIndex<'a> {
         if limit == 0 {
             return Err(invalid("Source search limit must be positive"));
         }
-        let (long, short): (Vec<_>, Vec<_>) = terms
-            .into_iter()
-            .partition(|term| term.chars().count() >= 3);
-        let fts = long
-            .iter()
-            .map(|term| format!("\"{}\"", term.replace('"', "\"\"")))
-            .collect::<Vec<_>>()
-            .join(" AND ");
-        let escaped: Vec<_> = short
-            .iter()
-            .map(|term| {
-                term.replace('!', "!!")
-                    .replace('%', "!%")
-                    .replace('_', "!_")
-            })
-            .collect();
-        let title_terms: Vec<_> = long
-            .iter()
-            .chain(short.iter())
-            .map(|term| {
-                term.replace('!', "!!")
-                    .replace('%', "!%")
-                    .replace('_', "!_")
-            })
-            .collect();
-        let title_terms_json =
-            serde_json::to_string(&title_terms).map_err(|_| invalid("Invalid title search"))?;
-        let short_json =
-            serde_json::to_string(&escaped).map_err(|_| invalid("Invalid search text"))?;
-        let selected_json =
-            serde_json::to_string(selected).map_err(|_| invalid("Invalid selected sources"))?;
-        let kinds_json = kinds
-            .map(serde_json::to_string)
-            .transpose()
-            .map_err(|_| invalid("Invalid source kinds"))?;
-        let allowed_keys_json = request
-            .scope_grant
-            .object_keys
-            .as_ref()
-            .map(serde_json::to_string)
-            .transpose()
-            .map_err(|_| invalid("Invalid granted objects"))?;
-        // Apply scope/policy/current-version constraints before materializing
-        // candidates, including the short-query fallback.
+        let limit = limit.min(50);
+        let terms_json = serde_json::to_string(&terms).map_err(|_| invalid("Invalid search terms"))?;
+        let selected_json = serde_json::to_string(selected).map_err(|_| invalid("Invalid selected sources"))?;
+        let kinds_json = kinds.map(serde_json::to_string).transpose().map_err(|_| invalid("Invalid source kinds"))?;
+        let allowed_keys_json = request.scope_grant.object_keys.as_ref().map(serde_json::to_string)
+            .transpose().map_err(|_| invalid("Invalid granted objects"))?;
+        // Match each term anywhere in a snapshot. FTS keeps long terms indexed;
+        // short literal terms use bounded existing chunks, never group_concat(body).
+        // The chosen evidence is one original chunk: no fabricated cross-chunk locator.
         let source_filters = format!("s.workspace_id=?2 AND s.scope_key=?3 AND (?4 OR s.is_current)
             AND (?9 IS NULL OR json_extract(s.object_json,'$.kind') IN (SELECT value FROM json_each(?9)))
             AND (?11 IS NULL OR s.object_key IN (SELECT value FROM json_each(?11)))
             AND NOT EXISTS(SELECT 1 FROM source_access_policies x WHERE x.object_key=s.object_key AND x.excluded=1) {}", if current_records { "" } else { "AND NOT (json_extract(s.object_json,'$.kind')='record' AND s.is_current)" });
-        let filters = format!("{source_filters} AND NOT EXISTS(SELECT 1 FROM json_each(?5) t WHERE s.title NOT LIKE '%'||t.value||'%' ESCAPE '!' AND c.text NOT LIKE '%'||t.value||'%' ESCAPE '!')");
-        let matches = if long.is_empty() {
-            format!("SELECT c.id AS rowid,0.0 AS rank,substr(c.text,1,240) AS excerpt FROM source_index_snapshots s JOIN source_index_chunks c ON c.snapshot_id=s.id WHERE {filters}")
-        } else {
-            // Bundled SQLite otherwise scans scope/chunks first and reruns FTS MATCH per chunk.
-            // At 3000 indexed Records that plan took seconds per search.
-            format!("SELECT source_index_fts.rowid,bm25(source_index_fts) AS rank,snippet(source_index_fts,1,'','','…',64) AS excerpt FROM source_index_fts CROSS JOIN source_index_chunks c ON c.id=source_index_fts.rowid CROSS JOIN source_index_snapshots s ON s.id=c.snapshot_id WHERE source_index_fts MATCH ?1 AND {filters}")
-        };
-        // A title-only source has no body chunk or invented paragraph anchor.
-        // Apply the identical source filters before it joins ranking/pagination.
-        let sql = format!("WITH matches AS MATERIALIZED ({matches}), ranked AS (
-            SELECT s.object_key,s.object_json,s.revision,s.version,s.title,s.updated_at,s.coverage_json,
-                   c.locator_json,c.block_id,m.rank,m.excerpt,
-                   ROW_NUMBER() OVER(PARTITION BY s.id ORDER BY m.rank,c.ordinal) AS n
-            FROM matches m JOIN source_index_chunks c ON c.id=m.rowid
-            JOIN source_index_snapshots s ON s.id=c.snapshot_id
+        let sql = format!(r#"WITH hits AS MATERIALIZED (
+            SELECT DISTINCT c.snapshot_id,c.id,t.key AS term
+            FROM json_each(?1) t CROSS JOIN source_index_fts
+            CROSS JOIN source_index_chunks c ON c.id=source_index_fts.rowid
+            CROSS JOIN source_index_snapshots s ON s.id=c.snapshot_id
+            WHERE length(t.value)>=3 AND source_index_fts MATCH ('text : "' || replace(t.value,'"','""') || '"')
+              AND {source_filters}
             UNION ALL
-            SELECT s.object_key,s.object_json,s.revision,s.version,s.title,s.updated_at,s.coverage_json,
-                   'null' AS locator_json,NULL AS block_id,0.0 AS rank,'' AS excerpt,1 AS n
+            SELECT c.snapshot_id,c.id,t.key FROM json_each(?1) t
+            CROSS JOIN source_index_snapshots s CROSS JOIN source_index_chunks c ON c.snapshot_id=s.id
+            WHERE length(t.value)<3 AND instr(lower(c.text),lower(t.value))>0 AND {source_filters}
+        ), matching AS (
+            SELECT s.*, (s.title=?6 COLLATE NOCASE) AS exact,
+                (s.object_key IN (SELECT value FROM json_each(?7))) AS selected,
+                (SELECT h.id FROM hits h WHERE h.snapshot_id=s.id GROUP BY h.id
+                    ORDER BY count(DISTINCT h.term) DESC,h.id LIMIT 1) AS evidence
             FROM source_index_snapshots s WHERE {source_filters}
-              AND NOT EXISTS(SELECT 1 FROM source_index_chunks c WHERE c.snapshot_id=s.id)
-              AND NOT EXISTS(SELECT 1 FROM json_each(?10) t WHERE s.title NOT LIKE '%'||t.value||'%' ESCAPE '!')
-        ) SELECT object_key,object_json,revision,version,title,locator_json,block_id,rank,excerpt,coverage_json
-        FROM ranked WHERE n=1
-        ORDER BY (title=?6 COLLATE NOCASE) DESC,(object_key IN (SELECT value FROM json_each(?7))) DESC,
-                 rank,updated_at DESC,object_key,version DESC LIMIT ?8");
+                AND NOT EXISTS(SELECT 1 FROM json_each(?1) t
+                    WHERE instr(lower(s.title),lower(t.value))=0
+                      AND NOT EXISTS(SELECT 1 FROM hits h WHERE h.snapshot_id=s.id AND h.term=t.key))
+        ) SELECT s.object_key,s.object_json,s.revision,s.version,s.title,
+                 coalesce(c.locator_json,'null'),c.block_id,0.0,coalesce(substr(c.text,1,240),''),s.coverage_json,s.updated_at
+          FROM matching s LEFT JOIN source_index_chunks c ON c.id=s.evidence
+          WHERE ?12 IS NULL OR (1-s.exact,1-s.selected)>(?13,?14)
+            OR ((1-s.exact,1-s.selected)=(?13,?14) AND
+                (s.updated_at<?16 OR (s.updated_at=?16 AND (s.object_key,-s.version)>(?12,?15))))
+          ORDER BY s.exact DESC,s.selected DESC,s.updated_at DESC,s.object_key,s.version DESC LIMIT ?8"#);
         let mut statement = self.conn.prepare(&sql).map_err(io_error)?;
         let rows = statement
             .query_map(
-                params![
-                    fts,
-                    binding.workspace_id,
-                    scope.key(),
-                    include_history,
-                    short_json,
-                    query,
-                    selected_json,
-                    limit.min(50) as i64 + 1,
-                    kinds_json,
-                    title_terms_json,
-                    allowed_keys_json
-                ],
+                params![terms_json, binding.workspace_id, scope.key(), include_history,
+                    // Numbered placeholders retain the old reserved slots.
+                    Option::<String>::None, query, selected_json, limit as i64 + 1,
+                    kinds_json, Option::<String>::None, allowed_keys_json,
+                    after.map(|p| p.key.as_str()), after.map(|p| p.exact),
+                    after.map(|p| p.selected), after.map(|p| p.version), after.map(|p| p.updated_at.as_str())],
                 |row| {
                     Ok((
                         row.get::<_, String>(0)?,
@@ -378,16 +342,17 @@ impl<'a> SourceIndex<'a> {
                         row.get::<_, f64>(7)?,
                         row.get::<_, String>(8)?,
                         row.get::<_, String>(9)?,
+                        row.get::<_, String>(10)?,
                     ))
                 },
             )
             .map_err(io_error)?
             .collect::<Result<Vec<_>, _>>()
             .map_err(io_error)?;
-        let has_more = rows.len() > limit.min(50);
+        let has_more = rows.len() > limit;
         let items = rows
             .into_iter()
-            .take(limit.min(50))
+            .take(limit)
             .map(
                 |(
                     key,
@@ -400,6 +365,7 @@ impl<'a> SourceIndex<'a> {
                     rank,
                     excerpt,
                     coverage,
+                    updated_at,
                 )| {
                     let object: ObjectRef = serde_json::from_str(&object)
                         .map_err(|_| invalid("Corrupt source identity"))?;
@@ -431,6 +397,7 @@ impl<'a> SourceIndex<'a> {
                         title,
                         excerpt,
                         score: -rank,
+                        updated_at,
                         source_ref,
                         coverage,
                     })
@@ -449,6 +416,16 @@ mod tests {
         errors::ErrorCode,
         models::ObjectKind,
     };
+
+    #[test]
+    fn source_search_cursor_bounds_agree_with_bridge_registry() {
+        let tool=crate::agent::tools::read_tool_descriptions().into_iter().find(|tool|tool.method=="source.search").unwrap();
+        assert_eq!(tool.parameters["properties"]["cursor"]["anyOf"][0]["maxLength"],4096);
+        let mut params=serde_json::json!({"scope":{"kind":"workspace"},"query":"q","cursor":"c".repeat(4096)});
+        crate::agent::bridge::registry::validate("source.search",&params).unwrap();
+        params["cursor"]=serde_json::json!("c".repeat(4097));
+        assert_eq!(crate::agent::bridge::registry::validate("source.search",&params).unwrap_err().code,ErrorCode::InvalidArgument);
+    }
 
     #[test]
     fn source_search_query_schema_exposes_length_and_nonwhitespace_contract() {
@@ -506,13 +483,13 @@ mod tests {
         assert_eq!(page.items.len(), 1);
     }
 
-    fn binding() -> WorkspaceBinding {
+    pub(super) fn binding() -> WorkspaceBinding {
         WorkspaceBinding {
             workspace_id: "source-workspace".into(),
             generation: "opened".into(),
         }
     }
-    fn request() -> RequestContext {
+    pub(super) fn request() -> RequestContext {
         RequestContext {
             binding: binding(),
             scope_grant: ScopeGrant {
@@ -526,7 +503,7 @@ mod tests {
             request_id: "search-fixture".into(),
         }
     }
-    fn source(id: i64, scope: Scope, title: &str, text: &str) -> IndexSource {
+    pub(super) fn source(id: i64, scope: Scope, title: &str, text: &str) -> IndexSource {
         IndexSource {
             object: ObjectRef {
                 workspace_id: "source-workspace".into(),
@@ -1173,5 +1150,37 @@ mod tests {
         assert_eq!(page.items.len(), 1);
         assert_eq!(page.items[0].object_key, title_only.object.key().unwrap());
         assert!(!page.has_more);
+    }
+}
+
+#[cfg(test)]
+mod document_search_tests {
+    use super::*;
+    use super::tests::{binding,request,source};
+    #[test]
+    fn source_search_document_terms_cross_chunks_with_original_evidence_and_literal_symbols() {
+        let conn=Connection::open_in_memory().unwrap();
+        let index=SourceIndex::prepare(&conn).unwrap();
+        let scope=Scope::Project {project_id:1};
+        let mut file=source(1,scope.clone(),"Release 100%", "unused");
+        file.object.kind=ObjectKind::File;
+        file.chunks=vec![
+            IndexChunk {text:"火车 alpha".into(), locator:SourceLocator::Page {page:1,start:0,end:8},block_id:None},
+            IndexChunk {text:"11月 beta a_b".into(),locator:SourceLocator::Page {page:9,start:0,end:12},block_id:None},
+        ];
+        file.coverage=IndexCoverage {chars:20,complete:true};
+        index.replace(&file).unwrap();
+        for query in ["火车 11月", "alpha beta", "100% beta", "火车 a_b", "火车 火车"] {
+            let page=index.search(&request(),&binding(),&scope,query,&[],false,8,None).unwrap();
+            assert_eq!(page.items.len(),1,"{query}");
+            let item=&page.items[0];
+            assert_eq!(item.source_ref.object,file.object);
+            assert!(file.chunks.iter().any(|c| serde_json::to_value(&c.locator).unwrap()==serde_json::to_value(&item.source_ref.locator).unwrap() && c.text.starts_with(&item.excerpt)));
+        }
+        for query in ["alpha absent", "100_ beta", "a%b"] {
+            assert!(index.search(&request(),&binding(),&scope,query,&[],false,8,None).unwrap().items.is_empty(),"{query}");
+        }
+        index.exclude(&file.object,true).unwrap();
+        assert!(index.search(&request(),&binding(),&scope,"alpha beta",&[],false,8,None).unwrap().items.is_empty());
     }
 }

@@ -22,27 +22,27 @@ Discover `mind todo list --help` and `mind schema todo.list --json`. For today/t
 | `undated` | Optional boolean, default `false`; `true` is mutually exclusive with date bounds. |
 | `includeChildren` | Optional boolean, default `true`. |
 | `cursor` | Returned continuation cursor. |
-| `limit`, `budgetChars` | Optional page bounds: 1–50 items (default 20), 1–12000 serialized page characters (default 4000). |
+| `limit`, `budgetChars` | Optional page bounds: 0–50 items (default 20; 0 counts only), 1–12000 serialized page characters (default 4000). |
 
 Set `$TODO_SCOPE` to the task's authorized scope JSON: `{"kind":"workspace"}`, or Project scope with the exact supplied/returned Project ID. `$DAY` is the resolved local date. These are input variables, not credentials. The following stdin examples use **Bash**; for PowerShell, send the same DTO through the [Shell input recipe](shell-input.md#powershell):
 
 ```bash
-mind todo list --input-file - --workspace "$WORKSPACE" --connection "$CONNECTION" --json <<JSON
+mind todo list --input-file - --json <<JSON
 {"scope":$TODO_SCOPE,"status":"unfinished","dueFrom":"$DAY","dueTo":"$DAY","limit":50,"budgetChars":12000}
 JSON
 
-mind todo list --input-file - --workspace "$WORKSPACE" --connection "$CONNECTION" --json <<JSON
+mind todo list --input-file - --json <<JSON
 {"scope":$TODO_SCOPE,"status":"unfinished","undated":true,"limit":50,"budgetChars":12000}
 JSON
 ```
 
-Results are flat `items`: parents and Subtasks match their **own** due date and status, with no inheritance. A child may match when its parent does not, and completing a parent does not complete its children. Each item contains `object` (the parent Todo's ObjectRef), optional `childId`, parent `revision`, content, own status/dueDate, parent priority and optional `parentContent`. Use the exact returned `object` for `todo.get`/update target and returned `childId` only for the selected child mutation. `content` is capped at 240 characters with `contentTruncated`; `parentContent` is also a display label capped at 240 characters. Use `todo.get` for full fields before editing.
+Results are flat `items`: parents and Subtasks match their **own** due date and status, with no inheritance. A child may match when its parent does not, and completing a parent does not complete its children. Each item contains `object` (the parent Todo's ObjectRef), optional `childId`, parent `revision`, content, own status/dueDate, parent priority and optional `parentContent`. Use the exact returned `object` for `todo.get`/update target and returned `childId` only for the selected child mutation. Metadata `content` is capped at 240 characters with `contentTruncated`; detail returns full action text. `parentContent` is a display label capped at 240 characters. Use `todo.get` for full fields before editing.
 
 Continue with `nextCursor` while `hasMore`, preserving the scope and filters; do not silently drop pages. Either finish pagination or report bounded coverage, including any unqueried Projects. Workspace scope lists Workspace-owned objects only; a full Workspace View requires separate authorized active-Project scopes as well. Use native list/source references to find IDs; arbitrary character searches and guessed IDs cannot replace enumeration.
 
 The cursor binds query filters, the binding/grant and the native change sequence. A concurrent mutation can return `SOURCE_CHANGED`: discard that cursor and restart the same query without `cursor`. Use the restarted pages for coverage claims; do not combine pages from different change sequences into a supposedly complete inventory.
 
-Todo content-text filtering is deferred while the existing filters and bounded pages cover current inventories. Assess it when measured object counts or call costs justify it; content filtering can be incorporated into the existing cursor's query fingerprint. Use the supported filters and report actual coverage.
+`titleQuery` / `contentQuery` are supported literal action-text filters before pagination. Use `mind todo list --query '验收'` for a simple display-text filter, and JSON for content/date/tag combinations. `mind todo get ID` reads the current complete native Todo; add `--json` to retain its exact `object`, numeric `revision`, `bodyHash` and `snapshot` for updates. The default readable output includes priority, deadline and Subtasks.
 
 ## Values and date semantics
 
@@ -61,6 +61,8 @@ Dates are valid calendar dates in exact `YYYY-MM-DD` form. `dueDate:null` means 
 
 ## Bash stdin writes and readback
 
+Recipes assume [runtime defaults](binding.md#runtime-defaults). External callers add their supplied binding flags; DTOs still contain their own scope.
+
 Inspect `todo.create`, `todo.get`, `todo.update` schemas first. The **Bash** snippets below use `jq` only to carry native JSON forward; if unavailable, construct the same DTO from returned JSON. PowerShell should construct that DTO as an object and follow [Shell input](shell-input.md#powershell), retaining the CLI exit code and JSON response before extracting fields. Variables last only within their shell execution: rebind from prior native results when using another tool shell. Replace the sample request IDs **once before first execution** with IDs unique to this task; keep the chosen ID and exact payload for recovery, including generated child updates. Execute only recipes that match the requested change. Todo supports native create/update, **not dry-run**; tell the user when a requested trial/preview cannot be executed and describe the proposed change without writing.
 
 ### Create
@@ -68,7 +70,7 @@ Inspect `todo.create`, `todo.get`, `todo.update` schemas first. The **Bash** sni
 `$TODO_SCOPE` is the authorized scope JSON established above. This creates one undated Todo with explicitly chosen importance and no urgency:
 
 ```bash
-created=$(mind todo create --input-file - --workspace "$WORKSPACE" --connection "$CONNECTION" --json <<JSON
+created=$(mind todo create --input-file - --json <<JSON
 {"requestId":"delivery-create-001","input":{"scope":$TODO_SCOPE,"content":"Deliver the draft","priority":"not_urgent_important","dueDate":null,"tagIds":[],"children":[]}}
 JSON
 )
@@ -83,7 +85,7 @@ Inspect the receipt before continuing. For an existing Todo, obtain `$TODO_TARGE
 Obtain a current baseline before an update recipe (reuse a sufficient native read), then run again afterward for readback; keep the returned `object`, `revision` and `snapshot`:
 
 ```bash
-current=$(mind todo get --input-file - --workspace "$WORKSPACE" --connection "$CONNECTION" --json <<JSON
+current=$(mind todo get --input-file - --json <<JSON
 {"target":$TODO_TARGET}
 JSON
 )
@@ -97,7 +99,7 @@ Continue only if the call succeeded and the extracted target/revision is valid. 
 ### Complete the parent
 
 ```bash
-mind todo update --input-file - --workspace "$WORKSPACE" --connection "$CONNECTION" --json <<JSON
+mind todo update --input-file - --json <<JSON
 {"requestId":"delivery-complete-001","input":{"target":$TODO_TARGET,"expectedRevision":$TODO_REVISION,"changes":[{"change":"status","status":"finished"}]}}
 JSON
 ```
@@ -109,7 +111,7 @@ Read back parent status. Children keep their own status. To reopen, use `unfinis
 Resolve `$SUBTASK_DATE` as local today in the user's timezone; it is independent of any requested deadline:
 
 ```bash
-mind todo update --input-file - --workspace "$WORKSPACE" --connection "$CONNECTION" --json <<JSON
+mind todo update --input-file - --json <<JSON
 {"requestId":"delivery-child-add-001","input":{"target":$TODO_TARGET,"expectedRevision":$TODO_REVISION,"changes":[{"change":"child_create","content":"Review the draft","progressDate":"$SUBTASK_DATE","dueDate":null}]}}
 JSON
 ```
@@ -127,7 +129,7 @@ printf '%s\n' "$current" | jq -ce --argjson childId "$CHILD_ID" '
   {requestId:"delivery-child-update-001",input:{target:$todo.object,
     expectedRevision:$todo.revision,changes:[{change:"child_update",childId:.id,
     content:.content,progressDate:.progressDate,dueDate:.dueDate,status:"finished"}]}}
-' | mind todo update --input-file - --workspace "$WORKSPACE" --connection "$CONNECTION" --json
+' | mind todo update --input-file - --json
 ```
 
 To edit content/deadline instead, replace only those values in the constructed child mutation and preserve its current status. Setting `dueDate:null` explicitly clears the deadline. Parent deadline changes use `{"change":"deadline","dueDate":null}` to clear, or an explicit date to set. Finish with the [receipt and readback criteria](writes.md#verify-and-report); use the [recovery process](writes.md#recover-from-the-actual-outcome) for failures or uncertain outcomes.

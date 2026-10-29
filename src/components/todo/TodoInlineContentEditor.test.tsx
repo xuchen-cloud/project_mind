@@ -165,6 +165,9 @@ describe("TodoInlineContentEditor", () => {
       {
         id: 7,
         name: "张三",
+        nicknames: "",
+        notes: "",
+        revision: 1,
         pinyinFull: "zhang san",
         pinyinAbbr: "zs",
         email: "",

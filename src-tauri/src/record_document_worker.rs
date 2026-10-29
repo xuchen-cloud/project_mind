@@ -105,6 +105,8 @@ impl RecordDocumentWorker {
                     | "record.create"
                     | "record.validate"
                     | "record.patch"
+                    | "record.text.patch"
+                    | "contact.pinyin"
                     | "record.compare"
                     | "record.schema"
             )

@@ -489,3 +489,92 @@ fn removed_object_and_history_selectors_are_rejected_at_input_boundary() {
     assert!(serde_json::from_value::<ConnectionCreateInput>(old_object).is_err());
     assert!(serde_json::from_value::<ConnectionCreateInput>(old_history).is_err());
 }
+
+#[test]
+fn contacts_are_explicit_extra_operations_independent_of_content_scope() {
+    for (index, selected) in [
+        vec![],
+        vec!["contact.read"],
+        vec!["contact.write"],
+        vec!["contact.read", "contact.write"],
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let (_root, db, binding) = fixture();
+        let id = format!("{:032x}", index + 1);
+        let token = "a".repeat(64);
+        let grant = db
+            .agent_connection_create(
+                &binding,
+                &ConnectionCreateInput {
+                    client_label: "Project contacts".into(),
+                    workspace_content: false,
+                    all_projects: false,
+                    project_ids: vec![1],
+                    write_operations: selected
+                        .iter()
+                        .map(|operation| (*operation).into())
+                        .collect(),
+                },
+                &id,
+                &token,
+            )
+            .unwrap();
+        assert_eq!(
+            grant
+                .operations
+                .iter()
+                .any(|operation| operation == "contact.read"),
+            !selected.is_empty()
+        );
+        assert_eq!(
+            grant
+                .operations
+                .iter()
+                .any(|operation| operation == "contact.write"),
+            selected.contains(&"contact.write")
+        );
+        // Merely granting address-book access does not grant operation receipts
+        // or Workspace/other-Project content.
+        assert!(!grant
+            .operations
+            .iter()
+            .any(|operation| operation == "operation.read"));
+        let request = db
+            .agent_connection_authenticate(&binding, &id, &token, "contacts")
+            .unwrap();
+        assert!(!request.scope_grant.workspace_content);
+        assert_eq!(request.scope_grant.project_ids, vec![1]);
+        assert!(request
+            .authorize(&binding, &Scope::Workspace, "source.read")
+            .is_err());
+        assert!(request
+            .authorize(&binding, &Scope::Project { project_id: 2 }, "source.read")
+            .is_err());
+        assert_eq!(request.scope_grant.operations, grant.operations);
+    }
+}
+
+#[test]
+fn ordinary_external_connections_never_upgrade_to_contacts() {
+    let (_root, db, binding) = fixture();
+    let original = create(&db, &binding);
+    let listed = db.agent_connection_list(&binding).unwrap();
+    assert_eq!(listed[0].operations, original.operations);
+    assert!(!listed[0]
+        .operations
+        .iter()
+        .any(|operation| operation.starts_with("contact.")));
+    assert!(db
+        .agent_connection_upgrade_embedded_grant(
+            &binding,
+            &listed[0],
+            &"0123456789abcdef".repeat(4)
+        )
+        .is_err());
+    assert_eq!(
+        db.agent_connection_list(&binding).unwrap()[0].operations,
+        original.operations
+    );
+}

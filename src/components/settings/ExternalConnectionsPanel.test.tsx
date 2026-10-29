@@ -74,6 +74,59 @@ it("supports one Project with read-only or collaboration permissions", async () 
   }));
 });
 
+it("requires an explicit shared address book choice without widening Project content", async () => {
+  const user = userEvent.setup();
+  setup();
+  const contacts = await screen.findByRole("combobox", { name: "通讯录" });
+  expect(contacts).toHaveValue("none");
+  expect(screen.getByText(/整个 Workspace 共享通讯录/)).toBeInTheDocument();
+  await user.type(screen.getByPlaceholderText("例如：终端助手"), "Contacts client");
+  await user.click(screen.getByLabelText("单个 Project"));
+  await user.selectOptions(contacts, "read");
+  await user.click(screen.getByRole("button", { name: "创建连接" }));
+  await waitFor(() => expect(externalConnectionsApi.create).toHaveBeenLastCalledWith(binding, {
+    clientLabel: "Contacts client", projectIds: [1], workspaceContent: false, allProjects: false,
+    writeOperations: ["content.create", "record.patch", "record.restore", "todo.update", "file.update", "file.restore", "operation.undo", "contact.read"],
+  }));
+  await user.selectOptions(contacts, "write");
+  await user.click(screen.getByRole("button", { name: "创建连接" }));
+  await waitFor(() => expect(vi.mocked(externalConnectionsApi.create).mock.lastCall?.[1].writeOperations.slice(-2)).toEqual(["contact.read", "contact.write"]));
+});
+
+it("read-only mode keeps contact reading available and removes contact writing", async () => {
+  const user = userEvent.setup();
+  setup();
+  const contacts = await screen.findByRole("combobox", { name: "通讯录" });
+  await user.selectOptions(contacts, "write");
+  await user.click(screen.getByLabelText("只读"));
+  expect(contacts).toHaveValue("read");
+  expect(screen.getByRole("option", { name: "读写" })).toBeDisabled();
+  await user.type(screen.getByPlaceholderText("例如：终端助手"), "Read contacts");
+  await user.click(screen.getByRole("button", { name: "创建连接" }));
+  await waitFor(() => expect(externalConnectionsApi.create).toHaveBeenLastCalledWith(binding, {
+    clientLabel: "Read contacts", projectIds: [], workspaceContent: true, allProjects: true,
+    writeOperations: ["contact.read"],
+  }));
+  await user.click(screen.getByLabelText("协作（推荐）"));
+  expect(contacts).toHaveValue("read");
+  await user.selectOptions(contacts, "none");
+  await user.click(screen.getByRole("button", { name: "创建连接" }));
+  await waitFor(() => expect(vi.mocked(externalConnectionsApi.create).mock.lastCall?.[1].writeOperations).not.toContain("contact.read"));
+});
+
+it("shows shared address book read and write permissions in existing grant summaries", async () => {
+  vi.mocked(externalConnectionsApi.status).mockResolvedValue({ ...baseStatus, connections: [
+    { ...grant, id: "reader", clientLabel: "Reader", operations: ["source.read", "contact.read"] },
+    { ...grant, id: "writer", clientLabel: "Writer", operations: ["source.read", "contact.read", "contact.write"] },
+    { ...grant, id: "legacy", clientLabel: "Legacy", operations: ["source.read"] },
+  ] });
+  setup();
+  expect(await screen.findByText(/通讯录：读取（整个 Workspace 共享）/)).toBeInTheDocument();
+  expect(screen.getByText(/通讯录：读写（整个 Workspace 共享）/)).toBeInTheDocument();
+  expect(screen.getByText(/通讯录：未授权/)).toBeInTheDocument();
+  expect(screen.queryByText(/其他写入权限/)).not.toBeInTheDocument();
+});
+
 it("marks legacy object grants unusable and requires new scope authorization", async () => {
   vi.mocked(externalConnectionsApi.status).mockResolvedValue({ ...baseStatus, connections: [{ ...grant, objects: [recordObject] }] });
   setup();

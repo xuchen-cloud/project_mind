@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use super::models::ObjectRef;
+use serde::{Deserialize, Serialize};
 
 /// Trusted GUI input. Operations are assigned by the Host, never by a client.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -11,7 +11,9 @@ pub struct ConnectionCreateInput {
     /// Resolve all current, unarchived Projects when each request authenticates.
     #[serde(default)]
     pub all_projects: bool,
-    /// Explicit trusted GUI selection; the Host accepts only implemented Record operations.
+    /// Explicit extra operations selected by trusted GUI. The historical field
+    /// name includes optional contact.read/contact.write as well as content writes;
+    /// contact.write implies contact.read. Omission grants no address-book access.
     #[serde(default)]
     pub write_operations: Vec<String>,
 }

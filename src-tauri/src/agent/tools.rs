@@ -173,7 +173,7 @@ pub(crate) fn validate_bounds(method: &str, arguments: &Value) -> AgentResult<()
         "context.overview.get" => (8000, 0, 2048),
         "knowledge.search" => (3000, 2000, 8192),
         "knowledge.get" => (8000, 0, 8192),
-        "source.search" => (12000, 256, 0),
+        "source.search" => (12000, 256, 4096),
         "source.read" => (12000, 0, 2048),
         _ => {
             return Err(AgentError::new(
@@ -368,7 +368,7 @@ pub(crate) fn read_tool_descriptions() -> Vec<ReadToolDescription> {
     add("context.overview.get", "Read Overview directory by default; select sections or itemIds for bounded content, and reuse nextCursor for continuation.", json!({"scope":scope,"version":version,"sections":array(sections,5),"itemIds":array(id.clone(),100),"cursor":nullable(text(2048)),"budgetChars":nullable(integer(8000))}), &["scope"]);
     add("knowledge.search", "Search authorized knowledge cards. If sourceFallbackRequired is true, use source.search to find original evidence.", json!({"scope":scope,"query":text(2000),"kinds":array(knowledge_kinds,4),"cursor":nullable(text(8192)),"limit":nullable(integer(50)),"budgetChars":nullable(integer(3000))}), &["scope","query"]);
     add("knowledge.get", "Read a node: or overview: navigation ID. Default view is summary; use content and sectionIds for selective bounded reading.", json!({"scope":scope,"nodeId":id,"version":version,"view":{"type":"string","maxLength":32,"enum":["outline","summary","content"]},"sectionIds":array(text(128),20),"cursor":nullable(text(8192)),"budgetChars":nullable(integer(8000))}), &["scope","nodeId"]);
-    add("source.search", "Search indexed original sources and session summary segments in a granted scope, optionally limited to selected objects. Results are rechecked against actual source ownership, policy and revisions.", json!({"scope":scope,"query":text(256),"kinds":array(source_kinds(),7),"selected":array(object_ref_schema(),50),"includeHistory":{"type":"boolean"},"limit":nullable(integer(50)),"budgetChars":nullable(integer(12000))}), &["scope","query"]);
+    add("source.search", "Search indexed original sources and session summary segments in a granted scope, optionally limited to selected objects. All literal terms must match the same document, including across indexed chunks. Follow nextCursor to continue; restart on SOURCE_CHANGED if query, grant, binding or source data changes. Results are rechecked against actual source ownership, policy and revisions.", json!({"scope":scope,"query":text(256),"kinds":array(source_kinds(),7),"selected":array(object_ref_schema(),50),"includeHistory":{"type":"boolean"},"cursor":nullable(text(4096)),"limit":nullable(integer(50)),"budgetChars":nullable(integer(12000))}), &["scope","query"]);
     let target = object(
         json!({"object":object_ref_schema(),"revision":nullable(text(128)),"recordVersion":nullable(integer(u32::MAX.into())),"fileVersion":nullable(integer(u32::MAX.into()))}),
         &["object"],

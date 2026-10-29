@@ -178,24 +178,23 @@ pub(crate) fn search(
     let explicit_selection = !input.selected.is_empty();
     let mut items = Vec::new();
     let mut after = None;
-    let mut scanned = 0;
+    let position = crate::source_search_index::cursor::position(input)?;
+    let terms: Vec<_> = input.query.split_whitespace().map(str::to_lowercase).collect();
     loop {
-        let batch = (200 - scanned).min(50) as u16;
-        if batch == 0 {
-            break;
-        }
+        let batch = 50;
         let nodes = db.agent_knowledge_candidates(
             &input.scope,
-            &input.query,
+            "",
             &[KnowledgeKind::SourceSummary],
             after.as_deref(),
             batch,
         )?;
         let count = nodes.len();
         for node in nodes {
-            scanned += 1;
             after = Some(node.node_id.clone());
             if node.session_summary.is_none()
+                || !terms.iter().all(|term| [&node.title, &node.one_line, &node.summary]
+                    .iter().any(|text| text.to_lowercase().contains(term)))
                 || (explicit_selection && !selected.iter().any(|o| o.id == node.node_id))
                 || !visible(db, request, binding, &node)?
             {
@@ -209,26 +208,28 @@ pub(crate) fn search(
                 node.one_line.clone()
             };
             source_ref.excerpt = excerpt.chars().take(2000).collect();
-            items.push(SearchCandidate {
+            let candidate = SearchCandidate {
                 object_key: source_ref.object.key()?,
                 title: node.title.chars().take(1000).collect(),
                 excerpt: source_ref.excerpt.clone(),
-                score: 1.0,
+                score: 0.0,
+                updated_at: node.updated_at.clone(),
                 source_ref,
                 coverage: IndexCoverage {
                     chars: node.summary.chars().count() as u32,
                     complete: true,
                 },
-            });
-            if items.len() > limit {
-                break;
-            }
+            };
+            if position.as_ref().is_some_and(|after| crate::source_search_index::cursor::Position::of(&candidate, input) <= *after) { continue; }
+            items.push(candidate);
+            items.sort_by_key(|item| crate::source_search_index::cursor::Position::of(item, input));
+            items.truncate(limit+1);
         }
-        if items.len() > limit || count < batch as usize {
+        if count < batch as usize {
             break;
         }
     }
-    let has_more = items.len() > limit || scanned == 200;
+    let has_more = items.len() > limit;
     items.truncate(limit);
     Ok(SearchPage { items, has_more })
 }

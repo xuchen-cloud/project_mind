@@ -152,6 +152,7 @@ _Avoid_：Tag、归属关系、跨 Project 引用
 
 **Contact**：
 Workspace 中可复用的人员信息，可以被 Workspace 和各 Project 范围的内容提及。
+姓名、工号、邮箱、昵称和备注属于同一个 Contact；多个昵称使用分号分隔，备注允许多行。统一搜索跨字段匹配字面关键词。CLI 通过独立的通讯录读写权限访问，修改只更新明确给出的字段并核验版本，不改变 Project 内容授权或 Contact Mention 的含义。
 _Avoid_：User、Assignee、Project Contact
 
 **Contact Mention**：

@@ -146,6 +146,9 @@ export interface ProjectRecordGroup {
 export interface ContactRecord {
   id: number;
   name: string;
+  nicknames: string;
+  notes: string;
+  revision: number;
   pinyinFull: string;
   pinyinAbbr: string;
   email: string;
@@ -411,7 +414,11 @@ export interface ProjectTagDeleteInput {
 
 export interface ContactUpsertInput {
   id?: number;
+  baseRevision?: number;
   name: string;
+  nicknames?: string;
+  nicknamePinyin?: string;
+  notes?: string;
   pinyinFull?: string;
   pinyinAbbr?: string;
   email?: string;

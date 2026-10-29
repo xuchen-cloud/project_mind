@@ -1,8 +1,8 @@
 # Record / File guide
 
-Load this branch for structured Record/File reads, writes or budget recovery. For ordinary search and text reads, use the [quick card](../SKILL.md#search--read). Discover the relevant subcommand help and exact method schema before constructing JSON input; the installed CLI owns field names and limits.
+Load this branch for structured Record/File reads, writes or budget recovery. For ordinary search and text reads, use the [quick card](../SKILL.md#find-and-read). Discover the relevant subcommand help and exact method schema before constructing JSON input; the installed CLI owns field names and limits.
 
-Command examples use **Bash** binding syntax. For PowerShell paths and JSON input, follow [Shell input](shell-input.md#powershell).
+Command examples use the existing [runtime defaults](binding.md#runtime-defaults). Code marked `bash` is Bash, including redirection; PowerShell paths, files and capture use [Shell input](shell-input.md#powershell). Use [external binding](binding.md#external-binding) only when runtime defaults are absent.
 
 ## Choose create or continue
 
@@ -19,41 +19,65 @@ Record read DTOs now use `object`, matching File reads; `record` remains an inpu
 
 ## Read the current content
 
-- **Record:** `record get ID` (or `record get --id ID`) defaults to line-numbered text and automatically reads the pages needed, within the CLI's capacity limits. `--offset 1 --limit 40` selects a 1-based line window. Add `--json` for one precise bounded body page, preserving returned revision/cursor when continuing; line-window flags are text-only. Use `record blocks get` for canonical block IDs/hashes before a patch and `record versions` for historical evidence. `reference list` follows incoming/outgoing native references.
-- **File:** use `file source read`, `source.read` or File version methods as appropriate. To edit a File, obtain the exact current bytes, version number and full `sha256:…` hash; keep the same File ID for subsequent edits.
+- **Record:** `record get ID` defaults to canonical Markdown with a header, line numbers and automatic pagination, preserving tables. Explicit `--format text` selects line-numbered source text. `--format markdown` gives exact saved Markdown without reading headers or line numbers; `--format plain` (alias `cat`) gives raw source text. Numeric `headRevision` and the source hash are distinct: use the head revision for edits. `--offset 1 --limit 40` selects a server-side line window in any format, including JSON; the window's lines belong to the selected projection. [Reading](reading.md#formats-windows-and-completion) explains page/window completion.
+- **File:** `file get ID` reads current extracted text; plain mode is suitable for pipes. `source read` supports native source DTOs/ranges. `file source read` is the separate byte-oriented JSON API. Obtain the fixed version number and full `sha256:…` hash before changing original File bytes.
 
-Read all content needed to preserve the requested edit, following returned cursors. A bounded excerpt is not the whole document. Pending editor previews are not Committed Content; an editor-busy/pending-review failure requires resolution before a native Record commit.
+Read all evidence needed for the intended change. Streaming can fail after partial stdout: check the process result and diagnostics before using output as a complete baseline. Pending editor previews are not Committed Content; resolve actual editor-busy/pending-review errors before commit. Historical evidence uses `record versions` / File version methods; block-level tools are available for callers that need structured identity.
 
 ### Read budgets
 
-For precise JSON page reads through `record.get` and `source.read`, `budgetChars` counts Unicode characters in the **serialized page**, including metadata, spans, excerpt and cursor, rather than just body text. The default is 4000; the schema allows positive budgets up to 12000. Even a short Record can exceed a small budget because its page metadata must fit. Ordinary `record get` text reads handle pagination automatically; use JSON when you need the exact page metadata or a cursor/selector.
+For precise JSON page reads through `record.get` and `source.read`, `budgetChars` counts Unicode characters in the **serialized page**, including metadata, spans, excerpt and cursor, rather than just body text. The service JSON default is 4000; the schema allows positive budgets up to 12000. Human automatic reads request 12000 when no budget was supplied. Even a short Record can exceed a small budget because its page metadata must fit. Ordinary `record get` text reads handle pagination automatically; use JSON when you need the exact page metadata or a cursor/selector.
 
 When `BUDGET_EXCEEDED` returns `error.details.minimumBudgetChars`, that value is the dynamic budget needed for the page metadata plus at least one body character (or an empty page for an empty body). It is not a fixed constant or proportional to the full document length. Increase `budgetChars` to at least the returned minimum within the method's schema limit, preserving the source/object, selection, revision and cursor so the same read can progress. If the minimum exceeds the schema maximum, report that actual limit instead of retrying an invalid budget. Apply this recovery only to these page reads when the error supplies the field; other `BUDGET_EXCEEDED` errors retain their method-specific meaning.
 
-## Record create / patch
+## Record text edits
 
-For a new Record, prepare UTF-8 Markdown, preview, then commit the intended payload with a stable request ID. `$PROJECT_ID` comes from the binding/authorized reads; for Workspace Records replace `--project "$PROJECT_ID"` with `--workspace-scope`:
+Ordinary text edits need no manual block IDs. Use the current numeric `headRevision` as `--base-revision`, from the same successful full read used to prepare the change. The source hash is not this number. IDs, revision and request-ID variables below come from actual task results; examples use Bash.
+
+Choose the narrowest operation:
+
+| Command | Input and behavior |
+| --- | --- |
+| `record replace ID --old-text-file old.txt --new-text-file new.txt` | Literal replacement of one unique contiguous text occurrence. It can span text marks, but not blocks, hard breaks or inline references. A missing/ambiguous match fails; use a longer unique old text or a Markdown baseline edit. |
+| `record append ID --body-file additions.md` | Parse UTF-8 Markdown and append it to the same Record. |
+| `record edit ID --before-file before.md --body-file after.md` | Apply the difference from the exact saved Markdown baseline, retaining existing structure/identity where it can be mapped. Ambiguous or unsupported changes fail explicitly; narrow the diff or use a unique literal replacement. |
+
+For a Markdown edit, capture the whole current baseline, retain its reported head revision, then make an edited copy. **Bash** capture:
 
 ```bash
-mind record create --title 'Release notes' --body-file note.md --project "$PROJECT_ID" --dry-run --workspace "$WORKSPACE" --connection "$CONNECTION" --json
-mind record create --title 'Release notes' --body-file note.md --project "$PROJECT_ID" --request-id "$CREATE_REQUEST_ID" --workspace "$WORKSPACE" --connection "$CONNECTION" --json
+mind record get 44 --format markdown > before.md || exit "$?"
 ```
 
-Existing Record edits use `record.patch`'s native RecordPatch shape, including current `baseRevision`, canonical block identities/hashes and its stable `requestId`. `--patch-file` accepts that JSON directly:
+PowerShell uses [exact Markdown capture](powershell-baseline.md); Windows PowerShell 5.1 text redirection can write UTF-16 or alter trailing newlines. A window, line-numbered output, error output or partial stream is not a full baseline. The converter normalizes CRLF to LF for the Markdown comparison, without accepting changed baseline content.
+
+Once `after.md` contains the intended edit and `$HEAD_REVISION` is the actual numeric head from that read:
 
 ```bash
-mind record patch --patch-file patch.json --dry-run --workspace "$WORKSPACE" --connection "$CONNECTION" --json
-mind record patch --patch-file patch.json --workspace "$WORKSPACE" --connection "$CONNECTION" --json
+mind record edit 44 --before-file before.md --body-file after.md --base-revision "$HEAD_REVISION" --dry-run
+mind record edit 44 --before-file before.md --body-file after.md --base-revision "$HEAD_REVISION" --request-id "$EDIT_REQUEST_ID"
 ```
 
-For small transient JSON inputs, follow [Shell input](shell-input.md): Bash can use stdin (`--input-file -` / `--patch-file -`); PowerShell should use a system temporary file with the corresponding `--input-file` / `--patch-file` option. Keep these inputs outside managed directories. Record create/patch dry-run saves no version or receipt and may omit the mutation request ID. Preview does not reserve the baseline: commit checks it again. Discover schema limits before preparing a large body.
+Run commit after inspecting a successful preview. Preview needs no request ID, writes no version/receipt and does not reserve the revision. Commit requires one stable request ID; if any file, baseline or requested change changes, reassess the preview and operation identity. All three text shortcuts return JSON without requiring an extra `--json`; inspect `ok/error`, the actual result/receipt, then read back. `--budget-chars` applies to their dry-run preview only. Each file can be a path or `-`, but at most one input may consume stdin; [UTF-8 files](shell-input.md#powershell) are the portable choice for complex text.
+
+These operations preserve native permissions, CAS, editor coordination, references and saved rich content. They do not turn displayed line numbers into block IDs. Follow [recovery](writes.md#recover-from-the-actual-outcome) for conflicts or uncertain commits.
+
+## Record create and block patches
+
+For a distinct new Record, prepare UTF-8 Markdown and use:
+
+```bash
+mind record create --title 'Release notes' --body-file note.md --dry-run --json
+mind record create --title 'Release notes' --body-file note.md --request-id "$CREATE_REQUEST_ID" --json
+```
+
+The runtime's authorized default scope determines ownership; select an explicit authorized scope when needed. Native block-level `record patch --patch-file patch.json` remains available for structured patches. Read `record.blocks.get` to obtain canonical block IDs/hashes, and construct the native RecordPatch against its current base revision. Add `--dry-run` for a preview, then commit the same intended patch with its stable request ID. Use `mind schema record.patch --json` for the actual contract. Keep these details on the block-patch path rather than requiring them for ordinary reads or text edits.
 
 ## File create / replace
 
 Files belong to a Workspace or one Project. They share the same import, version, editing and receipt pipeline. Workspace Files are managed under the Workspace `files` directory; they do not change the ownership of Project Files. `file create --name NAME --body-file PATH --project ID` creates UTF-8 content in a Project; use `--workspace-scope` for Workspace Files. Workspace authorization does not automatically include every Project. For full content replacement, preserve identity and use the current File version/hash:
 
 ```bash
-mind file update --id "$FILE_ID" --source-file replacement.bin --project "$PROJECT_ID" --expected-version "$FILE_VERSION" --expected-hash "$FILE_HASH" --request-id "$UPDATE_REQUEST_ID" --workspace "$WORKSPACE" --connection "$CONNECTION" --json
+mind file update --id "$FILE_ID" --source-file replacement.bin --project "$PROJECT_ID" --expected-version "$FILE_VERSION" --expected-hash "$FILE_HASH" --request-id "$UPDATE_REQUEST_ID" --json
 ```
 
 For Workspace File replacement, use `--workspace-scope` instead of `--project "$PROJECT_ID"`; preserve the actual Workspace File object, ID, version and hash. Project-only callers cannot create or edit Workspace Files.
@@ -61,7 +85,7 @@ For Workspace File replacement, use `--workspace-scope` instead of `--project "$
 To create already-generated binary bytes as an independent File, use a new stable request ID:
 
 ```bash
-mind file create --name 'Report.docx' --source-file report.docx --project "$PROJECT_ID" --request-id "$CREATE_REQUEST_ID" --workspace "$WORKSPACE" --connection "$CONNECTION" --json
+mind file create --name 'Report.docx' --source-file report.docx --project "$PROJECT_ID" --request-id "$CREATE_REQUEST_ID" --json
 ```
 
 Use `--workspace-scope` for Workspace ownership. This uploads bytes and commits through native `file.create`, producing its actual File identity, version, hash and Operation Receipt. It does not convert text to Office format. Explicit `file upload` also accepts a JSON target containing only `createTarget:{workspaceId,projectId,safeName}`; `projectId:null` means Workspace ownership. Existing-object upload retains its ordinary object/version/hash target.
@@ -84,13 +108,13 @@ A stable `request_id` identifies the original complete create payload. In a Proj
 To read back exact saved bytes for local inspection or editing, first obtain the authorized ObjectRef and fixed version/hash from the native result or version read. Build the exact `file.bytes.read` DTO from `mind schema file.bytes.read --json`, then:
 
 ```bash
-mind file download --input-file read.json --out downloaded.docx --workspace "$WORKSPACE" --connection "$CONNECTION" --json
+mind file download --input-file read.json --out downloaded.docx --json
 ```
 
 The output path must be new. The CLI verifies returned byte length and SHA-256 before writing; stdout contains metadata without base64. Compare its fixed version/hash/length to the save result, then perform Office semantic inspection. After replacing the same File to create v2, reread and use v2's actual version/hash for every later edit; successful v1 verification does not establish v2 content.
 
 ## Managed directories and extraction status
 
-Workspace Files live under Workspace `files/`; Project Files live under their actual Project directory. Use the supplied context and native references to distinguish them. The background scanner discovers new directory files in batches about every five seconds. A locally written file becoming visible through discovery does not produce a CLI creation Operation Receipt and is not evidence that a native create call succeeded. Use native create for requested saved deliverables. Never manually create or maintain internal `.pm-versions` content.
+Workspace Files live under Workspace `files/`; Project Files live under their actual Project directory. Use the supplied context and native references to distinguish them. Native directory discovery can make locally written files visible, but that does not produce a CLI creation Operation Receipt or prove a native create call succeeded. Use native create for requested saved deliverables. Never manually create or maintain internal `.pm-versions` content.
 
 DOCX/XLSX/PPTX currently have unavailable text extraction, rather than empty text. In detail lists, inspect `contentError.details.reason:"unsupported_format"`, `contentError.retryable:false` and the Office inspect recovery hint. Use Office inspect for supported document inspection. Other `SOURCE_NOT_READY` errors retain their own message, reason and retryability; follow that actual error rather than treating all not-ready states as unsupported or permanently non-retryable. Content search counts remain incomplete when relevant Files cannot be extracted.

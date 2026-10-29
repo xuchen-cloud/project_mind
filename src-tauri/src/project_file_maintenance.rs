@@ -261,6 +261,36 @@ fn business_event(root: &Path, event: &Event) -> bool {
             )
     })
 }
+
+#[cfg(target_os = "macos")]
+fn watch_root_identity(root: &Path) -> std::io::Result<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    let metadata = std::fs::metadata(root)?;
+    Ok((metadata.dev(), metadata.ino()))
+}
+
+#[cfg(target_os = "macos")]
+fn root_event_invalidates_watch(root: &Path, identity: &(u64, u64), event: &Event) -> bool {
+    root_subscription_event(root, event)
+        // FSEvents can deliver the rename that restored this root after the
+        // replacement subscription starts. Retire only a missing/replaced
+        // directory, not the still-current subscription receiving that event.
+        && !watch_root_identity(root).is_ok_and(|current| &current == identity)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn root_event_invalidates_watch(root: &Path, event: &Event) -> bool {
+    root_subscription_event(root, event)
+}
+
+fn root_subscription_event(root: &Path, event: &Event) -> bool {
+    event.paths.iter().any(|path| path == root)
+        && matches!(
+            event.kind,
+            EventKind::Remove(_) | EventKind::Modify(ModifyKind::Name(_))
+        )
+}
+
 impl Driver {
     /// Catalogue checks read SQLite only. Only explicitly activated scopes
     /// subscribe and start discovery; subsequent scans require native events.
@@ -304,6 +334,8 @@ impl Driver {
                 // Canonical paths match native events on macOS (/var versus
                 // /private/var). Canonicalization also reports a missing root.
                 let watched_root = root.canonicalize()?;
+                #[cfg(target_os = "macos")]
+                let root_identity = watch_root_identity(&watched_root)?;
                 let pending = Arc::clone(&progress.pending);
                 let wake = Arc::clone(&self.wake);
                 let callback_root = watched_root.clone();
@@ -314,13 +346,13 @@ impl Driver {
                         let changed = match event {
                             Ok(event) => {
                                 let changed = pending.record_event(&callback_root, &event);
-                                pending.invalidated |=
-                                    event.paths.iter().any(|path| path == &callback_root)
-                                        && matches!(
-                                            event.kind,
-                                            EventKind::Remove(_)
-                                                | EventKind::Modify(ModifyKind::Name(_))
-                                        );
+                                #[cfg(target_os = "macos")]
+                                let invalidated = root_event_invalidates_watch(
+                                    &callback_root, &root_identity, &event,
+                                );
+                                #[cfg(not(target_os = "macos"))]
+                                let invalidated = root_event_invalidates_watch(&callback_root, &event);
+                                pending.invalidated |= invalidated;
                                 changed || pending.invalidated
                             }
                             Err(error) => {
@@ -784,6 +816,36 @@ mod tests {
             }
         }
         panic!("dirty scopes did not finish their bounded scans");
+    }
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn root_rename_notifications_only_retire_missing_or_replaced_directories() {
+        use notify::event::RenameMode;
+        let workspace = tempfile::tempdir().unwrap();
+        let root = workspace.path().join("project");
+        let offline = workspace.path().join("offline");
+        fs::create_dir(&root).unwrap();
+        let root = root.canonicalize().unwrap();
+        let identity = watch_root_identity(&root).unwrap();
+        let rename = Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::Any)))
+            .add_path(root.clone());
+        let removed = Event::new(EventKind::Remove(notify::event::RemoveKind::Folder))
+            .add_path(root.clone());
+        assert!(!root_event_invalidates_watch(&root, &identity, &rename));
+        fs::rename(&root, &offline).unwrap();
+        assert!(root_event_invalidates_watch(&root, &identity, &rename));
+        assert!(root_event_invalidates_watch(&root, &identity, &removed));
+        fs::rename(&offline, &root).unwrap();
+        assert!(
+            !root_event_invalidates_watch(&root, &identity, &rename),
+            "a delayed restore event must not retire the recovered subscription"
+        );
+        fs::rename(&root, &offline).unwrap();
+        fs::create_dir(&root).unwrap();
+        assert!(
+            root_event_invalidates_watch(&root, &identity, &rename),
+            "a replacement at the same path still needs a new subscription"
+        );
     }
     fn finish_project_scan(
         driver: &mut Driver,

@@ -37,7 +37,7 @@ export function bindingPrompt(cli, platform = process.platform) {
   const executable = `${platform === 'win32' ? '& ' : ''}${quote(cli.executable)}`;
   const flags = `--workspace ${quote(cli.workspace)} --connection ${cli.connection}`;
   const scopeFlags = cli.projectId === null ? '--workspace-scope' : `--project ${cli.projectId}`;
-  return `Project Mind has a built-in native CLI binding. Use the project-mind-cli Skill and existing mind commands (--help, capabilities, schema) for native operations.\nThe following command fragments are quoted for ${platform === 'win32' ? 'PowerShell' : 'POSIX shell'}; preserve their quoting when using them. Bundled executable: ${executable} (also available as mind on the tool shell PATH). Binding flags: ${flags}. Operation scope (only for commands accepting scope): ${scopeFlags}. Offline --help/capabilities/schema take no binding or scope flags; doctor uses binding flags without Project/Workspace scope. JSON input carries its own scope; do not append shorthand scope flags.\nFor a new DOCX deliverable use file_office_create with restricted HTML and a stable request_id; verify its native receipt and exact version/hash plus file_office_inspect semantic readback. Directory discovery does not establish a CLI creation receipt.\nUse the CLI for native Record/Todo reads and mutations, and report saved results using the native operation receipt. Directory files are not Records or Todos. Use the supplied binding; do not search for credentials or access databases as a substitute. Permissions and the current execution mode constrain every operation.`;
+  return `Project Mind has a built-in native CLI binding. The tool shell provides mind on PATH and injects the current Workspace, connection and scope. Start with mind grep -F 'keyword', mind record list, or mind record get ID; use --help for options and the project-mind-cli Skill for editing. These commands need no repeated binding flags in this shell.\nExplicit binding fragments below are quoted for ${platform === 'win32' ? 'PowerShell' : 'POSIX shell'}; preserve their quoting. Bundled executable: ${executable}. Binding flags: ${flags}. Operation scope (only for commands accepting scope): ${scopeFlags}. Offline --help/capabilities/schema take no binding or scope flags; doctor uses binding without Project/Workspace scope. JSON input carries its own scope; do not append shorthand scope flags.\nFor a new DOCX deliverable use file_office_create with restricted HTML and a stable request_id; verify its native receipt and exact version/hash plus file_office_inspect semantic readback. Directory discovery does not establish a CLI creation receipt.\nUse the CLI for native Record/Todo reads and mutations, and report saved results using the native operation receipt. Directory files are not Records or Todos. Use the supplied binding; do not search for credentials or access databases as a substitute. Permissions and the current execution mode constrain every operation.`;
 }
 
 export function installMindCli(ctx, context, cli, bridge) {
@@ -91,6 +91,10 @@ export function installMindCli(ctx, context, cli, bridge) {
             PROJECT_MIND_CLI_DISCOVERY: binding.discovery,
             PROJECT_MIND_CLI_TOKEN: lease.token,
             PROJECT_MIND_SESSION_ID: sessionId,
+            PROJECT_MIND_WORKSPACE: binding.workspace,
+            PROJECT_MIND_CONNECTION: binding.connection,
+            PROJECT_MIND_PROJECT_ID: binding.projectId === null ? '' : String(binding.projectId),
+            PROJECT_MIND_WORKSPACE_SCOPE: binding.projectId === null ? '1' : '',
           } });
           entry.handle = handle;
           if (disposed) handle.kill();

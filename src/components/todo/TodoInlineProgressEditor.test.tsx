@@ -275,6 +275,9 @@ describe("TodoInlineProgressEditor", () => {
       {
         id: 15,
         name: "李四",
+        nicknames: "",
+        notes: "",
+        revision: 1,
         pinyinFull: "li si",
         pinyinAbbr: "ls",
         email: "",

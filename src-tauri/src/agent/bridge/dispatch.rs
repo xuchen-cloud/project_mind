@@ -47,6 +47,9 @@ where
         token,
         input: &input,
     };
+    if matches!(input.method.as_str(), "contact.list"|"contact.search"|"contact.get"|"contact.create"|"contact.update") {
+        return super::contacts::execute(&connection,record,&input.method,input.params.clone()).await;
+    }
     if matches!(input.method.as_str(), "connection.status" | "project.list" | "context.get") {
         return connection.with_authenticated(|binding, db, workspace_name, request| {
             registry::validate(&input.method, &input.params)?;
@@ -108,7 +111,7 @@ where
         | "file.content.begin" | "file.content.chunk" | "file.content.complete" | "file.content.status" => {
             return super::file_writes::execute(&connection, record, &request, &input.method, input.params.clone()).await;
         }
-        "record.create" | "record.create.preview" | "record.patch" | "record.patch.preview" | "record.restore" | "todo.create" | "todo.update" | "operation.get"
+        "record.create" | "record.create.preview" | "record.patch" | "record.patch.preview" | "record.text.patch" | "record.text.patch.preview" | "record.restore" | "todo.create" | "todo.update" | "operation.get"
         | "operation.list" | "operation.undo" | "operation.restore_created" => {
             return super::record_writes::execute(&connection, record, &request, &input.method, input.params.clone()).await;
         }
@@ -247,7 +250,7 @@ impl BridgeHandler for AppBridge {
                 "source.search" => Some("source.search"),
                 "source.read" | "file.source.read" | "file.bytes.read" => Some("source.read"),
                 "file.create" | "file.patch" | "file.update" | "file.version.restore" |
-                "record.create" | "record.patch" | "record.restore" | "todo.create" | "todo.update" => Some("output.commit"),
+                "record.create" | "record.patch" | "record.text.patch" | "record.restore" | "todo.create" | "todo.update" => Some("output.commit"),
                 _ => None,
             };
             let result = if input.method.starts_with("schedule.") {

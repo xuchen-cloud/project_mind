@@ -13,7 +13,7 @@ The commands below use **Bash** binding syntax; PowerShell callers should first 
 ```bash
 mind schedule --help
 mind schema schedule.create --json
-mind schedule list --workspace "$WORKSPACE" --connection "$CONNECTION" --json
+mind schedule list --json
 ```
 
 When the user asks in natural language to schedule work, resolve the name, instruction, local first date/time and repetition, then create it through the CLI. Ask only for information that materially affects the requested schedule. Do not just promise to remember or create a Todo. The Host supplies the system's local IANA time zone; do not invent a `timeZone` field.
@@ -49,16 +49,16 @@ Example JSON for weekdays at 09:00 (replace the date, request ID and Session wit
 }
 ```
 
-Send this DTO using [Shell input](shell-input.md): Bash can use `--input-file -` on stdin; PowerShell should use the UTF-8 temporary-file recipe. Supply the Workspace/connection flags and omit shorthand `--workspace-scope`/`--project` when using JSON input. Retain the same requestId and exact payload if an outcome is uncertain: replay is idempotent, and reusing the ID for a different payload is rejected.
+Send this DTO using [Shell input](shell-input.md): Bash can use `--input-file -` on stdin; PowerShell should use the UTF-8 temporary-file recipe. Reuse runtime binding defaults (or the external binding flags) and omit shorthand `--workspace-scope`/`--project` when using JSON input. Retain the same requestId and exact payload if an outcome is uncertain: replay is idempotent, and reusing the ID for a different payload is rejected.
 
 ## Manage and verify
 
 Use `schedule.list` to obtain actual task IDs and current fields. Update takes `{ "requestId": "...", "input": { "id": "...", "task": { ...complete task input... } } }`. Preserve the original `sessionId`. Set `enabled:false` to pause and `enabled:true` to resume; do not delete/recreate for an edit.
 
-Manual execution takes `{ "requestId": "...", "input": { "id": "..." } }` through `mind schedule run` with the [Shell input](shell-input.md) transport and supplied Workspace/connection flags. It sends the saved instructions to the original Session once, even when paused, and preserves the rule, enabled state and next scheduled occurrence. This starts real work: run only when the user requests a run or an immediate validation. Retain the requestId for uncertain retries; a deliberate second run needs a new requestId. Success confirms durable message delivery, not AI completion. In task management, **立即执行** opens the original conversation after delivery so the user can inspect the result.
+Manual execution takes `{ "requestId": "...", "input": { "id": "..." } }` through `mind schedule run` with the [Shell input](shell-input.md) transport and the current binding. It sends the saved instructions to the original Session once, even when paused, and preserves the rule, enabled state and next scheduled occurrence. This starts real work: run only when the user requests a run or an immediate validation. Retain the requestId for uncertain retries; a deliberate second run needs a new requestId. Success confirms durable message delivery, not AI completion. In task management, **立即执行** opens the original conversation after delivery so the user can inspect the result.
 
 Delete takes `{ "requestId": "...", "input": { "id": "..." } }` and stops future triggers while retaining existing conversation messages. `mind schema schedule.update --json` and `mind schema schedule.delete --json` expose the precise DTOs.
 
 Verify success by reading `schedule.list` and report the saved title, local time zone and next occurrence. Scheduled Tasks have persistent request replay rather than a native Record/Todo Operation Receipt. Never claim creation from an unsaved draft or tool intent.
 
-The application must be running with that Workspace open and unlocked. On recovery only the latest missed occurrence is caught up. The feature does not run in the cloud or while the computer is off. Errors appear in task management; receipt of a scheduled message does not prove AI completed the work.
+The application must be running with that Workspace open. On recovery only the latest missed occurrence is caught up. The feature does not run in the cloud or while the computer is off. Errors appear in task management; receipt of a scheduled message does not prove AI completed the work.

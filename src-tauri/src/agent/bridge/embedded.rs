@@ -37,6 +37,7 @@ const WRITE_OPERATIONS: [&str; 7] = [
     "file.restore",
     "operation.undo",
 ];
+const CONTACT_OPERATIONS: [&str; 2] = ["contact.read", "contact.write"];
 const MAX_LEASES: usize = 64;
 // Reserve a native-only ID namespace so external transport rejects these grants
 // even if another local process has access to the OS credential store.
@@ -106,6 +107,7 @@ fn grant_input(project_id: Option<i64>) -> ConnectionCreateInput {
     if project_id.is_none() {
         write_operations.push("schedule.manage".into());
     }
+    write_operations.extend(CONTACT_OPERATIONS.map(str::to_owned));
     ConnectionCreateInput {
         client_label: "Built-in DSH Mind CLI".into(),
         workspace_content: project_id.is_none(),
@@ -128,6 +130,7 @@ fn validate_grant(
     ];
     operations.extend(WRITE_OPERATIONS);
     operations.push("operation.restore_created");
+    operations.extend(CONTACT_OPERATIONS);
     if project_id.is_none() {
         operations.extend(["schedule.read", "schedule.manage"]);
     }
@@ -135,6 +138,7 @@ fn validate_grant(
     let mut actual: Vec<&str> = grant.operations.iter().map(String::as_str).collect();
     actual.sort_unstable();
     if grant.id != grant_id(&binding.workspace_id, project_id)
+        || grant.client_label != expected.client_label
         || grant.workspace_id != binding.workspace_id
         || grant.workspace_content != expected.workspace_content
         || grant.project_ids != expected.project_ids
@@ -147,6 +151,48 @@ fn validate_grant(
         return Err(denied());
     }
     Ok(())
+}
+
+/// Recognize the two actual pre-contacts native shapes: per-Project and
+/// Workspace grants, including the earlier Workspace grant before scheduling
+/// and dynamic Project membership. Every other field must match exactly.
+pub(crate) fn upgraded_grant(
+    grant: &ConnectionGrant,
+    binding: &WorkspaceBinding,
+) -> AgentResult<ConnectionGrant> {
+    let project_id = if grant.id == grant_id(&binding.workspace_id, None) {
+        None
+    } else if let [project_id] = grant.project_ids.as_slice() {
+        if grant.id != grant_id(&binding.workspace_id, Some(*project_id)) || *project_id <= 0 {
+            return Err(denied());
+        }
+        Some(*project_id)
+    } else {
+        return Err(denied());
+    };
+    let mut upgraded = grant.clone();
+    let has_contacts = grant
+        .operations
+        .iter()
+        .any(|operation| CONTACT_OPERATIONS.contains(&operation.as_str()));
+    if project_id.is_none() && !grant.all_projects {
+        // This older version predates both scheduling and contact permissions;
+        // neither may already be present, even as a partial/duplicated set.
+        if has_contacts {
+            return Err(denied());
+        }
+        upgraded.all_projects = true;
+        upgraded
+            .operations
+            .extend(["schedule.read".into(), "schedule.manage".into()]);
+    }
+    if !has_contacts {
+        upgraded
+            .operations
+            .extend(CONTACT_OPERATIONS.map(str::to_owned));
+    }
+    validate_grant(&upgraded, binding, project_id)?;
+    Ok(upgraded)
 }
 
 // Credential I/O is injected only here so fixture tests exercise persistent grant
@@ -175,38 +221,15 @@ fn ensure_grant(
     secrets: &impl CredentialStore,
 ) -> AgentResult<(String, String)> {
     let id = grant_id(&binding.workspace_id, project_id);
-    let grants = db.agent_connection_list(binding)?;
-    if let Some(grant) = grants.iter().find(|grant| grant.id == id) {
+    if let Some(grant) = db.agent_connection_embedded_grant(binding, &id)? {
         let token = secrets.load(&id)?;
-        if project_id.is_none() && !grant.all_projects {
-            let mut upgraded = grant.clone();
-            upgraded.all_projects = true;
-            upgraded
-                .operations
-                .extend(["schedule.read".into(), "schedule.manage".into()]);
-            if grant.client_label != grant_input(None).client_label {
-                return Err(denied());
-            }
-            validate_grant(&upgraded, binding, None)?;
-            db.agent_connection_upgrade_embedded_workspace_grant(
-                binding,
-                grant,
-                &token,
-                &upgraded.operations,
-            )?;
-        } else {
-            validate_grant(grant, binding, project_id)?;
+        let upgraded = upgraded_grant(&grant, binding)?;
+        validate_grant(&upgraded, binding, project_id)?;
+        if grant.all_projects != upgraded.all_projects || grant.operations != upgraded.operations {
+            db.agent_connection_upgrade_embedded_grant(binding, &grant, &token)?;
         }
         db.agent_connection_authenticate(binding, &id, &token, "embedded-start")?;
         return Ok((id, token));
-    }
-    // The public list is capped. Fail closed rather than overwriting a credential
-    // for an older grant hidden by the cap (including revoked grants).
-    if grants.len() >= 1000 {
-        return Err(AgentError::new(
-            ErrorCode::BudgetExceeded,
-            "Cannot resolve embedded connection in capped grant list",
-        ));
     }
     let token = secret();
     secrets.save(&id, &token)?;
@@ -231,7 +254,10 @@ pub(crate) fn native_workspace_request(
 /// Office creation uses the same persistent caller as this Project's supplied
 /// CLI binding, so its creation receipt can be recovered after a runtime restart.
 pub(crate) fn native_project_request(
-    db: &Database, binding: &WorkspaceBinding, project_id: i64, request_id: &str,
+    db: &Database,
+    binding: &WorkspaceBinding,
+    project_id: i64,
+    request_id: &str,
 ) -> AgentResult<crate::agent::access::RequestContext> {
     let (id, token) = ensure_grant(db, binding, Some(project_id), &NativeCredentials)?;
     db.agent_connection_authenticate(binding, &id, &token, request_id)

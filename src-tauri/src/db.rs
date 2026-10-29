@@ -1,4 +1,5 @@
 pub(crate) mod agent;
+pub(crate) mod contacts;
 mod agent_connections;
 mod agent_references;
 mod agent_connection_operations;
@@ -16,6 +17,7 @@ mod workspace_overview_schema;
 mod agent_memory_schema;
 mod agent_runtime_schema;
 mod agent_operations;
+pub(crate) use agent_operations::OperationChange;
 mod agent_operation_batches;
 mod agent_creation_batches;
 mod agent_creation_references;
@@ -45,6 +47,7 @@ pub(crate) mod agent_memory;
 pub(crate) mod memory_service;
 mod agent_instructions;
 mod record_documents;
+mod record_read;
 mod record_references;
 mod workspace_record_references;
 mod sources;
@@ -151,7 +154,7 @@ const VOICE_RECOVERY_SCHEMA_VERSION: i64 = 25;
 const AGENT_FOUNDATION_SCHEMA_VERSION: i64 = 26;
 const RECORD_DOCUMENT_SCHEMA_VERSION: i64 = 28;
 const AGENT_RUNTIME_SCHEMA_VERSION: i64 = 29;
-const CURRENT_SCHEMA_VERSION: i64 = 38;
+const CURRENT_SCHEMA_VERSION: i64 = 39;
 const PROJECT_KIND_NORMAL: &str = "normal";
 const AI_CAPABILITIES: [&str; 2] = ["default", "image_default"];
 const RICH_TEXT_FONT_PRESETS: [&str; 4] = [
@@ -422,6 +425,9 @@ impl Database {
         if initial_schema_version == CURRENT_SCHEMA_VERSION {
             return Ok(());
         }
+        if initial_schema_version == 38 {
+            return self.ensure_contacts_schema();
+        }
         if initial_schema_version > CURRENT_SCHEMA_VERSION {
             anyhow::bail!("Workspace database schema is newer than this application");
         }
@@ -548,6 +554,10 @@ impl Database {
               employee_id TEXT NOT NULL DEFAULT '',
               role TEXT NOT NULL DEFAULT '',
               department TEXT NOT NULL DEFAULT '',
+              nicknames TEXT NOT NULL DEFAULT '',
+              nickname_pinyin TEXT NOT NULL DEFAULT '',
+              notes TEXT NOT NULL DEFAULT '',
+              revision INTEGER NOT NULL DEFAULT 1 CHECK(revision>0),
               created_at TEXT NOT NULL,
               updated_at TEXT NOT NULL
             );
@@ -911,6 +921,7 @@ impl Database {
         // Publish the current version only after every preceding schema step
         // succeeds. An interrupted initialization remains eligible for retry.
         self.ensure_workspace_file_schema()?;
+        self.ensure_contacts_schema()?;
         Ok(())
     }
 
@@ -2707,156 +2718,6 @@ impl Database {
 
         let tag_id = self.upsert_file_tag_by_label(input.project_id, &label, &color_key, &now)?;
         self.file_tag_record(tag_id)
-    }
-
-    pub fn contact_list(&self) -> Result<Vec<ContactRecord>> {
-        let mut stmt = self.conn.prepare(
-            r#"
-            SELECT id
-            FROM contacts
-            ORDER BY created_at DESC, id DESC
-            "#,
-        )?;
-        let ids = stmt
-            .query_map([], |row| row.get::<_, i64>(0))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-
-        ids.into_iter()
-            .map(|contact_id| self.contact_record(contact_id))
-            .collect()
-    }
-
-    pub fn contact_search(&self, input: ContactSearchInput) -> Result<Vec<ContactRecord>> {
-        let query = input.query.trim();
-        let limit = input.limit.unwrap_or(20).clamp(1, 100);
-
-        if query.is_empty() {
-            let mut stmt = self.conn.prepare(
-                r#"
-                SELECT id
-                FROM contacts
-                ORDER BY created_at DESC, id DESC
-                LIMIT ?1
-                "#,
-            )?;
-            let ids = stmt
-                .query_map([limit], |row| row.get::<_, i64>(0))?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
-            return ids
-                .into_iter()
-                .map(|contact_id| self.contact_record(contact_id))
-                .collect();
-        }
-
-        let pattern = format!("%{}%", query.to_lowercase());
-        let mut stmt = self.conn.prepare(
-            r#"
-            SELECT id
-            FROM contacts
-            WHERE LOWER(name) LIKE ?1
-               OR LOWER(pinyin_full) LIKE ?1
-               OR LOWER(pinyin_abbr) LIKE ?1
-               OR LOWER(email) LIKE ?1
-               OR LOWER(employee_id) LIKE ?1
-               OR LOWER(role) LIKE ?1
-               OR LOWER(department) LIKE ?1
-            ORDER BY
-              CASE
-                WHEN LOWER(name) = LOWER(?2) THEN 0
-                WHEN LOWER(pinyin_full) = LOWER(?2) THEN 1
-                WHEN LOWER(pinyin_abbr) = LOWER(?2) THEN 2
-                ELSE 3
-              END,
-              created_at DESC,
-              id DESC
-            LIMIT ?3
-            "#,
-        )?;
-        let ids = stmt
-            .query_map(params![pattern, query, limit], |row| row.get::<_, i64>(0))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-
-        ids.into_iter()
-            .map(|contact_id| self.contact_record(contact_id))
-            .collect()
-    }
-
-    pub fn contact_upsert(&mut self, input: ContactUpsertInput) -> Result<ContactRecord> {
-        let name = validate_contact_name(&input.name)?;
-        let email = normalize_contact_field(input.email.as_deref(), "email", 128)?;
-        let employee_id = normalize_contact_field(input.employee_id.as_deref(), "employee id", 64)?;
-        let role = normalize_contact_field(input.role.as_deref(), "role", 64)?;
-        let department = normalize_contact_field(input.department.as_deref(), "department", 64)?;
-        let pinyin_full = normalize_contact_pinyin(
-            input.pinyin_full.as_deref(),
-            &derive_contact_search_text(&name),
-            "pinyin full",
-        )?;
-        let pinyin_abbr = normalize_contact_pinyin(
-            input.pinyin_abbr.as_deref(),
-            &derive_contact_search_abbr(&pinyin_full),
-            "pinyin abbreviation",
-        )?;
-        let now = now_iso();
-
-        if let Some(contact_id) = input.id {
-            self.contact_record(contact_id)?;
-            self.conn.execute(
-                r#"
-                UPDATE contacts
-                SET name = ?1,
-                    pinyin_full = ?2,
-                    pinyin_abbr = ?3,
-                    email = ?4,
-                    employee_id = ?5,
-                    role = ?6,
-                    department = ?7,
-                    updated_at = ?8
-                WHERE id = ?9
-                "#,
-                params![
-                    name,
-                    pinyin_full,
-                    pinyin_abbr,
-                    email,
-                    employee_id,
-                    role,
-                    department,
-                    now.clone(),
-                    contact_id
-                ],
-            )?;
-            return self.contact_record(contact_id);
-        }
-
-        self.conn.execute(
-            r#"
-            INSERT INTO contacts (
-              name, pinyin_full, pinyin_abbr, email, employee_id, role, department, created_at, updated_at
-            )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
-            "#,
-            params![
-                name,
-                pinyin_full,
-                pinyin_abbr,
-                email,
-                employee_id,
-                role,
-                department,
-                now,
-                now
-            ],
-        )?;
-
-        self.contact_record(self.conn.last_insert_rowid())
-    }
-
-    pub fn contact_delete(&mut self, input: ContactDeleteInput) -> Result<ContactRecord> {
-        let current = self.contact_record(input.contact_id)?;
-        self.conn
-            .execute("DELETE FROM contacts WHERE id = ?1", [input.contact_id])?;
-        Ok(current)
     }
 
     pub fn project_record_upsert(&mut self, input: ProjectRecordUpsertInput) -> Result<NoteRecord> {
@@ -4714,6 +4575,7 @@ impl Database {
             " AND p.is_archived = 0".to_string()
         };
         let mut candidates = Vec::new();
+        let mut contact_ranks = HashMap::new();
 
         let project_sql = format!(
             "SELECT p.id, p.name, p.summary, p.updated_at FROM projects p WHERE (p.name LIKE ?1 OR p.summary LIKE ?1){}",
@@ -4818,76 +4680,27 @@ impl Database {
         })?;
         candidates.extend(rows.collect::<rusqlite::Result<Vec<_>>>()?);
 
-        let contact_sql = r#"
-            SELECT
-              id,
-              name,
-              pinyin_full,
-              pinyin_abbr,
-              email,
-              employee_id,
-              role,
-              department,
-              updated_at
-            FROM contacts
-            WHERE name LIKE ?1
-              OR pinyin_full LIKE ?1
-              OR pinyin_abbr LIKE ?1
-              OR email LIKE ?1
-              OR employee_id LIKE ?1
-              OR role LIKE ?1
-              OR department LIKE ?1
-        "#;
-        let mut stmt = self.conn.prepare(contact_sql)?;
-        let rows = stmt.query_map([pattern.as_str()], |row| {
-            let name: String = row.get(1)?;
-            let pinyin_full: String = row.get(2)?;
-            let pinyin_abbr: String = row.get(3)?;
-            let email: String = row.get(4)?;
-            let employee_id: String = row.get(5)?;
-            let role: String = row.get(6)?;
-            let department: String = row.get(7)?;
-            let subtitle = [department.as_str(), role.as_str(), email.as_str()]
-                .into_iter()
-                .filter(|value| !value.trim().is_empty())
-                .collect::<Vec<_>>()
-                .join(" · ");
-
-            Ok(WorkspaceSearchCandidate {
-                result: WorkspaceSearchResult {
-                    kind: "contact".to_string(),
-                    id: row.get(0)?,
-                    scope: None,
-                    project_id: None,
-                    source: None,
-                    title: name.clone(),
-                    subtitle,
-                    matched_text: workspace_search_match_excerpt(
-                        &[
-                            name.as_str(),
-                            pinyin_full.as_str(),
-                            pinyin_abbr.as_str(),
-                            email.as_str(),
-                            employee_id.as_str(),
-                            role.as_str(),
-                            department.as_str(),
-                        ],
-                        query,
-                    ),
-                },
-                fields: build_workspace_search_fields([
-                    (WORKSPACE_SEARCH_PRIORITY_CONTACT_NAME, name),
-                    (WORKSPACE_SEARCH_PRIORITY_CONTACT_NAME, pinyin_full),
-                    (WORKSPACE_SEARCH_PRIORITY_CONTACT_NAME, pinyin_abbr),
-                    (WORKSPACE_SEARCH_PRIORITY_CONTACT_META, email),
-                    (WORKSPACE_SEARCH_PRIORITY_CONTACT_META, employee_id),
-                    (WORKSPACE_SEARCH_PRIORITY_CONTACT_META, role),
-                    (WORKSPACE_SEARCH_PRIORITY_CONTACT_META, department),
-                ]),
-                updated_at: row.get(8)?,
-            })
-        })?;
-        candidates.extend(rows.collect::<rusqlite::Result<Vec<_>>>()?);
+        contacts::visit_matches(&self.conn, query, |contact| {
+            let rank = contacts::search_rank(&contact, query).expect("matched nonempty contact query");
+            contact_ranks.insert(contact.id, WorkspaceSearchRank {
+                field_priority: if rank.field_priority == 6 { WORKSPACE_SEARCH_PRIORITY_CONTACT_META }
+                    else { WORKSPACE_SEARCH_PRIORITY_CONTACT_NAME + rank.field_priority },
+                match_kind: rank.match_kind,
+            });
+            let subtitle = [&contact.department, &contact.role, &contact.email]
+                .into_iter().filter(|value| !value.trim().is_empty()).cloned().collect::<Vec<_>>().join(" · ");
+            let fields = [&contact.name, &contact.pinyin_full, &contact.pinyin_abbr, &contact.email,
+                &contact.employee_id, &contact.role, &contact.department, &contact.nicknames, &contact.nickname_pinyin, &contact.notes];
+            let excerpt_query = query.split_whitespace().find(|term| fields.iter()
+                .any(|value| value.to_lowercase().contains(&term.to_lowercase()))).unwrap_or(query);
+            let refs = fields.map(String::as_str);
+            let matched_text = workspace_search_match_excerpt(&refs, excerpt_query);
+            candidates.push(WorkspaceSearchCandidate {
+                result: WorkspaceSearchResult {kind:"contact".into(),id:contact.id,scope:None,
+                    project_id:None,source:None,title:contact.name.clone(),subtitle,matched_text},
+                fields: Vec::new(), updated_at:contact.updated_at,
+            });
+        }).map_err(|error|anyhow!(error.message))?;
 
         let note_sql = format!(
             r#"
@@ -5142,8 +4955,13 @@ impl Database {
         let mut ranked = candidates
             .into_iter()
             .filter_map(|candidate| {
-                rank_workspace_search_candidate(&candidate, query)
-                    .map(|rank| (candidate.result, candidate.updated_at, rank))
+                // Contacts were matched with shared cross-field AND semantics.
+                // Rank their actual per-term evidence without requiring the full
+                // multi-word query to appear inside one field a second time.
+                let rank = if candidate.result.kind == "contact" {
+                    contact_ranks.get(&candidate.result.id).copied()
+                } else { rank_workspace_search_candidate(&candidate, query) };
+                rank.map(|rank| (candidate.result, candidate.updated_at, rank))
             })
             .collect::<Vec<_>>();
 
@@ -6360,43 +6178,6 @@ impl Database {
         ids.into_iter()
             .map(|tag_id| self.file_tag_record(tag_id))
             .collect()
-    }
-
-    fn contact_record(&self, contact_id: i64) -> Result<ContactRecord> {
-        self.conn
-            .query_row(
-                r#"
-                SELECT
-                  id,
-                  name,
-                  pinyin_full,
-                  pinyin_abbr,
-                  email,
-                  employee_id,
-                  role,
-                  department,
-                  created_at,
-                  updated_at
-                FROM contacts
-                WHERE id = ?1
-                "#,
-                [contact_id],
-                |row| {
-                    Ok(ContactRecord {
-                        id: row.get(0)?,
-                        name: row.get(1)?,
-                        pinyin_full: row.get(2)?,
-                        pinyin_abbr: row.get(3)?,
-                        email: row.get(4)?,
-                        employee_id: row.get(5)?,
-                        role: row.get(6)?,
-                        department: row.get(7)?,
-                        created_at: row.get(8)?,
-                        updated_at: row.get(9)?,
-                    })
-                },
-            )
-            .map_err(Into::into)
     }
 
     fn replace_note_tags(&self, note_id: i64, tag_ids: &[i64], timestamp: &str) -> Result<()> {
@@ -11778,6 +11559,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
         let created = database
             .contact_upsert(ContactUpsertInput {
                 id: None,
+                base_revision: None,
                 name: "张三".to_string(),
                 pinyin_full: Some("zhangsan".to_string()),
                 pinyin_abbr: Some("zs".to_string()),
@@ -11785,6 +11567,9 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
                 employee_id: Some("E007".to_string()),
                 role: Some("PM".to_string()),
                 department: Some("Product".to_string()),
+                nicknames: None,
+                nickname_pinyin: None,
+                notes: None,
             })
             .unwrap();
 
@@ -11811,6 +11596,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
         let updated = database
             .contact_upsert(ContactUpsertInput {
                 id: Some(created.id),
+                base_revision: None,
                 name: "张三丰".to_string(),
                 pinyin_full: Some("zhangsanfeng".to_string()),
                 pinyin_abbr: Some("zsf".to_string()),
@@ -11818,6 +11604,9 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
                 employee_id: Some("E008".to_string()),
                 role: Some("Tech Lead".to_string()),
                 department: Some("Engineering".to_string()),
+                nicknames: None,
+                nickname_pinyin: None,
+                notes: None,
             })
             .unwrap();
         assert_eq!(updated.name, "张三丰");

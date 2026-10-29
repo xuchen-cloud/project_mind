@@ -2,6 +2,8 @@
 
 Before any Todo, Record or File mutation, read [Binding and authorization](binding.md), then follow this guide and the object-specific guide linked below. Command examples use **Bash**; PowerShell must use [Shell input](shell-input.md#powershell).
 
+For address-book changes use [Contacts](contacts.md) instead: contact permissions and receipts are separate, and the recovery/undo APIs below do not cover contacts.
+
 ## Apply the requested change
 
 Before creating, modifying or appending to a Todo, Record or File:
@@ -12,14 +14,15 @@ Before creating, modifying or appending to a Todo, Record or File:
 
 For an existing target, read the content needed for the edit and keep its current CAS baseline: Todo `expectedRevision`, Record `baseRevision`, File `expectedVersionNumber` and `expectedContentHash`. Reuse a sufficient current native read; reread after intervening changes or a conflict. Build the mutation from the method schema and the relevant branch guide.
 
-Allocate one stable request ID per intended mutation (1–128 UTF-8 bytes) and retain it with the exact payload, excluding credentials. Most writes use `{"requestId":"…","input":{…}}`; `record.patch` takes native RecordPatch JSON. If also supplied as `--request-id`, the ID must match the payload. Preview/staging is not a save.
+Allocate one stable request ID per intended mutation (1–128 UTF-8 bytes) and retain it with the exact payload, excluding credentials. Record `replace|append|edit` shortcuts take text files, `--base-revision` and `--request-id` as described in [Record edits](record-file.md#record-text-edits). Advanced DTO writes usually use `{"requestId":"…","input":{…}}`; `record.patch` takes native RecordPatch JSON. If also supplied as `--request-id`, the ID must match the payload. Preview/staging is not a save.
 
-The current Todo/Record/File methods settle each object's mutation independently, keeping recovery and undo tied to its native receipt/version. Batch creation is deferred until actual multi-object volume or call costs justify defining batch authorization, atomicity and undo; stable request IDs can support such a design. Use the installed per-object methods for current work.
+Each object's mutation settles independently, with recovery/undo tied to its native receipt/version. Keep a separate stable identity and readback for each intended mutation.
 
 ### Recover from the actual outcome
 
-Read JSON stdout even on a failed process: responses contain `ok` and either `data` or `error`. Inspect `error.code`, `message`, `retryable` and `details`.
+Mutation commands return JSON; read stdout even on a failed process: responses contain `ok` and either `data` or `error`. Inspect `error.code`, `message`, `retryable` and `details`.
 
+- **Transport failure:** connection refusal, processing timeout and malformed protocol are distinct. Processing has a bounded default deadline that covers extraction queueing/processing. Errors expose safe `requestId`/`method`; `writeStateUnknown:true` means the server may have committed despite losing the response. The client does not retry mutations automatically.
 - **Uncertain write:** inspect receipts through the same connection's `operation.list` / `operation.get`, and replay only the original request ID with its exact payload to resolve the outcome. Never blindly allocate new IDs and repeat a possibly successful write.
 - **Revision conflict:** reread the target, reconcile the requested change with current content, then build a new mutation with the current baseline and a new stable ID. Preserve unrelated fields; never guess or increment a revision.
 - **Input failure:** correct the DTO against the schema after establishing the failed attempt did not commit; a changed payload is a new mutation.
@@ -29,7 +32,7 @@ Read JSON stdout even on a failed process: responses contain `ok` and either `da
 For a known receipt ID, this **Bash** example uses stdin; PowerShell uses the complete [Shell input recipe](shell-input.md#powershell):
 
 ```bash
-mind operation get --input-file - --workspace "$WORKSPACE" --connection "$CONNECTION" --json <<JSON
+mind operation get --input-file - --json <<JSON
 {"operationId":"$OPERATION_ID"}
 JSON
 ```
