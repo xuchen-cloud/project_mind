@@ -1,9 +1,10 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createUiStoreState, useUiStore } from "../../state/ui-store";
+import { useListPinsStore } from "../../state/list-pins-store";
 import { ProjectSidebar } from "./ProjectSidebar";
 
 function renderWithProviders(ui: React.ReactElement) {
@@ -19,6 +20,7 @@ function renderWithProviders(ui: React.ReactElement) {
 
 describe("ProjectSidebar records", () => {
   beforeEach(() => {
+    useListPinsStore.setState({ pins: {} });
     useUiStore.setState(createUiStoreState());
   });
 
@@ -223,4 +225,20 @@ describe("ProjectSidebar records", () => {
 
     expect(onDeleteRecord).toHaveBeenCalledWith(expect.objectContaining({ id: 11 }));
   });
+
+  it("sorts by modification and supports pinning without rename or delete callbacks", () => {
+  renderWithProviders(<ProjectSidebar project={{ id: 1, name: "Alpha", rootPath: "/tmp/alpha", isArchived: false }} records={[
+    { id: 1, title: "Older", typeLabel: "记录", contentMarkdown: "", tags: [], updatedAt: "2026-04-01" },
+    { id: 2, title: "Newer", typeLabel: "记录", contentMarkdown: "", tags: [], updatedAt: "2026-04-02" },
+  ]} documents={[]} onOpenProject={vi.fn()} onOpenRecord={vi.fn()} onCreateRecord={vi.fn()} onOpenDocument={vi.fn()} />);
+  const titles = () => within(screen.getByRole("region", { name: "侧栏记录列表" })).getAllByRole("button").map(button => button.textContent);
+  expect(titles()).toEqual(["Newer", "Older"]);
+  fireEvent.contextMenu(screen.getByText("Older"));
+  fireEvent.click(screen.getByRole("menuitem", { name: "置顶" }));
+  expect(titles()).toEqual(["Older", "Newer"]);
+  expect(screen.getByLabelText("已置顶")).toBeInTheDocument();
+  fireEvent.contextMenu(screen.getByText("Older"));
+  fireEvent.click(screen.getByRole("menuitem", { name: "取消置顶" }));
+  expect(titles()).toEqual(["Newer", "Older"]);
+});
 });

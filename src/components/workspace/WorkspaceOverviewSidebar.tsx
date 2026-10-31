@@ -1,3 +1,6 @@
+import { useListPins } from "../../state/list-pins-store";
+import { sortPinnedByUpdatedAt } from "../../lib/list-order";
+import { useFeedbackStore } from "../../state/feedback-store";
 import { getRovingTabTargetIndex } from "../../ui/rovingTabs";
 import { LazySidebarSessions } from "../home/LazySidebarSessions";
 import { useFocusedProjectContent } from "../home/useFocusedProjectContent";
@@ -13,7 +16,7 @@ Archive,
 PanelLeft, ChevronLeft,
 ExternalLink,
 FolderKanban,
-Pencil,
+Pencil, Pin, PinOff,
 Plus,
 Trash2
 } from "lucide-react";
@@ -114,6 +117,40 @@ export function WorkspaceOverviewSidebar({
   onRenameRecord,
   onDeleteRecord,
 }: WorkspaceOverviewSidebarProps) {
+  const projectPins = useListPins(workspaceRootPath, "projects");
+  const recordPins = useListPins(workspaceRootPath, "workspace-records");
+  const [recordContextMenu, setRecordContextMenu] = useState<{ recordId: number; x: number; y: number } | null>(null);
+  const [editingRecordId, setEditingRecordId] = useState<number | null>(null);
+  const [recordTitleDraft, setRecordTitleDraft] = useState("");
+  const recordRenamePending = useRef<number | null>(null);
+  const recordContextRecord = records.find(record => record.id === recordContextMenu?.recordId);
+  function cancelRenameRecord() {
+    recordRenamePending.current = null;
+    setEditingRecordId(null);
+  }
+  async function runRecordAction(action: () => unknown, title: string) {
+    try { await action(); } catch (error) {
+      useFeedbackStore.getState().pushToast({ tone: "error", title, detail: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  function commitRenameRecord(record: WorkspaceOverviewSidebarRecordItem) {
+    if (recordRenamePending.current !== record.id) return;
+    const title = recordTitleDraft.trim();
+    cancelRenameRecord();
+    if (!title || title === (record.title ?? "").trim() || !onRenameRecord) return;
+    void runRecordAction(() => onRenameRecord(record, title), "重命名记录失败");
+  }
+  const recordContextMenuActions: ContextMenuAction[] = recordContextRecord ? [
+    { label: recordPins.isPinned(recordContextRecord.id) ? "取消置顶" : "置顶", icon: recordPins.isPinned(recordContextRecord.id) ? PinOff : Pin,
+      onSelect: () => { recordPins.togglePin(recordContextRecord.id); setRecordContextMenu(null); } },
+    ...(onRenameRecord ? [{ label: "重命名", icon: Pencil, onSelect: () => {
+      recordRenamePending.current = recordContextRecord.id;
+      setEditingRecordId(recordContextRecord.id); setRecordTitleDraft(recordContextRecord.title ?? ""); setRecordContextMenu(null);
+    } }] : []),
+    ...(onDeleteRecord ? [{ label: "删除", icon: Trash2, tone: "danger" as const, onSelect: () => {
+      setRecordContextMenu(null); void runRecordAction(() => onDeleteRecord(recordContextRecord), "删除记录失败");
+    } }] : []),
+  ] : [];
   const focused = useFocusedProjectContent(workspaceRootPath, null);
   const selectedRecordId = focused.activeRecordId ?? activeRecordId;
   const {
@@ -137,20 +174,20 @@ export function WorkspaceOverviewSidebar({
 
   const filteredProjects = useMemo(
     () =>
-      projects.filter((project) =>
+      sortPinnedByUpdatedAt(projects.filter((project) =>
         !normalizedProjectQuery || project.name.toLowerCase().includes(normalizedProjectQuery),
-      ),
-    [normalizedProjectQuery, projects],
+      ), projectPins.pinnedIds),
+    [normalizedProjectQuery, projects, projectPins.pinnedIds],
   );
 
   const filteredRecords = useMemo(() => {
     const query = recordQuery.trim().toLowerCase();
-    return records.filter((record) =>
+    return sortPinnedByUpdatedAt(records.filter((record) =>
       (activeRecordTagId === null || record.tags.some((tag) => tag.id === activeRecordTagId)) &&
       (!query || [record.title ?? "", record.contentMarkdown, ...record.tags.map((tag) => tag.label)]
         .some((text) => text.toLowerCase().includes(query))),
-    ).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  }, [records, recordQuery, activeRecordTagId]);
+    ), recordPins.pinnedIds);
+  }, [records, recordQuery, activeRecordTagId, recordPins.pinnedIds]);
 
   const projectContextProject = projectContextMenu
     ? projects.find((project) => project.id === projectContextMenu.projectId) ?? null
@@ -180,6 +217,9 @@ export function WorkspaceOverviewSidebar({
     () =>
       projectContextProject
         ? [
+            { label: projectPins.isPinned(projectContextProject.id) ? "取消置顶" : "置顶",
+              icon: projectPins.isPinned(projectContextProject.id) ? PinOff : Pin,
+              onSelect: () => { projectPins.togglePin(projectContextProject.id); setProjectContextMenu(null); } },
             {
               label: "重命名",
               icon: Pencil,
@@ -213,7 +253,7 @@ export function WorkspaceOverviewSidebar({
             },
           ]
         : [],
-    [onArchiveProject, onDeleteProject, onOpenProjectInNewWindow, projectContextProject],
+    [onArchiveProject, onDeleteProject, onOpenProjectInNewWindow, projectContextProject, projectPins],
   );
 
   if (projectSidebarCollapsed) {
@@ -277,6 +317,7 @@ export function WorkspaceOverviewSidebar({
                           if (isEditing) {
                             return;
                           }
+                          setRecordContextMenu(null);
                           setProjectContextMenu({
                             projectId: project.id,
                             x: event.clientX,
@@ -319,6 +360,7 @@ export function WorkspaceOverviewSidebar({
                           )}
 
                         </span>
+                        {projectPins.isPinned(project.id) ? <Pin size={12} className="shrink-0 text-text-tertiary" aria-label="已置顶" /> : null}
                       </button>
                     );
                   })
@@ -352,9 +394,17 @@ export function WorkspaceOverviewSidebar({
             {filteredRecords.map((record) => (
               <button key={record.id} type="button" className={cn("home-side__item", record.id === selectedRecordId && "is-active")}
                 aria-current={record.id === selectedRecordId ? "page" : undefined}
-                title={record.title?.trim() || "未命名记录"} onClick={() => onOpenRecord(record.id)}>
+                title={record.title?.trim() || "未命名记录"} onClick={() => { if (editingRecordId !== record.id) onOpenRecord(record.id); }}
+                onContextMenu={event => { event.preventDefault(); if (editingRecordId === record.id) return; setProjectContextMenu(null); setRecordContextMenu({ recordId: record.id, x: event.clientX, y: event.clientY }); }}>
                 <RecordIcon size={16} isVoice={record.isVoice} />
-                <span>{record.title?.trim() || "未命名记录"}</span>
+                {editingRecordId === record.id ? <input autoFocus aria-label="记录名称" className="inline-object-input min-w-0 flex-1"
+                  value={recordTitleDraft} onChange={event => setRecordTitleDraft(event.target.value)}
+                  onClick={event => event.stopPropagation()} onBlur={() => commitRenameRecord(record)}
+                  onKeyDown={event => { if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+                    if (event.key === "Escape") { event.preventDefault(); cancelRenameRecord(); }
+                    else if (event.key === "Enter") { event.preventDefault(); commitRenameRecord(record); }
+                  }} /> : <span>{record.title?.trim() || "未命名记录"}</span>}
+                {recordPins.isPinned(record.id) ? <Pin size={12} className="shrink-0 text-text-tertiary" aria-label="已置顶" /> : null}
               </button>
             ))}
             {!filteredRecords.length ? <p className="home-side__empty">{recordQuery.trim() || activeRecordTagId !== null ? "没有匹配的记录" : "暂无记录"}</p> : null}
@@ -364,6 +414,7 @@ export function WorkspaceOverviewSidebar({
             documents={documents} activeFileId={focused.activeFileId} activeRelativePath={focused.activeRelativePath} /></Suspense>} />} />
 
       <HomeSidebarFooter onOpenArchivedProjects={() => setArchiveDialogOpen(true)} />
+      {recordContextMenu ? <ActionContextMenu x={recordContextMenu.x} y={recordContextMenu.y} actions={recordContextMenuActions} ariaLabel="记录操作" onClose={() => setRecordContextMenu(null)} /> : null}
       {projectContextMenu ? (
         <ActionContextMenu
           x={projectContextMenu.x}

@@ -6,9 +6,9 @@ import { HomeSidebarList } from "./HomeSidebarList";
 import { HomeProjectFiles } from "./HomeProjectFiles";
 import { LazySidebarSessions } from "./LazySidebarSessions";
 import { HomeSidebarFooter, HomeWorkspaceIdentity } from "./HomeWorkspaceIdentity";
-import { useEffect, useMemo, useState, type ComponentProps } from "react";
+import { useMemo, useState, type ComponentProps } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronLeft, Compass, Mic, Plus, Pencil, Trash2 } from "lucide-react";
+import { ChevronLeft, Compass, Mic, Plus, Pencil, Pin, PinOff, Trash2 } from "lucide-react";
 import type { NoteRecord } from "../../lib/types";
 import { queryKeys } from "../../lib/queryKeys";
 import { projectMindApi } from "../../services/projectMindApi";
@@ -16,7 +16,8 @@ import { useUiStore, PROJECT_SIDEBAR_WIDTH_MAX_PX, PROJECT_SIDEBAR_WIDTH_MIN_PX 
 import { ActionContextMenu, ResizeHandle, SearchField } from "../../ui/components";
 import { useFeedbackStore } from "../../state/feedback-store";
 import nori from "../../assets/home/nori-bust.png";
-import { recentProjectRecordKey, rememberProjectRecord } from "./project-record-history";
+import { recordPinScope, useListPins } from "../../state/list-pins-store";
+import { sortPinnedByUpdatedAt } from "../../lib/list-order";
 import "./project-navigation.css";
 
 export function HomeProjectSidebar({
@@ -45,7 +46,7 @@ export function HomeProjectSidebar({
   const { projectSidebarCollapsed, projectSidebarWidthPx, toggleProjectSidebarCollapsed, setProjectSidebarWidthPx } = useUiStore();
   const pushToast = useFeedbackStore(state => state.pushToast);
   const [query, setQuery] = useState("");
-  const [recentIds, setRecentIds] = useState<number[]>([]);
+  const { pinnedIds, isPinned, togglePin } = useListPins(workspaceRoot, recordPinScope(projectId));
   const [menu, setMenu] = useState<{ id: number; x: number; y: number } | null>(null);
   const [editing, setEditing] = useState<{ id: number; title: string } | null>(null);
   const tagsQuery = useQuery({
@@ -53,25 +54,13 @@ export function HomeProjectSidebar({
     queryFn: () => projectMindApi.projectTagSettingsGet({ projectId }),
     staleTime: Infinity,
   });
-  useEffect(() => {
-    const update = () => {
-      try {
-        const value: unknown = JSON.parse(localStorage.getItem(recentProjectRecordKey(workspaceRoot, projectId)) ?? "[]");
-        setRecentIds(Array.isArray(value) ? value.filter((id): id is number => Number.isInteger(id)) : []);
-      } catch { setRecentIds([]); }
-    };
-    update();
-    window.addEventListener("home-record-history-changed", update);
-    return () => window.removeEventListener("home-record-history-changed", update);
-  }, [workspaceRoot, projectId]);
   const visibleRecords = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
-    const rank = new Map(recentIds.map((id, index) => [id, index]));
-    return records.filter(record =>
+    return sortPinnedByUpdatedAt(records.filter(record =>
       (selectedTagId === null || record.tags?.some(tag => tag.id === selectedTagId)) &&
       (!normalized || [record.title ?? "", record.contentMarkdown, ...(record.tags ?? []).map(tag => tag.label)].some(text => text.toLocaleLowerCase().includes(normalized)))
-    ).sort((a, b) => (rank.get(a.id) ?? Infinity) - (rank.get(b.id) ?? Infinity) || b.updatedAt.localeCompare(a.updatedAt));
-  }, [query, records, recentIds, selectedTagId]);
+    ), pinnedIds);
+  }, [query, records, pinnedIds, selectedTagId]);
   if (projectSidebarCollapsed) return <aside className="sidebar-dock sidebar-dock--left"><button type="button" className="sidebar-dock__surface" aria-label="展开项目侧边栏" onClick={toggleProjectSidebarCollapsed}><Compass size={18} /></button></aside>;
   return <aside className="home-side project-navigation" style={{ width: projectSidebarWidthPx }} aria-label="项目导航侧边栏">
     <ResizeHandle label="调整项目侧边栏宽度" edge="right" value={projectSidebarWidthPx} min={PROJECT_SIDEBAR_WIDTH_MIN_PX} max={PROJECT_SIDEBAR_WIDTH_MAX_PX} onChange={setProjectSidebarWidthPx} className="right-0" />
@@ -92,10 +81,10 @@ export function HomeProjectSidebar({
         </div></div>
         <HomeSidebarList label="项目记录列表" searchKey={`${query}:${selectedTagId}`}>
           {visibleRecords.map(record => editing?.id === record.id ? <input key={record.id} className="home-side__rename" aria-label="重命名记录" autoFocus value={editing.title} onChange={event => setEditing({ ...editing, title: event.target.value })}
-            onBlur={() => { void onRenameRecord?.(editing.id, editing.title).catch(error => pushToast({ tone: "error", title: "重命名记录失败", detail: String(error) })); setEditing(null); }} onKeyDown={event => { if (event.nativeEvent.isComposing) return; if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setEditing(null); }} /> :
+            onBlur={() => { if (editing.title.trim() !== (records.find(record => record.id === editing.id)?.title ?? "").trim()) void onRenameRecord?.(editing.id, editing.title).catch(error => pushToast({ tone: "error", title: "重命名记录失败", detail: String(error) })); setEditing(null); }} onKeyDown={event => { if (event.nativeEvent.isComposing) return; if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setEditing(null); }} /> :
             <button key={record.id} type="button" className={`home-side__item ${record.id === activeRecordId ? "is-active" : ""}`} title={record.title?.trim() || "未命名记录"}
-              onContextMenu={event => { if (!onRenameRecord && !onDeleteRecord) return; event.preventDefault(); setMenu({ id: record.id, x: event.clientX, y: event.clientY }); }}
-              onClick={() => { rememberProjectRecord(workspaceRoot, projectId, record.id); onOpenRecord(record.id); }}><RecordIcon size={12} isVoice={record.isVoice} /><span>{record.title?.trim() || "未命名记录"}</span></button>)}
+              onContextMenu={event => { event.preventDefault(); setMenu({ id: record.id, x: event.clientX, y: event.clientY }); }}
+              onClick={() => onOpenRecord(record.id)}><RecordIcon size={12} isVoice={record.isVoice} /><span>{record.title?.trim() || "未命名记录"}</span>{isPinned(record.id) ? <Pin size={12} aria-label="已置顶" /> : null}</button>)}
           {!visibleRecords.length ? <p className="home-side__empty">{query.trim() || selectedTagId !== null ? "没有匹配的记录" : "暂无记录"}</p> : null}
         </HomeSidebarList>
       </section>
@@ -104,6 +93,7 @@ export function HomeProjectSidebar({
     </div>
     <HomeSidebarFooter />
     {menu ? <ActionContextMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)} actions={[
+      { label: isPinned(menu.id) ? "取消置顶" : "置顶", icon: isPinned(menu.id) ? PinOff : Pin, onSelect: () => togglePin(menu.id) },
       { label: "重命名", icon: Pencil, disabled: !onRenameRecord, onSelect: () => setEditing({ id: menu.id, title: records.find(record => record.id === menu.id)?.title ?? "" }) },
       { label: "删除记录", icon: Trash2, tone: "danger", disabled: !onDeleteRecord, onSelect: () => { void onDeleteRecord?.(menu.id).catch(error => pushToast({ tone: "error", title: "删除记录失败", detail: String(error) })); } },
     ]} /> : null}

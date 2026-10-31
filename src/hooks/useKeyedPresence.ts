@@ -48,17 +48,19 @@ export function useKeyedPresence<T>(
         if (reset) {
           return items.map((item) => ({ item, key: getKeyRef.current(item), state: "present" }));
         }
-        const incoming = new Map(items.map((item) => [getKeyRef.current(item), item]));
-        const next = current.map((entry) => {
-          const replacement = incoming.get(entry.key);
-          if (!replacement) return { ...entry, state: "exiting" as const };
-          incoming.delete(entry.key);
-          return { item: replacement, key: entry.key, state: "present" as const };
+        const previousKeys = new Set(current.map((entry) => entry.key));
+        const incomingKeys = new Set(items.map((item) => getKeyRef.current(item)));
+        const next: KeyedPresenceItem<T>[] = items.map((item) => {
+          const key = getKeyRef.current(item);
+          return { item, key, state: previousKeys.has(key) ? "present" : "entering" };
         });
-        return [
-          ...Array.from(incoming, ([key, item]) => ({ item, key, state: "entering" as const })),
-          ...next,
-        ];
+        // Follow the current sort while retaining removed rows for their exit.
+        current.forEach((entry, index) => {
+          if (!incomingKeys.has(entry.key)) {
+            next.splice(Math.min(index, next.length), 0, { ...entry, state: "exiting" });
+          }
+        });
+        return next;
       });
     });
   }, [items, resetKey]);

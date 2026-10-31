@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { useEffect, useRef, type Ref } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useListPinsStore } from "../../state/list-pins-store";
 import { createUiStoreState, useUiStore } from "../../state/ui-store";
 import { projectMindApi } from "../../services/projectMindApi";
 import type { ProjectPageData } from "../../lib/types";
@@ -242,6 +243,7 @@ vi.mock("../../hooks/useDocumentImportFlow", () => ({
 describe("ProjectOverviewPage", () => {
   beforeEach(() => {
     useUiStore.setState(createUiStoreState());
+    useListPinsStore.setState({ pins: {} });
     noteImageAssetMocks.externalizeEmbeddedImageDataUrls.mockClear();
     noteImageAssetMocks.richEditorProps.length = 0;
     noteImageAssetMocks.richTextViewerProps.length = 0;
@@ -255,6 +257,26 @@ describe("ProjectOverviewPage", () => {
       configurable: true,
       value: scrollToMock,
     });
+  });
+
+  it("shares main project card pins with the scoped preferences and restores order on unpin", async () => {
+    const page = projectPageWithTaglessRecord();
+    page.records.push({ ...page.records[0], id: 9, title: "较新记录", updatedAt: "2026-04-07T09:00:00.000Z" });
+    vi.mocked(projectMindApi.projectPageGet).mockResolvedValueOnce(page);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={["/projects/1"]}>
+      <Routes><Route path="/projects/:projectId" element={<ProjectOverviewPage />} /></Routes>
+    </MemoryRouter></QueryClientProvider>);
+    await screen.findByText("无标签记录");
+    const order = () => [...document.querySelectorAll("article[id^='record-']")].map(item => item.id);
+    expect(order()).toEqual(["record-9", "record-8"]);
+    fireEvent.contextMenu(document.getElementById("record-8")!);
+    fireEvent.click(screen.getByRole("menuitem", { name: "置顶" }));
+    await waitFor(() => expect(order()).toEqual(["record-8", "record-9"]));
+    expect(within(document.getElementById("record-8")!).getByLabelText("已置顶")).toBeVisible();
+    fireEvent.contextMenu(document.getElementById("record-8")!);
+    fireEvent.click(screen.getByRole("menuitem", { name: "取消置顶" }));
+    await waitFor(() => expect(order()).toEqual(["record-9", "record-8"]));
   });
 
   it("uses a static overview skeleton only for a cold project entry", async () => {

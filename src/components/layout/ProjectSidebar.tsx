@@ -26,13 +26,15 @@ import {
   FolderOpen,
   Mic,
   Pencil,
+  Pin,
+  PinOff,
   Plus,
   Star,
   Trash2,
   Upload,
 } from "lucide-react";
 
-import type { DocumentRecord, DocumentTagRecord, TagColorKey } from "../../lib/types";
+import type { DocumentRecord, DocumentTagRecord, TagColorKey, WorkspaceStatusSnapshot } from "../../lib/types";
 import { extractDroppedFilePaths } from "../../lib/document-drop";
 import { useDocumentMutations } from "../../hooks/useDocumentMutations";
 import { useDocumentImportFlow } from "../../hooks/useDocumentImportFlow";
@@ -54,6 +56,8 @@ import {
   SidebarTabs,
   StatusBadge,
 } from "../../ui/components";
+import { recordPinScope, useListPins } from "../../state/list-pins-store";
+import { sortPinnedByUpdatedAt } from "../../lib/list-order";
 import { cn } from "../../ui/lib/cn";
 import { HomeEmptyState } from "../home/HomeEmptyState";
 import { DocumentImportTagDialog } from "../document/DocumentImportTagDialog";
@@ -200,6 +204,8 @@ export function ProjectSidebar({
   const activeTab = filesOnly ? "files" : storedActiveTab;
   const { pushToast } = useFeedbackStore();
   const queryClient = useQueryClient();
+  const workspaceRoot = fileScope?.workspaceRoot ?? queryClient.getQueryData<WorkspaceStatusSnapshot>(queryKeys.workspaceStatus)?.currentWorkspace?.rootPath ?? owner.rootPath;
+  const { pinnedIds, isPinned, togglePin } = useListPins(workspaceRoot, recordPinScope(ownerId));
   const refreshDirectory = () => queryClient.invalidateQueries({
     queryKey: queryKeys.projectDirectory(owner.rootPath, ownerId, "", 0).slice(0, 3),
   });
@@ -329,7 +335,7 @@ export function ProjectSidebar({
   );
 
   const normalizedRecordQuery = recordQuery.trim().toLowerCase();
-  const filteredRecords = records.filter((record) => {
+  const filteredRecords = sortPinnedByUpdatedAt(records.filter((record) => {
     const matchesQuery =
       !normalizedRecordQuery ||
       (record.title ?? "").toLowerCase().includes(normalizedRecordQuery) ||
@@ -339,7 +345,7 @@ export function ProjectSidebar({
     const matchesTag =
       selectedRecordTagId === null || record.tags.some((tag) => tag.id === selectedRecordTagId);
     return matchesQuery && matchesTag;
-  });
+  }), pinnedIds);
 
   async function pickAndImportFiles() {
     const sourcePaths = await desktopApi.pickFiles({ title: `选择文件 · ${owner.rootPath}` });
@@ -1028,6 +1034,7 @@ export function ProjectSidebar({
                           </p>
                         )}
                         <TagPreview tags={record.tags} />
+                        {isPinned(record.id) ? <Pin size={12} aria-label="已置顶" /> : null}
                       </span>
                     </button>
                     );
@@ -1159,6 +1166,11 @@ export function ProjectSidebar({
           y={recordContextMenu.y}
           ariaLabel="记录操作"
           actions={[
+            {
+              label: isPinned(contextMenuRecord.id) ? "取消置顶" : "置顶",
+              icon: isPinned(contextMenuRecord.id) ? PinOff : Pin,
+              onSelect: () => togglePin(contextMenuRecord.id),
+            },
             {
               label: "重命名",
               icon: Pencil,
