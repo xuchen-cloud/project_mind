@@ -12,9 +12,11 @@ import { TodoModuleRail } from "../../todo";
 
 export function WorkspaceTodoRail({
   projectId,
+  workspaceRoot,
   visible = true,
 }: {
   projectId: number | null;
+  workspaceRoot?: string;
   visible?: boolean;
 }) {
   const [searchParams] = useSearchParams();
@@ -42,6 +44,7 @@ export function WorkspaceTodoRail({
 
   return (
     <TodoModuleRail
+      workspaceRoot={workspaceRoot}
       scope={workspaceView ? { kind: "workspace" } : { kind: "current-project", projectId: projectId as number }}
       enabled={visible}
       focusTodoId={parseFocusTodoId(searchParams.get("focus"))}

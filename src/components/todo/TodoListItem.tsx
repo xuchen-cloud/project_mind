@@ -27,7 +27,7 @@ import type {
   TodoRecord,
   TodoTagUpdateHandler,
 } from "../../lib/types";
-import { ActionContextMenu, Button, IconButton, type ContextMenuAction } from "../../ui/components";
+import { ActionContextMenu, Button, IconButton, ListPinIndicator, type ContextMenuAction } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
 import { commitListLayoutChange } from "../../ui/listLayoutMotion";
 import {
@@ -49,6 +49,7 @@ type ProgressVisualState = "completing" | "restoring" | null;
 
 export function TodoListItem({
   todo,
+  pinned = false,
   isFirst = false,
   compact = false,
   allowInlineEdit = false,
@@ -72,6 +73,7 @@ export function TodoListItem({
   allowTagCreation = true,
 }: {
   todo: TodoRecord;
+  pinned?: boolean;
   isFirst?: boolean;
   compact?: boolean;
   allowInlineEdit?: boolean;
@@ -423,7 +425,7 @@ export function TodoListItem({
     >
       <div className={cn("todo-card__row", compact && "todo-card__row--compact")}>
         <div className="todo-card__main">
-          <div className="todo-card__primary">
+          <div className="todo-card__primary" data-pinned={pinned || undefined}>
             <div className="todo-card__headline">
               <div className="todo-card__content">
                 <TodoInlineContentEditor
@@ -455,6 +457,7 @@ export function TodoListItem({
                 </span>
               </button>
             </div>
+            {pinned ? <ListPinIndicator className="todo-card__pin" /> : null}
             {!cardEditing ? <span className="todo-card__priority-mark" role="img" aria-label={priorityLabel} title={priorityLabel} /> : null}
           </div>
 

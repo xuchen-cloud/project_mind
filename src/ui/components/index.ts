@@ -7,6 +7,7 @@ export { Dialog } from "./Dialog";
 export { DisclosurePresence } from "./DisclosurePresence";
 export { EmptyState } from "./EmptyState";
 export { IconButton } from "./IconButton";
+export { ListPinIndicator } from "./ListPinIndicator";
 export { PageLoadingSkeleton } from "./PageLoadingSkeleton";
 export { PopoverPanel } from "./PopoverPanel";
 export { ProjectStarButton } from "./ProjectStarButton";

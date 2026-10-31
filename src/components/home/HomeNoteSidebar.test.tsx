@@ -19,6 +19,9 @@ it("keeps opening order stable, moves edits, and pins within the current scope",
   fireEvent.click(screen.getByRole("menuitem", { name: "置顶" }));
   expect(titles()).toEqual(["旧记录", "新记录"]);
   expect(screen.getByLabelText("已置顶")).toBeInTheDocument();
+  const pin = screen.getByLabelText("已置顶");
+  expect(pin).toHaveClass("list-pin-indicator");
+  expect(pin.parentElement?.lastElementChild).toBe(pin);
   view.rerender(<HomeNoteSidebar {...props} projectId={7} />);
   expect(titles()).toEqual(["新记录", "旧记录"]);
   view.rerender(<HomeNoteSidebar {...props} />);

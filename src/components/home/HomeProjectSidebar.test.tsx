@@ -160,6 +160,9 @@ it("pins and unpins records from the context menu without edit callbacks", () =>
   fireEvent.click(screen.getByRole("menuitem", { name: "置顶" }));
   expect(within(list).getAllByRole("button")[0]).toHaveAttribute("title", "记录 1");
   expect(within(list).getByLabelText("已置顶")).toBeInTheDocument();
+  const pin = screen.getByLabelText("已置顶");
+  expect(pin).toHaveClass("list-pin-indicator");
+  expect(pin.parentElement?.lastElementChild).toBe(pin);
   fireEvent.contextMenu(within(list).getByTitle("记录 1"));
   fireEvent.click(screen.getByRole("menuitem", { name: "取消置顶" }));
   expect(within(list).getAllByRole("button")[0]).toHaveAttribute("title", "记录 12");

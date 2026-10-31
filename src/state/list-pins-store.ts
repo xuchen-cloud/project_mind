@@ -2,7 +2,7 @@ import { useCallback } from "react";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
-export type ListPinScope = "projects" | "workspace-records" | `project-records:${number}`;
+export type ListPinScope = "projects" | "todos" | "workspace-records" | `project-records:${number}`;
 const EMPTY_IDS: readonly number[] = [];
 
 export function recordPinScope(projectId: number | null | undefined): ListPinScope {

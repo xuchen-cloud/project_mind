@@ -1589,8 +1589,8 @@ export function WorkspaceLayout({
         </div>
         {showTodoRailShell ? <RightSidebar key={`${currentWorkspace.rootPath}:${activeProjectId ?? "workspace"}`} showToggle={projectWindow}>
           {activeProjectId === null
-            ? <HomeWorkspaceRail><WorkspaceTodoRail projectId={null} visible={!todoRailCollapsed} /></HomeWorkspaceRail>
-            : <div className="home-rail home-rail--project home-rail--project-todos"><div className="home-rail__todo"><WorkspaceTodoRail projectId={activeProjectId} visible={!todoRailCollapsed} /></div></div>}
+            ? <HomeWorkspaceRail><WorkspaceTodoRail workspaceRoot={currentWorkspace.rootPath} projectId={null} visible={!todoRailCollapsed} /></HomeWorkspaceRail>
+            : <div className="home-rail home-rail--project home-rail--project-todos"><div className="home-rail__todo"><WorkspaceTodoRail workspaceRoot={currentWorkspace.rootPath} projectId={activeProjectId} visible={!todoRailCollapsed} /></div></div>}
         </RightSidebar> : null}
       </div>
       <CreateWorkspaceDialog

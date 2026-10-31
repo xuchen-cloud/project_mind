@@ -13,6 +13,7 @@ import { projectDirectoryApi } from "../../services/projectDirectoryApi";
 import { desktopApi } from "../../services/desktopApi";
 import type { AgentWorkspaceBinding } from "../../lib/agent-types";
 import { HomeSidebarList } from "./HomeSidebarList";
+import { ListPinIndicator } from "../../ui/components";
 import { FileIcon } from "../document/FileIcon";
 import "./project-directory.css";
 
@@ -83,10 +84,11 @@ export function useProjectDirectoryListing({ projectId, workspaceRoot, binding, 
   return directory;
 }
 
-function DirectoryBranch({ projectId, workspaceRoot, binding, rootPath, relativePath, depth, enabled, activeRelativePath, onFileContextMenu, renderRenameInput }: {
+function DirectoryBranch({ projectId, workspaceRoot, binding, rootPath, relativePath, depth, enabled, activeRelativePath, onFileContextMenu, renderRenameInput, documents }: {
   projectId: number | null; workspaceRoot?: string; binding?: AgentWorkspaceBinding; rootPath: string; relativePath: string; depth: number; enabled: boolean; activeRelativePath?: string | null;
   onFileContextMenu: (path: string, x: number, y: number) => void;
   renderRenameInput?: (path: string) => ReactNode;
+  documents: ProjectSidebarDocumentItem[];
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   useEffect(() => {
@@ -107,11 +109,13 @@ function DirectoryBranch({ projectId, workspaceRoot, binding, rootPath, relative
     {directory.isError ? <div className="project-directory__message" style={indentation} role="alert">{getErrorMessage(directory.error, "无法读取项目目录")}<button type="button" onClick={() => void directory.refetch()}>重试读取目录</button></div> : null}
     {directory.data?.length === 0 ? <p className="project-directory__message" style={indentation}>此目录为空</p> : null}
     {directory.data?.map(entry => {
+      const starred = entry.kind === "file" && documents.some(document => document.isStarred && projectFilePathMatches(document.managedPath, rootPath, entry.relativePath));
       const renameInput = entry.kind === "file" ? renderRenameInput?.(entry.relativePath) : null;
       return <div key={entry.relativePath}>
       {renameInput ? <div className="project-directory__entry" style={indentation}>
-        <FileIcon name={entry.name} size={12} />{renameInput}
+        <FileIcon name={entry.name} size={12} />{renameInput}{starred ? <ListPinIndicator label="标星" /> : null}
       </div> : <button type="button" className={`project-directory__entry ${entry.kind === "file" && entry.relativePath === activeRelativePath ? "is-active" : ""}`} style={indentation}
+        aria-label={entry.name}
         aria-current={entry.kind === "file" && entry.relativePath === activeRelativePath ? "true" : undefined}
         aria-expanded={entry.kind === "directory" ? expanded.has(entry.relativePath) : undefined}
         onContextMenu={event => {
@@ -131,9 +135,10 @@ function DirectoryBranch({ projectId, workspaceRoot, binding, rootPath, relative
         }}>
         {entry.kind === "directory" ? <ChevronRight size={12} strokeWidth={1.5} className="project-directory__chevron" aria-hidden="true" /> : <FileIcon name={entry.name} size={12} />}
         <span className="project-directory__name" title={entry.name}>{entry.name}</span>
+        {starred ? <ListPinIndicator label="标星" /> : null}
       </button>}
       {entry.kind === "directory" && expanded.has(entry.relativePath) ? <div className="project-directory__children" style={{ "--directory-guide-left": `${4 + depth * 12 + 6}px` } as CSSProperties}>
-        <DirectoryBranch workspaceRoot={workspaceRoot} binding={binding} rootPath={rootPath} projectId={projectId} relativePath={entry.relativePath} depth={depth + 1} enabled={enabled} activeRelativePath={activeRelativePath} onFileContextMenu={onFileContextMenu} renderRenameInput={renderRenameInput} />
+        <DirectoryBranch workspaceRoot={workspaceRoot} binding={binding} rootPath={rootPath} projectId={projectId} relativePath={entry.relativePath} depth={depth + 1} enabled={enabled} activeRelativePath={activeRelativePath} onFileContextMenu={onFileContextMenu} renderRenameInput={renderRenameInput} documents={documents} />
       </div> : null}
     </div>; })}
   </>;
@@ -273,7 +278,7 @@ export function ProjectDirectoryBrowser({ projectId, workspaceRoot, rootPath, ac
     }
   };
   return <div ref={element} className="project-directory">{menuError ? <p role="alert">{menuError}</p> : null}<HomeSidebarList label={projectId === null ? "工作区目录内容" : "项目目录内容"}>
-    <DirectoryBranch workspaceRoot={activeWorkspaceRoot} binding={directoryBinding} key={`${activeWorkspaceRoot}:${rootPath}:${projectId}:${directoryBinding?.workspaceId}:${directoryBinding?.generation}`} rootPath={rootPath} projectId={projectId} relativePath="" depth={0} enabled={enabled && (!bindingRequired || !!directoryBinding)} activeRelativePath={activeRelativePath} onFileContextMenu={onFileContextMenu} renderRenameInput={fileMenu?.renderRenameInput} />
+    <DirectoryBranch workspaceRoot={activeWorkspaceRoot} binding={directoryBinding} key={`${activeWorkspaceRoot}:${rootPath}:${projectId}:${directoryBinding?.workspaceId}:${directoryBinding?.generation}`} rootPath={rootPath} projectId={projectId} relativePath="" depth={0} enabled={enabled && (!bindingRequired || !!directoryBinding)} activeRelativePath={activeRelativePath} onFileContextMenu={onFileContextMenu} renderRenameInput={fileMenu?.renderRenameInput} documents={documents} />
   </HomeSidebarList></div>;
 }
 

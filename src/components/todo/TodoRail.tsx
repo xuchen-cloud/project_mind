@@ -67,6 +67,7 @@ import {
 } from "./todo-editor-controller";
 
 interface TodoRailProps {
+  workspaceRoot?: string;
   projectId?: number;
   focusTodoId?: number | null;
   title: string;
@@ -110,6 +111,7 @@ interface TodoRailProps {
 }
 
 export function TodoRail({
+  workspaceRoot,
   projectId,
   focusTodoId = null,
   title,
@@ -792,6 +794,7 @@ export function TodoRail({
     return (
       <TodoList
         todos={todoList}
+        workspaceRoot={workspaceRoot}
         compact
         allowInlineEdit={tab === "unfinished"}
         allowInlineProgress={tab === "unfinished"}

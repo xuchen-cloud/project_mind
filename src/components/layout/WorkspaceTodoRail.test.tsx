@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -8,6 +8,7 @@ import { createUiStoreState, useUiStore } from "../../state/ui-store";
 import { queryKeys } from "../../lib/queryKeys";
 import type { TodoRecord } from "../../lib/types";
 import { WorkspaceTodoRail } from "./WorkspaceTodoRail";
+import { useListPinsStore } from "../../state/list-pins-store";
 
 const apiMocks = vi.hoisted(() => ({
   projectsList: vi.fn(),
@@ -32,12 +33,12 @@ function LocationDisplay() {
   return <output aria-label="当前位置">{location.pathname}</output>;
 }
 
-function renderRail(projectId: number | null, visible = true, search = "") {
+function renderRail(projectId: number | null, visible = true, search = "", workspaceRoot = "/workspace") {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const content = (nextVisible: boolean) => (
+  const content = (nextVisible: boolean, nextRoot = workspaceRoot) => (
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[`${projectId === null ? "/workspace" : `/projects/${projectId}`}${search}`]}>
-        <WorkspaceTodoRail projectId={projectId} visible={nextVisible} />
+        <WorkspaceTodoRail workspaceRoot={nextRoot} projectId={projectId} visible={nextVisible} />
         <LocationDisplay />
       </MemoryRouter>
     </QueryClientProvider>
@@ -49,6 +50,7 @@ describe("WorkspaceTodoRail", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     window.localStorage.clear();
+    useListPinsStore.setState({ pins: {} });
     useUiStore.setState(createUiStoreState());
     apiMocks.projectsList.mockResolvedValue([project]);
     apiMocks.projectPageGet.mockResolvedValue({ project, records: [], unfinishedTodos: [], finishedTodos: [] });
@@ -173,3 +175,23 @@ const todo: TodoRecord = {
   status: "unfinished", priority: "not_urgent_important", tags: [], progresses: [],
   createdAt: "2026-10-15T00:00:00.000Z", updatedAt: "2026-10-15T00:00:00.000Z",
 };
+
+
+it("shares Todo pins between project and Workspace views while isolating different Workspace roots", async () => {
+  const user = userEvent.setup();
+  useUiStore.setState(createUiStoreState());
+  useListPinsStore.setState({ pins: {} });
+  apiMocks.projectPageGet.mockResolvedValue({ project, records: [], unfinishedTodos: [todo], finishedTodos: [] });
+  apiMocks.workspacePageGet.mockResolvedValue({ quickNote: null, records: [], unfinishedTodos: [todo], finishedTodos: [] });
+  const view = renderRail(1, true, "", "/one");
+  await waitFor(() => expect(document.getElementById("todo-7")).toBeInTheDocument());
+  fireEvent.contextMenu(document.getElementById("todo-7")!);
+  fireEvent.click(screen.getByRole("menuitem", { name: "置顶" }));
+  expect(screen.getByLabelText("已置顶")).toBeVisible();
+  await user.selectOptions(screen.getByRole("combobox", { name: "待办范围" }), "workspace");
+  expect(await screen.findByLabelText("已置顶")).toBeVisible();
+  view.rerender(view.content(true, "/two"));
+  expect(screen.queryByLabelText("已置顶")).not.toBeInTheDocument();
+  view.rerender(view.content(true, "/one"));
+  expect(screen.getByLabelText("已置顶")).toBeVisible();
+});

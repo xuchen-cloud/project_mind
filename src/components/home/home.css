@@ -702,7 +702,7 @@
   padding:6px 12px; min-height:32px; gap:8px;
 }
 .home-side__scroll .grid { gap:2px; }
-.home-side__project-icon svg, .home-side__item>svg { width:16px; height:16px; }
+.home-side__project-icon svg, .home-side__item>svg:not(.list-pin-indicator) { width:16px; height:16px; }
 .home-page { --home-canvas:var(--home-sidebar); }
 .home-page .project-overview-focus, .home-page .project-overview-focus__scroll {
   background:var(--home-sidebar);

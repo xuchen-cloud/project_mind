@@ -9,7 +9,7 @@ import { manageProjectSession, openProjectContent, type ProjectSessionAction } f
 import { dshProjectRunKey, useAgentPanelStore } from "../../state/agent-panel-store";
 import { AiChatIcon } from "../icons/ContentTypeIcon";
 import { HomeSidebarList } from "./HomeSidebarList";
-import { ActionContextMenu, Button, Dialog } from "../../ui/components";
+import { ListPinIndicator, ActionContextMenu, Button, Dialog } from "../../ui/components";
 
 export interface ProjectSidebarSessionsProps {
   workspaceRoot: string;
@@ -161,9 +161,9 @@ function ScopedSessions({ workspaceRoot, projectId, query, enabled, activeSessio
         onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); setEditing(null); } else if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }} /> : <button key={session.id} type="button" className={`home-side__item ${session.id === activeSessionId ? "is-active" : ""}`} aria-current={session.id === activeSessionId ? "true" : undefined} title={session.title || "新会话"}
         disabled={opening} onClick={() => { void open(session); }}
         onContextMenu={event => { event.preventDefault(); if (!opening) setMenu({ session, x: event.clientX, y: event.clientY }); }}>
-        <AiChatIcon size={12} /><span>{session.title || "新会话"}</span>
-        {session.pinned ? <Pin size={12} aria-label="已置顶" /> : null}
+        <AiChatIcon size={12} /><span className="min-w-0 flex-1 truncate">{session.title || "新会话"}</span>
         {sessionRuns?.[session.id] ? <LoaderCircle size={14} role="status" aria-label="运行中" aria-hidden={false} className="home-side__running spin" /> : null}
+        {session.pinned ? <ListPinIndicator /> : null}
       </button>)}
       {enabled && !loading && !error && !visible.length ? <p className="home-side__empty">{needle ? "没有匹配的会话" : "暂无会话"}</p> : null}
     </HomeSidebarList>

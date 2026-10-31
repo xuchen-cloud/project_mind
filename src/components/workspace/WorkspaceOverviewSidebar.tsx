@@ -30,7 +30,7 @@ PROJECT_SIDEBAR_WIDTH_MIN_PX,
 useUiStore,
 } from "../../state/ui-store";
 import {
-ActionContextMenu,
+ListPinIndicator, ActionContextMenu,
 Button,
 Dialog,
 ResizeHandle,
@@ -360,7 +360,7 @@ export function WorkspaceOverviewSidebar({
                           )}
 
                         </span>
-                        {projectPins.isPinned(project.id) ? <Pin size={12} className="shrink-0 text-text-tertiary" aria-label="已置顶" /> : null}
+                        {projectPins.isPinned(project.id) ? <ListPinIndicator /> : null}
                       </button>
                     );
                   })
@@ -403,8 +403,8 @@ export function WorkspaceOverviewSidebar({
                   onKeyDown={event => { if (event.nativeEvent.isComposing || event.keyCode === 229) return;
                     if (event.key === "Escape") { event.preventDefault(); cancelRenameRecord(); }
                     else if (event.key === "Enter") { event.preventDefault(); commitRenameRecord(record); }
-                  }} /> : <span>{record.title?.trim() || "未命名记录"}</span>}
-                {recordPins.isPinned(record.id) ? <Pin size={12} className="shrink-0 text-text-tertiary" aria-label="已置顶" /> : null}
+                  }} /> : <span className="min-w-0 flex-1 truncate">{record.title?.trim() || "未命名记录"}</span>}
+                {recordPins.isPinned(record.id) ? <ListPinIndicator /> : null}
               </button>
             ))}
             {!filteredRecords.length ? <p className="home-side__empty">{recordQuery.trim() || activeRecordTagId !== null ? "没有匹配的记录" : "暂无记录"}</p> : null}

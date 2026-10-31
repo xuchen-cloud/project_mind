@@ -6,7 +6,7 @@ describe("list pin preferences", () => {
 
   it("isolates matching IDs across workspaces, projects and workspace records", () => {
     const store = createListPinsStore();
-    const scopes = ["projects", recordPinScope(null), recordPinScope(1), recordPinScope(2)] as const;
+    const scopes = ["projects", "todos", recordPinScope(null), recordPinScope(1), recordPinScope(2)] as const;
     for (const workspace of ["/one", "/two"]) {
       for (const scope of scopes) store.getState().togglePin(workspace, scope, 7);
     }
@@ -21,14 +21,14 @@ describe("list pin preferences", () => {
     expect(recordPinScope(undefined)).toBe("workspace-records");
   });
 
-  it("reloads persisted pins without replacing actions", async () => {
+  it.each(["projects", "todos"] as const)("reloads persisted %s pins without replacing actions", async (scope) => {
     const first = createListPinsStore();
-    first.getState().togglePin("/workspace", "projects", 7);
+    first.getState().togglePin("/workspace", scope, 7);
     const reloaded = createListPinsStore();
     await reloaded.persist.rehydrate();
-    expect(reloaded.getState().pins[JSON.stringify(["/workspace", "projects"])]).toEqual([7]);
-    reloaded.getState().togglePin("/workspace", "projects", 7);
-    expect(reloaded.getState().pins[JSON.stringify(["/workspace", "projects"])]).toEqual([]);
+    expect(reloaded.getState().pins[JSON.stringify(["/workspace", scope])]).toEqual([7]);
+    reloaded.getState().togglePin("/workspace", scope, 7);
+    expect(reloaded.getState().pins[JSON.stringify(["/workspace", scope])]).toEqual([]);
   });
 
   it("pins and unpins an item through its scoped action", () => {
