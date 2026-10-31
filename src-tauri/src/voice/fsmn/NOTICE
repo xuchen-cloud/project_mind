@@ -1,0 +1,13 @@
+frontend.rs and model.rs adapt the FSMN frontend and Candle inference from
+extract-speech 0.9.1: https://github.com/RustedBytes/extract-speech
+Copyright (c) 2026 Yehor Smoliakov.
+Upstream package license: MIT AND Apache-2.0; full texts are preserved in
+LICENSE.extract-speech and LICENSE-APACHE.extract-speech.
+
+Project Mind modifications: reuse filterbank setup and overlapping filterbank
+and normalized LFR frames, and decode immutable ONNX tensors once. The fixed
+window tail uses persistent causal caches through the stable first 98 frames;
+the last two LFR edge frames run on temporary caches. This tail adaptation is
+Project Mind behavior, preserving its former finite-window decisions, rather
+than an unchanged upstream streaming frontend. Unused quantized model conversion
+and diagnostics were removed for the fixed bundled model.
