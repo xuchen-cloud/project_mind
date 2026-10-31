@@ -395,7 +395,7 @@ export function WorkspaceOverviewSidebar({
               <button key={record.id} type="button" className={cn("home-side__item", record.id === selectedRecordId && "is-active")}
                 aria-current={record.id === selectedRecordId ? "page" : undefined}
                 title={record.title?.trim() || "未命名记录"} onClick={() => { if (editingRecordId !== record.id) onOpenRecord(record.id); }}
-                onContextMenu={event => { event.preventDefault(); if (editingRecordId === record.id) return; setProjectContextMenu(null); setRecordContextMenu({ recordId: record.id, x: event.clientX, y: event.clientY }); }}>
+                onContextMenu={event => { if (editingRecordId === record.id) return; event.preventDefault(); setProjectContextMenu(null); setRecordContextMenu({ recordId: record.id, x: event.clientX, y: event.clientY }); }}>
                 <RecordIcon size={16} isVoice={record.isVoice} />
                 {editingRecordId === record.id ? <input autoFocus aria-label="记录名称" className="inline-object-input min-w-0 flex-1"
                   value={recordTitleDraft} onChange={event => setRecordTitleDraft(event.target.value)}
