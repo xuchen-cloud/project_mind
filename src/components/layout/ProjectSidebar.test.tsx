@@ -234,9 +234,14 @@ describe("ProjectSidebar", () => {
     nativeVersionMocks.list.mockResolvedValue({object:{workspaceId:"w",scope:{kind:"project",projectId:1},kind:"file",id:"29"},currentVersionNumber:2,currentContentHash:"hash",versions:versions.map(version=>({...version,id:String(version.id),contentHash:"hash",isCurrent:version.versionNumber===2})),nextCursor:null});
     renderWithProviders(<ProjectSidebar filesOnly project={{ id: 1, name: "Alpha", rootPath: "/tmp/project" }} documents={[document]} onOpenProject={() => undefined} />);
     expect(nativeVersionMocks.list).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "选择 brief.pdf 的版本" }));
+    const trigger = screen.getByRole("button", { name: "选择 brief.pdf 的版本" });
+    trigger.focus();
+    expect(trigger).toHaveFocus();
+    expect(trigger).not.toBeDisabled();
+    fireEvent.click(trigger);
     const menu = await screen.findByRole("menu");
     const old = await within(menu).findByRole("menuitemradio", {name:"v1",exact:true});
+    expect(within(menu).getByRole("menuitemradio", { name: "v2", exact: true })).toHaveAttribute("aria-checked", "true");
     expect(within(menu).getByRole("menuitem", {name:"查看历史与比较"})).toBeVisible();
     expect(useFilePreviewStore.getState().request).toBeNull();
     fireEvent.click(old);

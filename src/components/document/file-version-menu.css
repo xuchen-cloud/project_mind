@@ -34,3 +34,10 @@
 @media (prefers-reduced-motion:reduce) {
   .file-version-control > button.file-version-control__trigger,.file-version-control__trigger > svg,.file-version-menu button { transition:none; }
 }
+
+/* Reserve the version control's space so revealing it never displaces a file pin.
+   Opacity keeps the trigger in keyboard navigation; focus-within reveals it. */
+.project-sidebar__file-row .file-version-control { opacity:0; pointer-events:none; transition:opacity var(--duration-fast) var(--ease-out); }
+.project-sidebar__file-row:is(:hover,:focus-within) .file-version-control,
+.project-sidebar__file-row:has(.file-version-control__trigger[aria-expanded="true"]) .file-version-control { opacity:1; pointer-events:auto; }
+@media (prefers-reduced-motion:reduce) { .project-sidebar__file-row .file-version-control { transition:none; } }

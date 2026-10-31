@@ -142,3 +142,16 @@ it("pending AI content blocks leaving and explicit acceptance creates an editor_
   const input = vi.mocked(recordDocumentApi.bodySave).mock.calls.find(([, input]) => input.origin === "editor_ai")![1];
   expect(input.document.content![0].content![0].text).toBe("Accepted AI body");
 });
+
+it("keeps a pinned voice record marker last in the header outside title and actions", () => {
+  const client = new QueryClient();
+  const coordinator = createRecordSaveCoordinator({ workspaceKey: "/workspace", queryClient: client });
+  render(<QueryClientProvider client={client}><RecordSaveCoordinatorProvider coordinator={coordinator}>
+    <RecordListItem record={{ ...record, isVoice: true }} pinned scope={{ kind: "workspace" }} focused={false} availableTags={[]} busy={false} aiSettings={null} contactMentionOptions={{}} scrollParentSelector="body" onOpenFocusPage={vi.fn()} onOpenContextMenu={vi.fn()} onOpenInternalReference={() => false} onOpenAiSettings={vi.fn()} />
+  </RecordSaveCoordinatorProvider></QueryClientProvider>);
+  const pin = screen.getByLabelText("已置顶");
+  expect(pin).toHaveClass("list-pin-indicator");
+  expect(pin.parentElement).toHaveClass("project-history-record__header");
+  expect(pin.parentElement?.lastElementChild).toBe(pin);
+  expect(screen.getByRole("img", { name: "语音记录" }).parentElement).toHaveClass("project-history-record__title");
+});

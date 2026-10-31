@@ -8,6 +8,7 @@ import { useTodoModule } from "./use-todo-module";
 
 export function TodoModuleRail({
   scope,
+  workspaceRoot,
   enabled = true,
   focusTodoId = null,
   availableTags = [],
@@ -18,6 +19,7 @@ export function TodoModuleRail({
   onOpenContactMention,
 }: {
   scope: TodoViewScope;
+  workspaceRoot?: string;
   enabled?: boolean;
   focusTodoId?: number | null;
   availableTags?: ProjectTagRecord[];
@@ -33,6 +35,7 @@ export function TodoModuleRail({
 
   return (
     <TodoRail
+      workspaceRoot={workspaceRoot}
       projectId={scope.kind === "current-project" ? scope.projectId : undefined}
       focusTodoId={focusTodoId}
       title="待办"

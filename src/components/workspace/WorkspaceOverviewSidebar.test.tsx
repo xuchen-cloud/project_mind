@@ -352,6 +352,9 @@ it("pins records above newer updates, preserves pins through filters, and restor
   fireEvent.click(screen.getByRole("menuitem", { name: "置顶" }));
   expect(recordList().getAllByRole("button")[0]).toHaveTextContent("Needle 标题");
   expect(recordList().getByRole("button", { name: /Needle 标题/ })).toContainElement(recordList().getByLabelText("已置顶"));
+  const recordPin = recordList().getByLabelText("已置顶");
+  expect(recordPin).toHaveClass("list-pin-indicator");
+  expect(recordPin.parentElement?.lastElementChild).toBe(recordPin);
   rerender(<WorkspaceOverviewSidebar {...props} recordQuery="正文" activeRecordTagId={23} />);
   expect(recordList().getAllByRole("button")[0]).toHaveTextContent("Needle 标题");
   rerender(<WorkspaceOverviewSidebar {...props} recordQuery="无关" />);
@@ -371,6 +374,9 @@ it("pins projects independently and preserves pin ordering after project search 
   fireEvent.contextMenu(projectList.getByRole("button", { name: "项目 1" }));
   fireEvent.click(screen.getByRole("menuitem", { name: "置顶" }));
   expect(projectList.getAllByRole("button")[0]).toHaveTextContent("项目 1");
+  const projectPin = projectList.getByLabelText("已置顶");
+  expect(projectPin).toHaveClass("list-pin-indicator");
+  expect(projectPin.parentElement?.lastElementChild).toBe(projectPin);
   const search = screen.getByRole("textbox", { name: "搜索项目" });
   fireEvent.change(search, { target: { value: "项目 2" } });
   expect(projectList.getAllByRole("button")).toHaveLength(1);

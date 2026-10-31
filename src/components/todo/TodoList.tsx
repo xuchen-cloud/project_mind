@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Trash2 } from "lucide-react";
+import { Pin, PinOff, Trash2 } from "lucide-react";
 
 import type { InternalReferenceTarget } from "../../lib/internalReferences";
 import type { ContactMentionTarget } from "../../lib/contactMentions";
@@ -11,6 +11,7 @@ import type {
 } from "../../lib/types";
 import { HomeEmptyState } from "../home/HomeEmptyState";
 import { ActionContextMenu } from "../../ui/components";
+import { useListPins } from "../../state/list-pins-store";
 import { waitForTodoCompletion } from "./todo-motion";
 import { TodoListItem } from "./TodoListItem";
 import { TODO_PRIORITY_OPTIONS } from "./todo-utils";
@@ -23,6 +24,7 @@ type TodoStatusTransition = {
 
 export function TodoList({
   todos,
+  workspaceRoot = "",
   compact = false,
   allowInlineEdit = false,
   allowInlineProgress = false,
@@ -46,6 +48,7 @@ export function TodoList({
   canCreateTagsForTodo,
 }: {
   todos: TodoRecord[];
+  workspaceRoot?: string;
   compact?: boolean;
   allowInlineEdit?: boolean;
   allowInlineProgress?: boolean;
@@ -74,6 +77,8 @@ export function TodoList({
   availableTagScopeProjectId?: number | null;
   canCreateTagsForTodo?: (todo: TodoRecord) => boolean;
 }) {
+  const { isPinned, togglePin } = useListPins(workspaceRoot, "todos");
+  const orderedTodos = useMemo(() => [...todos.filter(todo => isPinned(todo.id)), ...todos.filter(todo => !isPinned(todo.id))], [todos, isPinned]);
   const [contextMenu, setContextMenu] = useState<{
     todoId: number;
     x: number;
@@ -87,7 +92,7 @@ export function TodoList({
   );
   const visibleTodos = useMemo(() => {
     const existingIds = new Set(todos.map((todo) => todo.id));
-    const replacedTodos = todos.map((todo) => todoTransitions[todo.id]?.todo ?? todo);
+    const replacedTodos = orderedTodos.map((todo) => todoTransitions[todo.id]?.todo ?? todo);
     const missingTransitionTodos = Object.entries(todoTransitions)
       .filter(([todoId]) => !existingIds.has(Number(todoId)))
       .map(([, transition]) => transition)
@@ -100,7 +105,7 @@ export function TodoList({
     });
 
     return mergedTodos;
-  }, [todoTransitions, todos]);
+  }, [todoTransitions, todos, orderedTodos]);
 
   useEffect(() => {
     if (contextMenu && !contextMenuTodo) {
@@ -176,6 +181,7 @@ export function TodoList({
             <TodoListItem
               key={todo.id}
               todo={todo}
+              pinned={isPinned(todo.id)}
               isFirst={index === 0}
               compact={compact}
               allowInlineEdit={allowInlineEdit}
@@ -210,6 +216,7 @@ export function TodoList({
           ariaLabel="Todo 操作"
           onClose={() => setContextMenu(null)}
           actions={[
+            { key: "pin", label: isPinned(contextMenuTodo.id) ? "取消置顶" : "置顶", icon: isPinned(contextMenuTodo.id) ? PinOff : Pin, onSelect: () => { togglePin(contextMenuTodo.id); setContextMenu(null); } },
             {
               type: "inline-actions",
               key: "priority",

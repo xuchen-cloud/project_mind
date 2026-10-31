@@ -13,7 +13,7 @@ import type { NoteRecord } from "../../lib/types";
 import { queryKeys } from "../../lib/queryKeys";
 import { projectMindApi } from "../../services/projectMindApi";
 import { useUiStore, PROJECT_SIDEBAR_WIDTH_MAX_PX, PROJECT_SIDEBAR_WIDTH_MIN_PX } from "../../state/ui-store";
-import { ActionContextMenu, ResizeHandle, SearchField } from "../../ui/components";
+import { ListPinIndicator, ActionContextMenu, ResizeHandle, SearchField } from "../../ui/components";
 import { useFeedbackStore } from "../../state/feedback-store";
 import nori from "../../assets/home/nori-bust.png";
 import { recordPinScope, useListPins } from "../../state/list-pins-store";
@@ -84,7 +84,7 @@ export function HomeProjectSidebar({
             onBlur={() => { if (editing.title.trim() !== (records.find(record => record.id === editing.id)?.title ?? "").trim()) void onRenameRecord?.(editing.id, editing.title).catch(error => pushToast({ tone: "error", title: "重命名记录失败", detail: String(error) })); setEditing(null); }} onKeyDown={event => { if (event.nativeEvent.isComposing) return; if (event.key === "Enter") event.currentTarget.blur(); if (event.key === "Escape") setEditing(null); }} /> :
             <button key={record.id} type="button" className={`home-side__item ${record.id === activeRecordId ? "is-active" : ""}`} title={record.title?.trim() || "未命名记录"}
               onContextMenu={event => { event.preventDefault(); setMenu({ id: record.id, x: event.clientX, y: event.clientY }); }}
-              onClick={() => onOpenRecord(record.id)}><RecordIcon size={12} isVoice={record.isVoice} /><span>{record.title?.trim() || "未命名记录"}</span>{isPinned(record.id) ? <Pin size={12} aria-label="已置顶" /> : null}</button>)}
+              onClick={() => onOpenRecord(record.id)}><RecordIcon size={12} isVoice={record.isVoice} /><span className="min-w-0 flex-1 truncate">{record.title?.trim() || "未命名记录"}</span>{isPinned(record.id) ? <ListPinIndicator /> : null}</button>)}
           {!visibleRecords.length ? <p className="home-side__empty">{query.trim() || selectedTagId !== null ? "没有匹配的记录" : "暂无记录"}</p> : null}
         </HomeSidebarList>
       </section>

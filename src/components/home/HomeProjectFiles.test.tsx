@@ -336,3 +336,22 @@ it("refreshes the physical tree when an inline rename succeeds", async () => {
   expect(await screen.findByRole("button", { name: "renamed.txt" })).toBeVisible();
   expect(screen.queryByRole("button", { name: "result.txt" })).toBeNull();
 });
+
+it.each([7, null])("keeps file pin at the trailing edge in flat and directory views for owner %s", async projectId => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const files = documents.map(item => ({ ...item, projectId, isStarred: item.id === 42 }));
+  const component = (items = files) => <QueryClientProvider client={client}><HomeProjectFiles fileScope={{ projectId, rootPath: "/project", workspaceRoot: "/workspace", name: "Files" }} documents={items} /></QueryClientProvider>;
+  const view = render(component());
+  const flat = screen.getByRole("button", { name: "other.txt", exact: true });
+  expect(within(flat).getByLabelText("标星")).toBe(flat.lastElementChild);
+  expect(screen.getAllByRole("button").indexOf(flat)).toBeLessThan(screen.getAllByRole("button").indexOf(screen.getByRole("button", { name: /^result.txt/ })));
+  fireEvent.click(screen.getByRole("button", { name: "文件树展示" }));
+  fireEvent.click(await screen.findByRole("button", { name: "generated" }));
+  const tree = await screen.findByRole("button", { name: "other.txt", exact: true });
+  expect(within(tree).getByLabelText("标星")).toBe(tree.lastElementChild);
+  fireEvent.contextMenu(tree);
+  fireEvent.click(within(await screen.findByRole("menu", { name: "文件操作" })).getByRole("menuitem", { name: "取消标星", exact: true }));
+  expect(mutations.documentMetaMutation.mutate).toHaveBeenCalledWith({ documentId: 42, isStarred: false });
+  view.rerender(component(files.map(item => ({ ...item, isStarred: false }))));
+  expect(within(tree).queryByLabelText("标星")).toBeNull();
+});

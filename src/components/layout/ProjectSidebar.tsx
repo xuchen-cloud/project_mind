@@ -29,7 +29,6 @@ import {
   Pin,
   PinOff,
   Plus,
-  Star,
   Trash2,
   Upload,
 } from "lucide-react";
@@ -50,6 +49,7 @@ import {
   ActionContextMenu,
   Button,
   IconButton,
+  ListPinIndicator,
   ResizeHandle,
   SearchField,
   SidebarFilters,
@@ -1034,8 +1034,8 @@ export function ProjectSidebar({
                           </p>
                         )}
                         <TagPreview tags={record.tags} />
-                        {isPinned(record.id) ? <Pin size={12} aria-label="已置顶" /> : null}
                       </span>
+                      {isPinned(record.id) ? <ListPinIndicator /> : null}
                     </button>
                     );
                   })
@@ -1069,7 +1069,7 @@ export function ProjectSidebar({
                         key={document.id}
                         role="button"
                         className={cn(
-                          "project-sidebar__file-row group flex flex-wrap min-w-0 items-start gap-x-2 gap-y-0 rounded-[var(--radius-8)] border px-3 py-2.5 text-left transition-colors",
+                          "project-sidebar__file-row group flex w-full min-w-0 items-center gap-x-2 gap-y-0 rounded-[var(--radius-8)] border px-3 py-2.5 text-left transition-colors",
                           document.id === activeFileId && "is-active",
                           isEditing ? "" : "context-menu-no-select",
                           document.health === "missing"
@@ -1096,9 +1096,6 @@ export function ProjectSidebar({
                         </span>
                         <span className="min-w-0 flex-1">
                           <span className="flex min-w-0 items-center gap-1.5">
-                            {document.isStarred ? (
-                              <Star size={12} className="shrink-0 fill-current text-amber-500" aria-label="标星" />
-                            ) : null}
                             {isEditing ? (
                               <input
                                 data-document-interactive="true"
@@ -1142,6 +1139,7 @@ export function ProjectSidebar({
                             ) : null}
                           </span>
                         </span>
+                        {document.isStarred ? <ListPinIndicator label="标星" /> : null}
                       </div>
                     );
                   })
@@ -1222,7 +1220,7 @@ export function ProjectSidebar({
               }}
             />
             <DocumentContextMenuAction
-              icon={<Star size={14} className={contextMenuDocument.isStarred ? "fill-current" : ""} />}
+              icon={contextMenuDocument.isStarred ? <PinOff size={14} /> : <Pin size={14} />}
               label={contextMenuDocument.isStarred ? "取消标星" : "标星"}
               onClick={() => {
                 setContextMenu(null);

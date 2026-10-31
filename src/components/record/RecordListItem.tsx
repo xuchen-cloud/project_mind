@@ -11,7 +11,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
-import { ChevronDown, ChevronUp, ExternalLink, Pin, Plus } from "lucide-react";
+import { ChevronDown, ChevronUp, ExternalLink, Plus } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCanonicalRecordEditor } from "../../hooks/useCanonicalRecordEditor";
 import { useRecordClipboard } from "../../hooks/useRecordClipboard";
@@ -24,7 +24,7 @@ import { RecordConflictActions } from "./RecordConflictActions";
 import { formatDateTime } from "../../lib/formatters";
 import { colorKeyForTagLabel } from "../../lib/tags";
 import { projectMindApi } from "../../services/projectMindApi";
-import { Button, IconButton, TextField } from "../../ui/components";
+import { Button, IconButton, ListPinIndicator, TextField } from "../../ui/components";
 import { cn } from "../../ui/lib/cn";
 import { commitListLayoutChange } from "../../ui/listLayoutMotion";
 import { useMotionPresence } from "../../hooks/useMotionPresence";
@@ -539,7 +539,7 @@ export function RecordListItem<TRecord extends RecordListItemRecord>({
               onBlur={() => void handleTitleBlur().catch(reportSaveError)}
             />
           ) : (
-            <p className="project-history-record__title">{titleDisplay}{pinned ? <Pin className="project-history-record__voice-icon" size={13} aria-label="已置顶" /> : null}{record.isVoice ? <VoiceRecordIcon className="project-history-record__voice-icon" size={15} aria-label="语音记录" /> : null}</p>
+            <p className="project-history-record__title">{titleDisplay}{record.isVoice ? <VoiceRecordIcon className="project-history-record__voice-icon" size={15} aria-label="语音记录" /> : null}</p>
           )}
         </div>
         <div className="project-history-record__header-actions">
@@ -568,6 +568,7 @@ export function RecordListItem<TRecord extends RecordListItemRecord>({
           )}
           {!homepage || editing ? renderRecordActions() : null}
         </div>
+        {pinned ? <ListPinIndicator /> : null}
       </div>
     );
   }

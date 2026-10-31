@@ -382,3 +382,9 @@
 .todo-rail__list-frame > .todo-rail__list-scroll { isolation:isolate; }
 .todo-rail__list-frame > .home-side__list > div { padding-right:0; }
 .todo-rail__list-frame::before, .todo-rail__list-frame::after { right:0; }
+
+.todo-card__pin { position:absolute; right:0; top:8px; }
+.todo-card__primary[data-pinned] { padding-right:20px; }
+.todo-rail .todo-card .todo-card__primary[data-pinned] { padding-right:44px; }
+.todo-rail .todo-card--editing .todo-card__primary[data-pinned] { padding-right:20px; }
+.todo-rail .todo-card__primary[data-pinned] .todo-card__priority-mark { right:22px; }

@@ -464,3 +464,15 @@ it("retains cached names across remounts and discards an earlier A refresh after
   await act(async () => current.resolve([{ id: "new", title: "最新名称", running: false }]));
   expect(screen.getByRole("button", { name: "最新名称" })).toBeVisible();
 });
+
+it.each([7, null])("keeps the pinned running session indicator last in scope %s", async (projectId) => {
+  api.sessions.mockResolvedValue([{ ...saved[0], pinned: true }]);
+  useAgentPanelStore.getState().setSessionRuns("/workspace", projectId, { alpha: true });
+  render(component({ projectId }));
+  const row = await screen.findByTitle("Alpha 方案");
+  const pin = within(row).getByLabelText("已置顶");
+  const running = within(row).getByRole("status", { name: "运行中" });
+  expect(pin).toHaveClass("list-pin-indicator");
+  expect(row.lastElementChild).toBe(pin);
+  expect(pin.previousElementSibling).toBe(running);
+});
