@@ -19,6 +19,7 @@ use std::{
 
 const RATE: u64 = 16_000;
 const VAD_FRAME: usize = 480;
+const MAX_PENDING_FINALS: usize = 8;
 const MAX_TRACK_LAG: usize = 3 * RATE as usize;
 
 #[derive(Clone, Debug)]
@@ -73,13 +74,31 @@ impl LiveLocalHandle {
                     let mut pipeline =
                         Pipeline::new(worker, send.clone(), epoch_offset_ms, worker_preview)?;
                     let mut capture = CaptureReader::new(microphone, system);
-                    while let Some(frame) = capture
-                        .next([pipeline.mixer.microphone.end(), pipeline.mixer.system.end()])
-                        .await
-                    {
-                        pipeline.feed(frame)?;
+                    let capture_result: Result<()> = async {
+                        loop {
+                            let frame = tokio::select! {
+                                frame = capture.next([pipeline.mixer.microphone.end(), pipeline.mixer.system.end()]) => frame,
+                                _ = tokio::time::sleep(std::time::Duration::from_millis(20)) => {
+                                    pipeline.poll()?;
+                                    continue;
+                                }
+                            };
+                            match frame {
+                                Some(frame) => pipeline.feed(frame)?,
+                                None => break,
+                            }
+                        }
+                        Ok(())
+                    }.await;
+                    match capture_result {
+                        Ok(()) => pipeline.finish(),
+                        Err(error) => {
+                            // Report overload promptly while retaining every
+                            // final accepted before the failed input.
+                            let _ = send.send(Err(error));
+                            pipeline.finish_accepted()
+                        }
                     }
-                    pipeline.finish()
                 });
                 if let Err(error) = &result {
                     let _ = send.send(Err(anyhow!(error.to_string())));
@@ -287,11 +306,32 @@ impl Mixer {
     }
 }
 
+enum InferenceKind {
+    Final,
+    Preview { generation: u64, end_sample: u64 },
+}
+
+struct Inference {
+    answer: mpsc::Receiver<Result<LocalAsrResult>>,
+    kind: InferenceKind,
+    started: std::time::Instant,
+}
+
+struct PreviewWork {
+    segment: UtteranceSegment,
+    generation: u64,
+    end_sample: u64,
+}
+
 struct Pipeline {
     mixer: Mixer,
     vad: SpeechDetector,
     segmenter: UtteranceSegmenter,
     worker: LocalAsrWorker,
+    in_flight: Option<Inference>,
+    pending_finals: VecDeque<UtteranceSegment>,
+    pending_preview: Option<PreviewWork>,
+    preview_generation: u64,
     assembler: SentenceAssembler,
     results: mpsc::Sender<Result<RecognitionUpdate>>,
     epoch_offset_ms: u64,
@@ -314,6 +354,10 @@ impl Pipeline {
             segmenter: UtteranceSegmenter::new(RATE as u32, SegmenterConfig::default())
                 .map_err(|error| anyhow!("invalid VAD segmenter: {error:?}"))?,
             worker,
+            in_flight: None,
+            pending_finals: VecDeque::new(),
+            pending_preview: None,
+            preview_generation: 0,
             assembler: SentenceAssembler::new(),
             results,
             epoch_offset_ms,
@@ -325,6 +369,7 @@ impl Pipeline {
     }
 
     fn feed(&mut self, frame: AudioFrame) -> Result<()> {
+        self.poll()?;
         for (start_sample, samples) in self.mixer.push(frame)? {
             self.feed_mixed(start_sample, &samples)?;
         }
@@ -348,81 +393,193 @@ impl Pipeline {
             && std::time::Instant::now() >= self.next_preview_at
         {
             if let Some(preview) = self.segmenter.preview_since(self.last_preview_sample) {
-                let end = preview.end_sample();
-                let started = std::time::Instant::now();
                 self.preview(preview)?;
-                // Backlogged capture must prioritize final Transcript over captions.
-                // At most one preview per two wall-clock seconds; expensive
-                // inference earns three times its cost before another preview.
-                self.next_preview_at = std::time::Instant::now()
-                    + started
-                        .elapsed()
-                        .saturating_mul(3)
-                        .max(std::time::Duration::from_secs(2));
-                self.last_preview_sample = Some(end);
+                self.next_preview_at =
+                    std::time::Instant::now() + std::time::Duration::from_secs(2);
             }
         }
         Ok(())
     }
 
     fn submit(&mut self, mut segment: UtteranceSegment) -> Result<()> {
+        self.preview_generation += 1;
+        self.pending_preview = None;
+        self.poll()?;
+        if self.pending_finals.len() >= MAX_PENDING_FINALS {
+            return Err(anyhow!("local transcription backlog exceeded: final segment queue is full; original source recordings are retained"));
+        }
         self.preview_text.clear();
         self.last_preview_sample = None;
         segment.start_sample += self.epoch_offset_ms * RATE / 1_000;
-        let answer = self.worker.submit(segment)?;
-        let result = answer
-            .recv()
-            .map_err(|_| anyhow!("SenseVoice worker closed"))?;
-        match result {
-            Ok(result) => {
-                for sentence in self.assembler.push(result) {
-                    self.results
-                        .send(Ok(RecognitionUpdate::Final(local_final(sentence))))
-                        .map_err(|_| anyhow!("Transcript receiver closed"))?;
-                }
-                if self.preview_enabled.load(Ordering::Relaxed) {
-                    self.results
-                        .send(Ok(RecognitionUpdate::Partial(
-                            self.assembler.preview_text(""),
-                        )))
-                        .map_err(|_| anyhow!("Transcript receiver closed"))?;
-                }
+        self.pending_finals.push_back(segment);
+        self.dispatch()
+    }
+
+    fn preview(&mut self, mut segment: UtteranceSegment) -> Result<()> {
+        let end_sample = segment.end_sample();
+        segment.start_sample += self.epoch_offset_ms * RATE / 1_000;
+        // Keep only the newest preview. Its watermark is based on the last
+        // accepted result, so replacing queued work does not skip unheard audio.
+        self.pending_preview = Some(PreviewWork {
+            segment,
+            generation: self.preview_generation,
+            end_sample,
+        });
+        self.dispatch()
+    }
+
+    fn dispatch(&mut self) -> Result<()> {
+        if self.in_flight.is_some() {
+            return Ok(());
+        }
+        let work = if let Some(segment) = self.pending_finals.pop_front() {
+            Some((segment, InferenceKind::Final))
+        } else if self.preview_enabled.load(Ordering::Relaxed)
+            && std::time::Instant::now() >= self.next_preview_at
+        {
+            self.pending_preview.take().map(|preview| {
+                (
+                    preview.segment,
+                    InferenceKind::Preview {
+                        generation: preview.generation,
+                        end_sample: preview.end_sample,
+                    },
+                )
+            })
+        } else {
+            if !self.preview_enabled.load(Ordering::Relaxed) {
+                self.pending_preview = None;
             }
-            Err(error) => self
-                .results
-                .send(Err(error))
-                .map_err(|_| anyhow!("Transcript receiver closed"))?,
+            None
+        };
+        if let Some((segment, kind)) = work {
+            self.in_flight = Some(Inference {
+                answer: self.worker.submit(segment)?,
+                kind,
+                started: std::time::Instant::now(),
+            });
         }
         Ok(())
     }
 
-    fn preview(&mut self, mut segment: UtteranceSegment) -> Result<()> {
-        segment.start_sample += self.epoch_offset_ms * RATE / 1_000;
-        let answer = self.worker.submit(segment)?;
-        let result = answer
-            .recv()
-            .map_err(|_| anyhow!("SenseVoice preview worker closed"))??;
-        self.preview_text =
-            super::transcript_assembly::merge_preview_text(&self.preview_text, &result.text);
-        let text = self.assembler.preview_text(&self.preview_text);
-        if self.preview_enabled.load(Ordering::Relaxed) {
-            self.results
-                .send(Ok(RecognitionUpdate::Partial(text)))
-                .map_err(|_| anyhow!("Transcript receiver closed"))?;
+    fn poll(&mut self) -> Result<()> {
+        let result = match self.in_flight.as_ref() {
+            Some(work) => match work.answer.try_recv() {
+                Ok(result) => Some(result),
+                Err(mpsc::TryRecvError::Empty) => None,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    return Err(anyhow!("SenseVoice worker closed"))
+                }
+            },
+            None => None,
+        };
+        if let Some(result) = result {
+            let work = self
+                .in_flight
+                .take()
+                .expect("result has an in-flight request");
+            self.accept(work, result)?;
+        }
+        self.dispatch()
+    }
+
+    fn accept(&mut self, work: Inference, result: Result<LocalAsrResult>) -> Result<()> {
+        match work.kind {
+            InferenceKind::Final => match result {
+                Ok(result) => {
+                    for sentence in self.assembler.push(result) {
+                        self.results
+                            .send(Ok(RecognitionUpdate::Final(local_final(sentence))))
+                            .map_err(|_| anyhow!("Transcript receiver closed"))?;
+                    }
+                    if self.preview_enabled.load(Ordering::Relaxed) {
+                        self.results
+                            .send(Ok(RecognitionUpdate::Partial(
+                                self.assembler.preview_text(""),
+                            )))
+                            .map_err(|_| anyhow!("Transcript receiver closed"))?;
+                    }
+                }
+                Err(error) => self
+                    .results
+                    .send(Err(error))
+                    .map_err(|_| anyhow!("Transcript receiver closed"))?,
+            },
+            InferenceKind::Preview {
+                generation,
+                end_sample,
+            } => {
+                self.next_preview_at = self
+                    .next_preview_at
+                    .max(std::time::Instant::now() + work.started.elapsed().saturating_mul(3));
+                // A finalized utterance invalidates its provisional text.
+                if generation == self.preview_generation
+                    && self.preview_enabled.load(Ordering::Relaxed)
+                {
+                    let result = result?;
+                    self.last_preview_sample = Some(end_sample);
+                    // Queued candidates were cut from the old watermark. A
+                    // subsequent audio frame recomputes them from this result.
+                    self.pending_preview = None;
+                    self.preview_text = super::transcript_assembly::merge_preview_text(
+                        &self.preview_text,
+                        &result.text,
+                    );
+                    self.results
+                        .send(Ok(RecognitionUpdate::Partial(
+                            self.assembler.preview_text(&self.preview_text),
+                        )))
+                        .map_err(|_| anyhow!("Transcript receiver closed"))?;
+                } else if let Err(error) = result {
+                    // Invalidating captions does not hide an inference failure.
+                    self.results
+                        .send(Err(error))
+                        .map_err(|_| anyhow!("Transcript receiver closed"))?;
+                }
+            }
         }
         Ok(())
     }
 
     fn finish(mut self) -> Result<()> {
-        let tail_start = self.mixer.next_sample;
-        let tail = self.mixer.finish();
-        for (index, samples) in tail.chunks(VAD_FRAME).enumerate() {
-            let mut padded = samples.to_vec();
-            padded.resize(VAD_FRAME, 0.0);
-            self.feed_mixed(tail_start + (index * VAD_FRAME) as u64, &padded)?;
+        self.preview_enabled.store(false, Ordering::Relaxed);
+        self.pending_preview = None;
+        self.preview_generation += 1;
+        let finalization: Result<()> = (|| {
+            let tail_start = self.mixer.next_sample;
+            let tail = self.mixer.finish();
+            for (index, samples) in tail.chunks(VAD_FRAME).enumerate() {
+                let mut padded = samples.to_vec();
+                padded.resize(VAD_FRAME, 0.0);
+                self.feed_mixed(tail_start + (index * VAD_FRAME) as u64, &padded)?;
+            }
+            if let Some(segment) = self.segmenter.flush() {
+                self.submit(segment)?;
+            }
+            Ok(())
+        })();
+        let drained = self.finish_accepted();
+        match (finalization, drained) {
+            (Ok(()), result) | (result, Ok(())) => result,
+            (Err(error), Err(drain_error)) => Err(anyhow!(
+                "{error}; draining accepted Transcript also failed: {drain_error}"
+            )),
         }
-        if let Some(segment) = self.segmenter.flush() {
-            self.submit(segment)?;
+    }
+
+    fn finish_accepted(mut self) -> Result<()> {
+        // EOF waits for durable finals, but discards replaceable captions.
+        self.preview_generation += 1;
+        self.pending_preview = None;
+        while self.in_flight.is_some() || !self.pending_finals.is_empty() {
+            self.dispatch()?;
+            if let Some(work) = self.in_flight.take() {
+                let result = work
+                    .answer
+                    .recv()
+                    .map_err(|_| anyhow!("SenseVoice worker closed while draining Transcript"))?;
+                self.accept(work, result)?;
+            }
         }
         if let Some(sentence) = self.assembler.finish() {
             self.results
@@ -470,6 +627,414 @@ mod tests {
                     / u64::from(frame.sample_rate)
         });
         frames
+    }
+
+    #[test]
+    fn slow_recognition_does_not_block_capture_pipeline_and_drains_at_eof() {
+        let worker = LocalAsrWorker::for_test(|segment| {
+            thread::sleep(std::time::Duration::from_millis(200));
+            Ok(LocalAsrResult {
+                start_sample: segment.start_sample,
+                end_sample: segment.end_sample(),
+                text: "保留转写。".into(),
+                forced_split: false,
+            })
+        });
+        let (send, results) = mpsc::channel();
+        let mut pipeline =
+            Pipeline::new(worker, send, 0, Arc::new(AtomicBool::new(false))).unwrap();
+        let started = std::time::Instant::now();
+        pipeline
+            .submit(UtteranceSegment {
+                start_sample: 0,
+                samples: vec![0.0; 16000],
+                forced_split: false,
+            })
+            .unwrap();
+        let elapsed = started.elapsed();
+        pipeline.finish().unwrap();
+        assert!(
+            elapsed < std::time::Duration::from_millis(100),
+            "capture blocked for {elapsed:?}"
+        );
+        let updates = results.try_iter().map(Result::unwrap).collect::<Vec<_>>();
+        assert!(updates.iter().any(|update| matches!(update, RecognitionUpdate::Final(result) if result.text == "保留转写。")));
+    }
+
+    #[test]
+    #[ignore = "requires private float WAV speech fixture; set PROJECT_MIND_TEST_MIC_WAV"]
+    fn slow_asr_keeps_live_capture_queues_consuming_and_finishes_transcript() {
+        let (rate, channels, samples) = private_speech_fixture(36);
+        let mut first = true;
+        let (started_send, started_receive) = mpsc::channel();
+        let worker = LocalAsrWorker::for_test(move |segment| {
+            if first {
+                first = false;
+                started_send.send(()).unwrap();
+                thread::sleep(std::time::Duration::from_secs(6));
+            }
+            Ok(LocalAsrResult {
+                start_sample: segment.start_sample,
+                end_sample: segment.end_sample(),
+                text: "保留转写。".into(),
+                forced_split: segment.forced_split,
+            })
+        });
+        let (mic_send, microphone) = super::super::capture::bounded_audio_frames(256).unwrap();
+        let (sys_send, system) = super::super::capture::bounded_audio_frames(256).unwrap();
+        let handle = LiveLocalHandle::spawn(worker, microphone, system, 0, true).unwrap();
+        let mut mic = SourceTimeline::new(AudioSource::Microphone, 0, 0, rate, channels).unwrap();
+        let mut sys = SourceTimeline::new(AudioSource::System, 0, 0, rate, channels).unwrap();
+        let mut capture_error = None;
+        let mut live_updates = Vec::new();
+        let started = std::time::Instant::now();
+        for (index, chunk) in samples
+            .chunks(rate as usize / 100 * usize::from(channels))
+            .enumerate()
+        {
+            let deadline = started + std::time::Duration::from_millis(index as u64 * 10);
+            if let Some(wait) = deadline.checked_duration_since(std::time::Instant::now()) {
+                thread::sleep(wait);
+            }
+            while let Some(update) = handle.try_result() {
+                live_updates.push(update);
+            }
+            // The first utterance can end before its six-second preview
+            // finishes. Keep recording through the adaptive cooldown, until
+            // a later utterance can publish captions; never weaken that check.
+            if index >= 1_200
+                && live_updates.iter().any(|update| {
+                    matches!(update,
+                Ok(RecognitionUpdate::Partial(text)) if !text.is_empty())
+                })
+            {
+                break;
+            }
+            let captured_at_ns = index as u64 * 10_000_000;
+            let mic_frame = mic.stamp(captured_at_ns, chunk.to_vec()).unwrap();
+            let sys_frame = sys.stamp(captured_at_ns, vec![0.0; chunk.len()]).unwrap();
+            if let Err(error) = mic_send
+                .try_push(mic_frame)
+                .and_then(|_| sys_send.try_push(sys_frame))
+            {
+                capture_error = Some(error);
+                break;
+            }
+        }
+        drop((mic_send, sys_send));
+        let had_live_caption = live_updates.iter().any(
+            |update| matches!(update, Ok(RecognitionUpdate::Partial(text)) if !text.is_empty()),
+        );
+        live_updates.extend(handle.finish());
+        let updates = live_updates;
+        assert!(
+            had_live_caption,
+            "slow preview must remain visible while recording is open"
+        );
+        assert!(
+            started_receive.try_recv().is_ok(),
+            "fixture must start an ASR task"
+        );
+        assert!(
+            capture_error.is_none(),
+            "capture overflowed while ASR was slow: {capture_error:?}"
+        );
+        let updates = updates.into_iter().map(Result::unwrap).collect::<Vec<_>>();
+        let finals = updates
+            .iter()
+            .filter_map(|update| match update {
+                RecognitionUpdate::Final(result) => Some(result),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            !finals.is_empty(),
+            "EOF must publish the accepted Transcript"
+        );
+        assert!(
+            finals.last().unwrap().end_ms > 8_000,
+            "late speech must survive the slow task"
+        );
+        assert!(finals
+            .windows(2)
+            .all(|pair| pair[0].start_ms <= pair[1].start_ms));
+    }
+
+    #[test]
+    fn transcription_overload_preserves_all_accepted_finals_in_order() {
+        let (release, wait) = mpsc::channel();
+        let mut first = true;
+        let worker = LocalAsrWorker::for_test(move |segment| {
+            if first {
+                first = false;
+                wait.recv().unwrap();
+            }
+            Ok(LocalAsrResult {
+                start_sample: segment.start_sample,
+                end_sample: segment.end_sample(),
+                text: format!("片段{}。", segment.start_sample / RATE),
+                forced_split: false,
+            })
+        });
+        let (send, results) = mpsc::channel();
+        let mut pipeline =
+            Pipeline::new(worker, send, 0, Arc::new(AtomicBool::new(false))).unwrap();
+        for index in 0..9 {
+            pipeline
+                .submit(UtteranceSegment {
+                    start_sample: index * RATE,
+                    samples: vec![0.0; 160],
+                    forced_split: false,
+                })
+                .unwrap();
+        }
+        let error = pipeline
+            .submit(UtteranceSegment {
+                start_sample: 9 * RATE,
+                samples: vec![0.0; 160],
+                forced_split: false,
+            })
+            .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("local transcription backlog exceeded"));
+        release.send(()).unwrap();
+        pipeline.finish_accepted().unwrap();
+        let finals = results
+            .try_iter()
+            .map(Result::unwrap)
+            .filter_map(|update| match update {
+                RecognitionUpdate::Final(result) => Some(result.text),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            finals,
+            [
+                "片段0。",
+                "片段1。",
+                "片段2。",
+                "片段3。",
+                "片段4。",
+                "片段5。",
+                "片段6。",
+                "片段7。",
+                "片段8。"
+            ]
+        );
+    }
+
+    #[test]
+    fn finals_preempt_queued_previews_and_stale_preview_text_is_not_published() {
+        let (release, wait) = mpsc::channel();
+        let (started, starts) = mpsc::channel();
+        let mut first = true;
+        let worker = LocalAsrWorker::for_test(move |segment| {
+            started.send(segment.start_sample).unwrap();
+            if first {
+                first = false;
+                wait.recv().unwrap();
+            }
+            Ok(LocalAsrResult {
+                start_sample: segment.start_sample,
+                end_sample: segment.end_sample(),
+                text: if segment.start_sample == 0 {
+                    "过期字幕。".into()
+                } else {
+                    "最终转写。".into()
+                },
+                forced_split: false,
+            })
+        });
+        let (send, results) = mpsc::channel();
+        let mut pipeline = Pipeline::new(worker, send, 0, Arc::new(AtomicBool::new(true))).unwrap();
+        pipeline
+            .preview(UtteranceSegment {
+                start_sample: 0,
+                samples: vec![0.0; 160],
+                forced_split: false,
+            })
+            .unwrap();
+        assert_eq!(starts.recv().unwrap(), 0);
+        pipeline
+            .preview(UtteranceSegment {
+                start_sample: 160,
+                samples: vec![0.0; 160],
+                forced_split: false,
+            })
+            .unwrap();
+        pipeline
+            .submit(UtteranceSegment {
+                start_sample: RATE,
+                samples: vec![0.0; 160],
+                forced_split: false,
+            })
+            .unwrap();
+        release.send(()).unwrap();
+        pipeline.finish().unwrap();
+        assert_eq!(starts.try_iter().collect::<Vec<_>>(), [RATE]);
+        let updates = results.try_iter().map(Result::unwrap).collect::<Vec<_>>();
+        assert!(!updates.iter().any(
+            |update| matches!(update, RecognitionUpdate::Partial(text) if text.contains("过期"))
+        ));
+        assert!(updates.iter().any(|update| matches!(update, RecognitionUpdate::Final(result) if result.text == "最终转写。")));
+    }
+
+    #[test]
+    fn slow_preview_cooldown_keeps_only_the_latest_pending_preview() {
+        let (release, wait) = mpsc::channel();
+        let (started, starts) = mpsc::channel();
+        let mut first = true;
+        let worker = LocalAsrWorker::for_test(move |segment| {
+            started.send(segment.start_sample).unwrap();
+            if first {
+                first = false;
+                wait.recv().unwrap();
+            }
+            Ok(LocalAsrResult {
+                start_sample: segment.start_sample,
+                end_sample: segment.end_sample(),
+                text: format!("字幕{}。", segment.start_sample),
+                forced_split: false,
+            })
+        });
+        let (send, results) = mpsc::channel();
+        let mut pipeline = Pipeline::new(worker, send, 0, Arc::new(AtomicBool::new(true))).unwrap();
+        for start_sample in [0, 160, 320] {
+            pipeline
+                .preview(UtteranceSegment {
+                    start_sample,
+                    samples: vec![0.0; 160],
+                    forced_split: false,
+                })
+                .unwrap();
+        }
+        assert_eq!(starts.recv().unwrap(), 0);
+        thread::sleep(std::time::Duration::from_millis(40));
+        release.send(()).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while pipeline.in_flight.is_some() {
+            pipeline.poll().unwrap();
+            assert!(std::time::Instant::now() < deadline);
+            thread::sleep(std::time::Duration::from_millis(1));
+        }
+        assert!(
+            starts.try_recv().is_err(),
+            "queued preview must respect inference cooldown"
+        );
+        assert!(results.try_iter().any(|update| matches!(update.unwrap(), RecognitionUpdate::Partial(text) if text == "字幕0。")), "a slower preview must remain publishable within its utterance");
+        for start_sample in [480, 640] {
+            pipeline
+                .preview(UtteranceSegment {
+                    start_sample,
+                    samples: vec![0.0; 160],
+                    forced_split: false,
+                })
+                .unwrap();
+        }
+        while starts.try_recv().is_err() {
+            pipeline.poll().unwrap();
+            assert!(std::time::Instant::now() < deadline);
+            thread::sleep(std::time::Duration::from_millis(1));
+        }
+        while pipeline.in_flight.is_some() {
+            pipeline.poll().unwrap();
+            assert!(std::time::Instant::now() < deadline);
+            thread::sleep(std::time::Duration::from_millis(1));
+        }
+        assert!(results.try_iter().any(|update| matches!(update.unwrap(), RecognitionUpdate::Partial(text) if text.contains("字幕640。") && !text.contains("字幕480。"))));
+        assert!(
+            starts.try_recv().is_err(),
+            "intermediate preview must be replaced"
+        );
+        pipeline.finish().unwrap();
+    }
+
+    fn private_speech_fixture(seconds: usize) -> (u32, u16, Vec<f32>) {
+        let bytes = std::fs::read(std::env::var("PROJECT_MIND_TEST_MIC_WAV").unwrap()).unwrap();
+        assert_eq!(&bytes[20..22], &3_u16.to_le_bytes());
+        let channels = u16::from_le_bytes(bytes[22..24].try_into().unwrap());
+        let rate = u32::from_le_bytes(bytes[24..28].try_into().unwrap());
+        let samples = bytes[44..]
+            .chunks_exact(4)
+            .map(|sample| f32::from_le_bytes(sample.try_into().unwrap()))
+            .take(rate as usize * usize::from(channels) * seconds)
+            .collect::<Vec<_>>();
+        (rate, channels, samples)
+    }
+
+    #[test]
+    #[ignore = "requires private float WAV speech fixture; set PROJECT_MIND_TEST_MIC_WAV"]
+    fn live_input_failure_is_reported_before_slow_accepted_finals_finish() {
+        let (rate, channels, samples) = private_speech_fixture(12);
+        let (started, starts) = mpsc::channel();
+        let mut first = true;
+        let worker = LocalAsrWorker::for_test(move |segment| {
+            if first {
+                first = false;
+                started.send(()).unwrap();
+                thread::sleep(std::time::Duration::from_secs(6));
+            }
+            Ok(LocalAsrResult {
+                start_sample: segment.start_sample,
+                end_sample: segment.end_sample(),
+                text: "已接受的转写。".into(),
+                forced_split: segment.forced_split,
+            })
+        });
+        let (mic_send, microphone) = super::super::capture::bounded_audio_frames(4096).unwrap();
+        let (sys_send, system) = super::super::capture::bounded_audio_frames(4096).unwrap();
+        let handle = LiveLocalHandle::spawn(worker, microphone, system, 0, true).unwrap();
+        let mut mic = SourceTimeline::new(AudioSource::Microphone, 0, 0, rate, channels).unwrap();
+        let mut sys = SourceTimeline::new(AudioSource::System, 0, 0, rate, channels).unwrap();
+        for (index, chunk) in samples
+            .chunks(rate as usize / 100 * usize::from(channels))
+            .enumerate()
+        {
+            let captured_at_ns = index as u64 * 10_000_000;
+            mic_send
+                .try_push(mic.stamp(captured_at_ns, chunk.to_vec()).unwrap())
+                .unwrap();
+            sys_send
+                .try_push(sys.stamp(captured_at_ns, vec![0.0; chunk.len()]).unwrap())
+                .unwrap();
+        }
+        let mut invalid = mic
+            .stamp(
+                12_000_000_000,
+                vec![0.0; rate as usize / 100 * usize::from(channels)],
+            )
+            .unwrap();
+        invalid.sample_rate = 0;
+        mic_send.try_push(invalid).unwrap();
+        starts
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("speech fixture starts slow ASR");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+        let mut updates = Vec::new();
+        let mut early_error = false;
+        while std::time::Instant::now() < deadline && !early_error {
+            if let Some(update) = handle.try_result() {
+                early_error = update.as_ref().is_err_and(|error| {
+                    error.to_string().contains("invalid captured audio format")
+                });
+                updates.push(update);
+            } else {
+                thread::sleep(std::time::Duration::from_millis(1));
+            }
+        }
+        drop((mic_send, sys_send));
+        updates.extend(handle.finish());
+        assert!(
+            early_error,
+            "input failure must be reported without waiting six seconds for ASR"
+        );
+        assert_eq!(
+            updates.iter().filter(|update| update.is_err()).count(),
+            1,
+            "do not duplicate the original failure"
+        );
+        assert!(updates.into_iter().any(|update| matches!(update, Ok(RecognitionUpdate::Final(result)) if result.end_ms > 8_000)), "accepted final speech must be drained after input failure");
     }
 
     #[test]
@@ -885,12 +1450,13 @@ mod tests {
             }
             pipeline.finish().unwrap();
             let updates = results.try_iter().map(Result::unwrap).collect::<Vec<_>>();
-            assert_eq!(
-                updates.iter().any(
+            // Offline replay can reach EOF before provisional inference
+            // completes. Disabled captions must still remain disabled.
+            if !preview_enabled {
+                assert!(!updates.iter().any(
                     |update| matches!(update, RecognitionUpdate::Partial(text) if !text.is_empty())
-                ),
-                preview_enabled
-            );
+                ));
+            }
             let transcript = updates
                 .into_iter()
                 .filter_map(|result| match result {

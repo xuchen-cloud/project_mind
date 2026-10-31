@@ -136,12 +136,20 @@ mod tests {
                 .next()
                 .unwrap()
                 .parse()
-                .unwrap(),
+                .unwrap_or(0),
             samples: bytes[44..]
                 .chunks_exact(4)
                 .map(|value| f32::from_le_bytes(value.try_into().unwrap()))
                 .collect(),
         }
+    }
+
+    fn replay_setting(name: &str, default: usize) -> usize {
+        let value = std::env::var(name)
+            .map(|value| value.parse::<usize>().unwrap())
+            .unwrap_or(default);
+        assert!(value > 0, "{name} must be positive");
+        value
     }
 
     #[test]
@@ -194,17 +202,34 @@ mod tests {
             live_local::{LiveLocalHandle, RecognitionUpdate},
             local_asr::LocalAsrWorker,
         };
+        use sha2::{Digest, Sha256};
+        let queue_capacity = replay_setting("PROJECT_MIND_TEST_QUEUE_CAPACITY", 1024);
+        let mic_callback = replay_setting("PROJECT_MIND_TEST_MIC_CALLBACK", 1024);
+        let system_callback = replay_setting("PROJECT_MIND_TEST_SYSTEM_CALLBACK", 480);
+        let both_voiced = std::env::var_os("PROJECT_MIND_TEST_BOTH_VOICED").is_some();
         let mut frames = Vec::new();
-        for (track, callback) in [
+        let mut input_hasher = Sha256::new();
+        for (mut track, callback) in [
             (
                 read_replay_track("PROJECT_MIND_TEST_MIC_WAV", AudioSource::Microphone),
-                1024,
+                mic_callback,
             ),
             (
                 read_replay_track("PROJECT_MIND_TEST_SYSTEM_WAV", AudioSource::System),
-                480,
+                system_callback,
             ),
         ] {
+            // Duplicate the real voiced microphone onto the system source to exercise
+            // microphone, system and mixed recognition concurrently. Original WAVs stay read-only.
+            if both_voiced && track.source == AudioSource::System {
+                track = read_replay_track("PROJECT_MIND_TEST_MIC_WAV", AudioSource::System);
+            }
+            input_hasher.update(track.rate.to_le_bytes());
+            input_hasher.update(track.channels.to_le_bytes());
+            input_hasher.update(track.start.to_le_bytes());
+            for sample in &track.samples {
+                input_hasher.update(sample.to_le_bytes());
+            }
             let mut timeline =
                 SourceTimeline::new(track.source, 1, 0, track.rate, track.channels).unwrap();
             let mut consumed = 0;
@@ -219,6 +244,9 @@ mod tests {
             }
         }
         frames.sort_by_key(|(end, _)| *end);
+        let expected_callbacks = frames.len();
+        let expected_end_ms = frames.last().unwrap().0 / 1_000_000;
+        let input_hash = format!("{:x}", input_hasher.finalize());
         let cache = tempfile::tempdir().unwrap();
         let models = cache.path().join("voice-models");
         std::fs::create_dir(&models).unwrap();
@@ -227,10 +255,10 @@ mod tests {
             models.join(crate::voice::model_package::PACKAGE_ID),
         )
         .unwrap();
-        let (activity_mic_send, activity_mic) = bounded_audio_frames(1024).unwrap();
-        let (activity_sys_send, activity_sys) = bounded_audio_frames(1024).unwrap();
-        let (live_mic_send, live_mic) = bounded_audio_frames(1024).unwrap();
-        let (live_sys_send, live_sys) = bounded_audio_frames(1024).unwrap();
+        let (activity_mic_send, activity_mic) = bounded_audio_frames(queue_capacity).unwrap();
+        let (activity_sys_send, activity_sys) = bounded_audio_frames(queue_capacity).unwrap();
+        let (live_mic_send, live_mic) = bounded_audio_frames(queue_capacity).unwrap();
+        let (live_sys_send, live_sys) = bounded_audio_frames(queue_capacity).unwrap();
         let activity_only = std::env::var_os("PROJECT_MIND_TEST_ACTIVITY_ONLY").is_some();
         let live = if activity_only {
             None
@@ -306,17 +334,60 @@ mod tests {
         let mut final_count = 0;
         let mut final_end = 0;
         let mut live_errors = Vec::new();
+        let mut transcript_hasher = Sha256::new();
+        let mut boundaries = Vec::new();
+        let mut private_finals = Vec::new();
         for update in live.map(LiveLocalHandle::finish).unwrap_or_default() {
             match update {
                 Ok(RecognitionUpdate::Final(value)) => {
                     final_count += 1;
                     final_end = final_end.max(value.end_ms);
+                    boundaries.push((value.start_ms, value.end_ms));
+                    let record = serde_json::json!({
+                        "provider_key": value.provider_key,
+                        "start_ms": value.start_ms,
+                        "end_ms": value.end_ms,
+                        "text": value.text,
+                    });
+                    let encoded = serde_json::to_vec(&record).unwrap();
+                    transcript_hasher.update((encoded.len() as u64).to_le_bytes());
+                    transcript_hasher.update(encoded);
+                    private_finals.push(record);
                 }
                 Err(error) => live_errors.push(error.to_string()),
                 _ => (),
             }
         }
+        if let Some(path) = std::env::var_os("PROJECT_MIND_TEST_FINALS_JSON") {
+            // Caller must choose a local temporary destination; never use workspace Transcript files.
+            use std::io::Write;
+            use std::os::unix::fs::OpenOptionsExt;
+            let mut output = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(path)
+                .unwrap();
+            output
+                .write_all(&serde_json::to_vec(&private_finals).unwrap())
+                .unwrap();
+        }
+        eprintln!("REPLAY_INTEGRITY queue_capacity={queue_capacity} mic_callback={mic_callback} system_callback={system_callback} both_voiced={both_voiced} expected_callbacks={expected_callbacks} accepted_callbacks={submitted} expected_end_ms={expected_end_ms} input_sha256={input_hash} transcript_sha256={:x} boundaries={boundaries:?}", transcript_hasher.finalize());
         eprintln!("ACTIVITY_REPLAY activity_only={activity_only} submitted={submitted} feed_wall_s={:.3} activity_finish_wall_s={:.3} total_wall_s={:.3} failed={failed} failed_at_ms={failed_at:?} activity_ingress={activity_ingress_error:?} live_ingress={live_ingress_error:?} activity_result={activity_result:?} finals={final_count} final_end_ms={final_end} live_errors={live_errors:?}", feed_wall.as_secs_f64(), activity_wall.as_secs_f64(), started.elapsed().as_secs_f64());
+        assert_eq!(
+            submitted, expected_callbacks,
+            "replay must deliver every input callback"
+        );
+        assert!(
+            !failed && failed_at.is_none(),
+            "activity worker failed during replay"
+        );
+        if !activity_only {
+            assert!(
+                final_count > 0,
+                "voiced fixture must produce final transcript"
+            );
+        }
         assert!(
             activity_result.is_ok(),
             "activity replay failed: {activity_result:?}"

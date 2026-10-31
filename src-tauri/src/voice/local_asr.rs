@@ -60,6 +60,22 @@ impl LocalAsrWorker {
         })
     }
 
+    #[cfg(test)]
+    pub(crate) fn for_test(
+        mut recognize: impl FnMut(UtteranceSegment) -> Result<LocalAsrResult> + Send + 'static,
+    ) -> Self {
+        let (sender, receiver) = mpsc::sync_channel::<Work>(MAX_BACKLOG);
+        let join = thread::spawn(move || {
+            while let Ok(work) = receiver.recv() {
+                let _ = work.answer.send(recognize(work.segment));
+            }
+        });
+        Self {
+            sender: Some(sender),
+            join: Some(join),
+        }
+    }
+
     /// The caller retains a result channel. A full queue is an explicit
     /// recognition backlog error; the original audio must stay persisted.
     pub fn submit(
