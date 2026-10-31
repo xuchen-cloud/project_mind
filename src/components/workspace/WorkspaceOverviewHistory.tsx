@@ -1,12 +1,15 @@
+import { useListPins, recordPinScope } from "../../state/list-pins-store";
+import { sortPinnedByUpdatedAt } from "../../lib/list-order";
 import { useSearchResultsMotion } from "../../hooks/useSearchResultsMotion";
 import type { JSONContent } from "@tiptap/core";
 import {
   useEffect,
+  useMemo,
   useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
 } from "react";
-import { Save, Trash2 } from "lucide-react";
+import { Pin, PinOff, Save, Trash2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 
@@ -38,6 +41,7 @@ import { EntityTagEditor } from "../tags/EntityTagEditor";
 const EMPTY_VALUE: RichEditorValue = { html: "", text: "", markdown: "" };
 
 interface WorkspaceOverviewHistoryProps {
+  workspaceRootPath?: string;
   notes: WorkspaceRecord[];
   hasAnyNotes: boolean;
   hasRecordFilters?: boolean;
@@ -66,6 +70,7 @@ interface WorkspaceOverviewHistoryProps {
 }
 
 export function WorkspaceOverviewHistory({
+  workspaceRootPath = "",
   notes,
   hasAnyNotes,
   hasRecordFilters = false,
@@ -87,6 +92,8 @@ export function WorkspaceOverviewHistory({
 }: WorkspaceOverviewHistoryProps) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { pinnedIds, togglePin, isPinned } = useListPins(workspaceRootPath, recordPinScope(null));
+  const orderedNotes = useMemo(() => sortPinnedByUpdatedAt(notes, pinnedIds), [notes, pinnedIds]);
   const openSettings = useUiStore((state) => state.openSettings);
   const [recordDraftTitle, setRecordDraftTitle] = useState("");
   const [recordDraftValue, setRecordDraftValue] = useState<RichEditorValue>(EMPTY_VALUE);
@@ -104,7 +111,7 @@ export function WorkspaceOverviewHistory({
   const searchMotionRef = useRef<HTMLElement>(null);
   useSearchResultsMotion(searchMotionRef, recordFilters.toString());
   const recordPresence = useKeyedPresence(
-    notes,
+    orderedNotes,
     (record) => String(record.id),
     recordFilters.toString(),
   );
@@ -280,6 +287,7 @@ export function WorkspaceOverviewHistory({
             >
             <RecordListItem
               homepage
+              pinned={isPinned(note.id)}
               record={note}
               scope={{ kind: "workspace", assetHandlers }}
               focused={focusId === `record-${note.id}`}
@@ -313,6 +321,14 @@ export function WorkspaceOverviewHistory({
           y={recordContextMenu.y}
           ariaLabel="记录操作"
           actions={[
+            {
+              label: isPinned(contextMenuNote.id) ? "取消置顶" : "置顶",
+              icon: isPinned(contextMenuNote.id) ? PinOff : Pin,
+              onSelect: () => {
+                togglePin(contextMenuNote.id);
+                setRecordContextMenu(null);
+              },
+            },
             {
               label: "删除",
               icon: Trash2,

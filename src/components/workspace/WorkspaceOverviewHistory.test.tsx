@@ -11,6 +11,7 @@ import { MemoryRouter, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { WorkspaceRecord } from "../../lib/types";
+import { useListPinsStore } from "../../state/list-pins-store";
 import { WorkspaceOverviewHistory } from "./WorkspaceOverviewHistory";
 
 const richEditorMocks = vi.hoisted(() => ({
@@ -134,6 +135,25 @@ const baseNote: WorkspaceRecord = {
 describe("WorkspaceOverviewHistory", () => {
   beforeEach(() => {
     richEditorMocks.richTextViewerProps.length = 0;
+    useListPinsStore.setState({ pins: {} });
+  });
+
+  it("pins a main history card above newer records and restores modification order when unpinned", async () => {
+    render(<WorkspaceOverviewHistory workspaceRootPath="/pin-history" hasAnyNotes
+      notes={[{ ...baseNote, id: 8, title: "较新记录", updatedAt: "2026-04-07T09:00:00.000Z" }, baseNote]}
+      focusId={null} composeRecord={false} pageWidthMode="adaptive" availableTags={[]} aiSettings={null}
+      onCreateRecord={vi.fn()} onDeleteRecord={vi.fn()} onCloseCompose={vi.fn()}
+      contactMentionOptions={{}} onOpenInternalReference={vi.fn()} />);
+    const order = () => [...document.querySelectorAll("article[id^='record-']")].map(item => item.id);
+    expect(order()).toEqual(["record-8", "record-7"]);
+    fireEvent.contextMenu(document.getElementById("record-7")!);
+    fireEvent.click(screen.getByRole("menuitem", { name: "置顶" }));
+    await waitFor(() => expect(order()).toEqual(["record-7", "record-8"]));
+    expect(within(document.getElementById("record-7")!).getByLabelText("已置顶")).toBeVisible();
+    fireEvent.contextMenu(document.getElementById("record-7")!);
+    fireEvent.click(screen.getByRole("menuitem", { name: "取消置顶" }));
+    await waitFor(() => expect(order()).toEqual(["record-8", "record-7"]));
+    expect(screen.queryByLabelText("已置顶")).not.toBeInTheDocument();
   });
 
   it("uses focus only for positioning and does not auto-enter editing", () => {

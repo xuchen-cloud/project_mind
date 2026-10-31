@@ -536,6 +536,7 @@ export function WorkspacePage({
             <HomeRecordFilters onClearFilters={() => { const next = new URLSearchParams(searchParams); next.delete("recordTag"); next.delete("recordQuery"); setWorkspaceSearchParams(next); }} title="工作区记录" query={recordSearchQuery} tag={availableTags.find((tag) => tag.id === recordFilterTagId)?.label}
               onQuery={setWorkspaceRecordQuery} onClearTag={() => setWorkspaceRecordTagId(null)} onCreate={() => void createWorkspaceRecordInFocus()} />
               <WorkspaceOverviewHistory
+                workspaceRootPath={currentWorkspace.rootPath}
                 notes={filteredWorkspaceRecords}
                 hasAnyNotes={workspaceRecords.length > 0}
                 hasRecordFilters={Boolean(recordSearchQuery.trim()) || recordFilterTagId !== null}

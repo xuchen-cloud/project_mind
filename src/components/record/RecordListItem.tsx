@@ -11,7 +11,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
-import { ChevronDown, ChevronUp, ExternalLink, Plus } from "lucide-react";
+import { ChevronDown, ChevronUp, ExternalLink, Pin, Plus } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCanonicalRecordEditor } from "../../hooks/useCanonicalRecordEditor";
 import { useRecordClipboard } from "../../hooks/useRecordClipboard";
@@ -79,6 +79,7 @@ export type RecordListItemScope =
 
 interface RecordListItemProps<TRecord extends RecordListItemRecord> {
   homepage?: boolean;
+  pinned?: boolean;
   record: TRecord;
   scope: RecordListItemScope;
   focused: boolean;
@@ -98,6 +99,7 @@ interface RecordListItemProps<TRecord extends RecordListItemRecord> {
 export function RecordListItem<TRecord extends RecordListItemRecord>({
   record,
   homepage = false,
+  pinned = false,
   scope,
   focused,
   availableTags,
@@ -537,7 +539,7 @@ export function RecordListItem<TRecord extends RecordListItemRecord>({
               onBlur={() => void handleTitleBlur().catch(reportSaveError)}
             />
           ) : (
-            <p className="project-history-record__title">{titleDisplay}{record.isVoice ? <VoiceRecordIcon className="project-history-record__voice-icon" size={15} aria-label="语音记录" /> : null}</p>
+            <p className="project-history-record__title">{titleDisplay}{pinned ? <Pin className="project-history-record__voice-icon" size={13} aria-label="已置顶" /> : null}{record.isVoice ? <VoiceRecordIcon className="project-history-record__voice-icon" size={15} aria-label="语音记录" /> : null}</p>
           )}
         </div>
         <div className="project-history-record__header-actions">

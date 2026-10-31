@@ -1,7 +1,9 @@
+import { useListPins, recordPinScope } from "../../state/list-pins-store";
+import { sortPinnedByUpdatedAt } from "../../lib/list-order";
 import { AgentLauncher } from "../agent/AgentLauncher";
 import { useSearchResultsMotion } from "../../hooks/useSearchResultsMotion";
 import { useQuery,useQueryClient } from "@tanstack/react-query";
-import { Save,Trash2 } from "lucide-react";
+import { Pin,PinOff,Save,Trash2 } from "lucide-react";
 import {
 useEffect,
 useMemo,
@@ -183,6 +185,8 @@ export function ProjectOverviewPage({
   const projectPage = projectPageQuery.data;
   const availableTags = tagSettingsQuery.data?.tags ?? [];
   const aiSettings = aiSettingsQuery.data ?? null;
+  const workspaceRoot = saveCoordinator?.workspaceKey ?? queryClient.getQueryData<WorkspaceStatusSnapshot>(queryKeys.workspaceStatus)?.currentWorkspace?.rootPath ?? "";
+  const { pinnedIds, togglePin, isPinned } = useListPins(workspaceRoot, recordPinScope(projectId));
   const allRecords = useMemo(() => projectPage?.records ?? [], [projectPage?.records]);
   const recordSearchQuery = searchParams.get("recordQuery") ?? "";
   const recordFilterTagId = useMemo(
@@ -191,11 +195,11 @@ export function ProjectOverviewPage({
   );
   const records = useMemo(
     () =>
-      filterProjectRecords(allRecords, {
+      sortPinnedByUpdatedAt(filterProjectRecords(allRecords, {
         query: recordSearchQuery,
         tagId: recordFilterTagId,
-      }),
-    [allRecords, recordFilterTagId, recordSearchQuery],
+      }), pinnedIds),
+    [allRecords, recordFilterTagId, recordSearchQuery, pinnedIds],
   );
   const searchMotionRef = useRef<HTMLElement>(null);
   useSearchResultsMotion(searchMotionRef, recordSearchQuery);
@@ -716,6 +720,7 @@ export function ProjectOverviewPage({
                     >
                       <RecordListItem
               homepage
+                        pinned={isPinned(note.id)}
                         record={note}
                         scope={{
                           kind: "project",
@@ -761,6 +766,14 @@ export function ProjectOverviewPage({
                   y={recordContextMenu.y}
                   ariaLabel="记录操作"
                   actions={[
+                    {
+                      label: isPinned(contextMenuRecord.id) ? "取消置顶" : "置顶",
+                      icon: isPinned(contextMenuRecord.id) ? PinOff : Pin,
+                      onSelect: () => {
+                        togglePin(contextMenuRecord.id);
+                        setRecordContextMenu(null);
+                      },
+                    },
                     {
                       label: "删除",
                       icon: Trash2,

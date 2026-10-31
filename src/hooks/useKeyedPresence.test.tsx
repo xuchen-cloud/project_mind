@@ -11,6 +11,23 @@ describe("useKeyedPresence", () => {
     vi.useRealTimers();
   });
 
+  it("follows changed list order without replaying entry for existing records", () => {
+    const first = { id: 1, label: "First" };
+    const second = { id: 2, label: "Second" };
+    const { result, rerender } = renderHook(
+      ({ items }) => useKeyedPresence(items, (item: Item) => String(item.id), ""),
+      { initialProps: { items: [first, second] } },
+    );
+
+    rerender({ items: [second, first] });
+    expect(result.current.items.map(({ key, state }) => [key, state])).toEqual([
+      ["2", "present"],
+      ["1", "present"],
+    ]);
+    rerender({ items: [first, second] });
+    expect(result.current.items.map(({ key }) => key)).toEqual(["1", "2"]);
+  });
+
   it("treats initial hydration and filter resets as present content", () => {
     const initial = Array.from({ length: 30 }, (_, index) => ({
       id: index + 1,

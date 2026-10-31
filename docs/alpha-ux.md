@@ -37,14 +37,14 @@ Project 内有自己的内容页签，可排序、拖动移栏和双栏阅读。
 ### 3.1 Workspace 左侧栏
 
 - 品牌与 Workspace 身份区。
-- Project 搜索、活跃 Project 和归档入口。
+- Project 搜索、活跃 Project 和归档入口；活跃项目可右键置顶。
 - Workspace Tag 与相关记录入口。
 
 ### 3.2 Project 与 Record 左侧栏
 
 - Project 首页展示最近 Record、最近 File 和各自搜索入口。
 - Record 焦点页复用相同品牌、封面和导航语言。
-- Workspace Record 只展示 Workspace 范围的最近记录。
+- Workspace Record 只展示 Workspace 范围的最近记录。工作区与项目记录按修改时间排序，单纯查看不重排；记录可右键置顶，置顶显示偏好在同一 Workspace 各入口共享。工作区左侧记录菜单同时提供重命名和删除。
 - 项目文件目录支持扫描纳管和版本预览。最新版本与固定历史版本保持明确标识，位置未核对的旧导入提供文件位置核对入口。
 
 所有侧栏字段过长时使用与背景同色的渐变遮罩，不使用省略号。选中底色应铺到侧栏可用右边缘，仅为滚动条和安全间距留空间。

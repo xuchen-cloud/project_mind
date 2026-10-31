@@ -6,6 +6,7 @@ import { createUiStoreState, useUiStore } from "../../state/ui-store";
 import { usePrefetchFileApplications } from "../../hooks/useFileApplications";
 import type { ComponentProps } from "react";
 import { useProjectContentStore } from "../../state/project-content-store";
+import { useListPinsStore } from "../../state/list-pins-store";
 import type { NoteRecord } from "../../lib/types";
 
 vi.mock("../../hooks/useFileApplications", () => ({ usePrefetchFileApplications: vi.fn() }));
@@ -17,7 +18,7 @@ vi.mock("../../services/projectMindApi", () => ({ projectMindApi: {
 vi.mock("./ProjectSidebarSessions", () => ({ ProjectSidebarSessions: ({ query, activeSessionId }: { query: string; activeSessionId?: string | null }) => <section aria-label="项目会话" data-active-session={activeSessionId}><span>会话</span><div role="region" aria-label="项目会话列表">{!query || "交付讨论".includes(query) ? "交付讨论" : "没有匹配的会话"}</div></section> }));
 vi.mock("./HomeProjectFiles", () => ({ HomeProjectFiles: ({ filter, activeFileId }: { filter: { query: string; tagId: number | null }; activeFileId?: number | null }) => <section aria-label="项目文件" data-active-file={activeFileId}><span>文件</span><div role="region" aria-label="项目文件列表">{filter.query}:{filter.tagId}</div></section> }));
 
-beforeEach(() => { localStorage.clear(); useUiStore.setState(createUiStoreState()); useProjectContentStore.setState({ layouts: {} }); });
+beforeEach(() => { localStorage.clear(); useListPinsStore.setState({ pins: {} }); useUiStore.setState(createUiStoreState()); useProjectContentStore.setState({ layouts: {} }); });
 function setup(voiceProps: Partial<ComponentProps<typeof HomeProjectSidebar>> = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const onTagChange = vi.fn();
@@ -134,4 +135,32 @@ it("prefetches file applications for the sidebar project documents", () => {
   }];
   setup({ documents });
   expect(usePrefetchFileApplications).toHaveBeenCalledWith("/workspace", 1, documents);
+});
+
+it("orders records by edits and ignores prior visits and opening", () => {
+  localStorage.setItem("project-mind:recent-records:/workspace:1", "[1]");
+  const records = [
+    { id: 1, title: "旧记录", contentMarkdown: "正文", createdAt: "2026-10-01", updatedAt: "2026-10-01" },
+    { id: 2, title: "新记录", contentMarkdown: "正文", createdAt: "2026-10-02", updatedAt: "2026-10-02" },
+  ] as NoteRecord[];
+  const { onOpenRecord, view, component } = setup({ records });
+  const titles = () => within(screen.getByRole("region", { name: "项目记录列表" })).getAllByRole("button").map(item => item.title);
+  expect(titles()).toEqual(["新记录", "旧记录"]);
+  fireEvent.click(screen.getByRole("button", { name: "旧记录" }));
+  expect(onOpenRecord).toHaveBeenCalledWith(1);
+  expect(titles()).toEqual(["新记录", "旧记录"]);
+  view.rerender(component({ records: [{ ...records[0], updatedAt: "2026-10-03" }, records[1]] }));
+  expect(titles()).toEqual(["旧记录", "新记录"]);
+});
+
+it("pins and unpins records from the context menu without edit callbacks", () => {
+  setup();
+  const list = screen.getByRole("region", { name: "项目记录列表" });
+  fireEvent.contextMenu(within(list).getByRole("button", { name: "记录 1" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "置顶" }));
+  expect(within(list).getAllByRole("button")[0]).toHaveAttribute("title", "记录 1");
+  expect(within(list).getByLabelText("已置顶")).toBeInTheDocument();
+  fireEvent.contextMenu(within(list).getByTitle("记录 1"));
+  fireEvent.click(screen.getByRole("menuitem", { name: "取消置顶" }));
+  expect(within(list).getAllByRole("button")[0]).toHaveAttribute("title", "记录 12");
 });

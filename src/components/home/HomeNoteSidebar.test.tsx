@@ -1,25 +1,51 @@
-import { render, screen, fireEvent } from "@testing-library/react";
-import { beforeEach, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { HomeNoteSidebar } from "./HomeNoteSidebar";
-import { useUiStore } from "../../state/ui-store";
+import { createUiStoreState, useUiStore } from "../../state/ui-store";
+import { useListPinsStore } from "../../state/list-pins-store";
 
-const records = [
-  { id: 1, title: "计划", contentMarkdown: "本周安排", updatedAt: "2026-09-26" },
-  { id: 2, title: "复盘", contentMarkdown: "本周总结", updatedAt: "2026-09-27" },
-];
-beforeEach(() => { localStorage.clear(); useUiStore.setState({ projectSidebarCollapsed: false }); });
-it("orders by modification time, ignoring browsing history and opening without edits", () => {
-  localStorage.setItem("home-note-history:/test:workspace", "[1,2]");
-  const props = { workspaceRoot: "/test", records, activeRecordId: 2, onOpenWorkspace: vi.fn(), onOpenRecord: vi.fn(), onCreateRecord: vi.fn() };
+beforeEach(() => { localStorage.clear(); useListPinsStore.setState({ pins: {} }); useUiStore.setState(createUiStoreState()); });
+const records = [{ id: 1, title: "旧记录", contentMarkdown: "正文", updatedAt: "2026-10-01" }, { id: 2, title: "新记录", contentMarkdown: "正文", updatedAt: "2026-10-02" }];
+it("keeps opening order stable, moves edits, and pins within the current scope", () => {
+  const onOpenRecord = vi.fn();
+  const props = { workspaceRoot: "/workspace", records, activeRecordId: 2, onOpenRecord, onOpenWorkspace: vi.fn(), onCreateRecord: vi.fn() };
   const view = render(<HomeNoteSidebar {...props} />);
-  const titles = () => screen.getAllByRole("button").filter(button => ["计划", "复盘"].includes(button.title)).map(button => button.title);
-  expect(titles()).toEqual(["复盘", "计划"]);
-  fireEvent.click(screen.getByRole("button", { name: "计划" }));
-  view.rerender(<HomeNoteSidebar {...props} activeRecordId={1} />);
-  expect(titles()).toEqual(["复盘", "计划"]);
-  view.rerender(<HomeNoteSidebar {...props} records={[{ ...records[0], updatedAt: "2026-10-01" }, records[1]]} />);
-  expect(titles()).toEqual(["计划", "复盘"]);
+  const titles = () => within(screen.getByRole("region", { name: "最近记录列表" })).getAllByRole("button").map(item => item.title);
+  expect(titles()).toEqual(["新记录", "旧记录"]);
+  fireEvent.click(screen.getByRole("button", { name: "旧记录" }));
+  expect(onOpenRecord).toHaveBeenCalledWith(1);
+  expect(titles()).toEqual(["新记录", "旧记录"]);
+  fireEvent.contextMenu(screen.getByRole("button", { name: "旧记录" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "置顶" }));
+  expect(titles()).toEqual(["旧记录", "新记录"]);
+  expect(screen.getByLabelText("已置顶")).toBeInTheDocument();
+  view.rerender(<HomeNoteSidebar {...props} projectId={7} />);
+  expect(titles()).toEqual(["新记录", "旧记录"]);
+  view.rerender(<HomeNoteSidebar {...props} />);
+  fireEvent.contextMenu(screen.getByTitle("旧记录"));
+  fireEvent.click(screen.getByRole("menuitem", { name: "取消置顶" }));
+  expect(titles()).toEqual(["新记录", "旧记录"]);
+  view.rerender(<HomeNoteSidebar {...props} records={[{ ...records[0], updatedAt: "2026-10-03" }, records[1]]} />);
+  expect(titles()).toEqual(["旧记录", "新记录"]);
 });
+it("keeps rename and delete available beside pinning and skips unchanged renames", () => {
+  const onRenameRecord = vi.fn(async () => undefined);
+  const onDeleteRecord = vi.fn(async () => undefined);
+  render(<HomeNoteSidebar workspaceRoot="/workspace" records={records} activeRecordId={2} onOpenRecord={vi.fn()} onOpenWorkspace={vi.fn()} onCreateRecord={vi.fn()} onRenameRecord={onRenameRecord} onDeleteRecord={onDeleteRecord} />);
+  fireEvent.contextMenu(screen.getByTitle("旧记录"));
+  expect(screen.getByRole("menuitem", { name: "置顶" })).toBeEnabled();
+  expect(screen.getByRole("menuitem", { name: "删除记录" })).toBeEnabled();
+  fireEvent.click(screen.getByRole("menuitem", { name: "重命名" }));
+  fireEvent.blur(screen.getByRole("textbox", { name: "重命名记录" }));
+  expect(onRenameRecord).not.toHaveBeenCalled();
+});
+
+
+describe("existing note navigation", () => {
+  const records = [
+    { id: 1, title: "计划", contentMarkdown: "本周安排", updatedAt: "2026-09-26" },
+    { id: 2, title: "复盘", contentMarkdown: "本周总结", updatedAt: "2026-09-27" },
+  ];
 it("workspace notes show only searchable recent records", () => {
   render(<HomeNoteSidebar workspaceRoot="/test" records={records} activeRecordId={1} onOpenWorkspace={vi.fn()} onOpenRecord={vi.fn()} onCreateRecord={vi.fn()} />);
   expect(screen.getAllByRole("button", { name: "我的工作区" }).find(button => button.classList.contains("home-side__identity-title"))).toBeInTheDocument();
@@ -39,4 +65,6 @@ it("project notes host the shared file panel independently of record search", ()
   expect(screen.getByRole("button", { name: "计划" })).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "共享文件面板" }));
   expect(openFile).toHaveBeenCalledOnce();
+});
+
 });

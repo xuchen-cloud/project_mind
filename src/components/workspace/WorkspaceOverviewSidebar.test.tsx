@@ -1,9 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ComponentProps, ReactElement, ReactNode } from "react";
-import { fireEvent, render as baseRender, screen, within } from "@testing-library/react";
+import { fireEvent, render as baseRender, screen, within, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createUiStoreState, useUiStore } from "../../state/ui-store";
+import { useListPinsStore } from "../../state/list-pins-store";
+import { useFeedbackStore } from "../../state/feedback-store";
 import { WorkspaceOverviewSidebar } from "./WorkspaceOverviewSidebar";
 
 function render(element: ReactElement) {
@@ -26,6 +28,8 @@ vi.mock("../home/HomeProjectFiles", () => ({ HomeProjectFiles: (props: { fileSco
   lists.fileMount(fileScope.projectId);
   return <section><div role="region" aria-label="工作区文件列表"><input aria-label="文件重命名" defaultValue="原文件名" /></div></section>;
 } }));
+
+beforeEach(() => useListPinsStore.setState({ pins: {} }));
 
 type SidebarProps = ComponentProps<typeof WorkspaceOverviewSidebar>;
 
@@ -294,4 +298,85 @@ it("keeps Files independent from the Record query and selected tag", async () =>
   expect(props.fileScope.projectId).toBeNull();
   expect(props.fileScope.rootPath).toBe("/tmp/workspace/files");
   expect(props.filter).toBeUndefined();
+});
+
+
+it("opens record actions and commits trimmed names, while Escape, IME and unchanged names do not rename", async () => {
+  const props = sidebarProps({ records, onRenameRecord: vi.fn(), onDeleteRecord: vi.fn() });
+  render(<WorkspaceOverviewSidebar {...props} />);
+  fireEvent.click(screen.getByRole("tab", { name: "记录" }));
+  const rename = () => {
+    fireEvent.contextMenu(recordList().getByRole("button", { name: /Needle 标题/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "重命名" }));
+    return screen.getByRole("textbox", { name: "记录名称" });
+  };
+  let input = rename();
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(props.onRenameRecord).not.toHaveBeenCalled();
+  input = rename();
+  fireEvent.change(input, { target: { value: " 草稿 " } });
+  fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+  expect(props.onRenameRecord).not.toHaveBeenCalled();
+  fireEvent.keyDown(input, { key: "Escape" });
+  expect(props.onRenameRecord).not.toHaveBeenCalled();
+  input = rename();
+  fireEvent.change(input, { target: { value: " 新名称 " } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(props.onRenameRecord).toHaveBeenCalledExactlyOnceWith(records[0], "新名称");
+  fireEvent.contextMenu(recordList().getByRole("button", { name: /Needle 标题/ }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "删除" }));
+  expect(props.onDeleteRecord).toHaveBeenCalledExactlyOnceWith(records[0]);
+});
+
+it("reports rejected record rename and delete operations", async () => {
+  useFeedbackStore.setState({ toasts: [] });
+  render(<WorkspaceOverviewSidebar {...sidebarProps({ records, onRenameRecord: vi.fn().mockRejectedValue(new Error("rename failed")), onDeleteRecord: vi.fn().mockRejectedValue(new Error("delete failed")) })} />);
+  fireEvent.click(screen.getByRole("tab", { name: "记录" }));
+  fireEvent.contextMenu(recordList().getByRole("button", { name: /Needle 标题/ }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "重命名" }));
+  const input = screen.getByRole("textbox", { name: "记录名称" });
+  fireEvent.change(input, { target: { value: "新标题" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  await waitFor(() => expect(useFeedbackStore.getState().toasts).toEqual(expect.arrayContaining([expect.objectContaining({ tone: "error", detail: "rename failed" })])));
+  fireEvent.contextMenu(recordList().getByRole("button", { name: /Needle 标题/ }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "删除" }));
+  await waitFor(() => expect(useFeedbackStore.getState().toasts).toEqual(expect.arrayContaining([expect.objectContaining({ tone: "error", detail: "delete failed" })])));
+});
+
+
+it("pins records above newer updates, preserves pins through filters, and restores update order after unpinning", () => {
+  const props = sidebarProps({ records, availableTags: [workTag], onRenameRecord: vi.fn(), onDeleteRecord: vi.fn() });
+  const { rerender } = render(<WorkspaceOverviewSidebar {...props} />);
+  fireEvent.click(screen.getByRole("tab", { name: "记录" }));
+  fireEvent.contextMenu(recordList().getByRole("button", { name: /Needle 标题/ }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "置顶" }));
+  expect(recordList().getAllByRole("button")[0]).toHaveTextContent("Needle 标题");
+  expect(recordList().getByRole("button", { name: /Needle 标题/ })).toContainElement(recordList().getByLabelText("已置顶"));
+  rerender(<WorkspaceOverviewSidebar {...props} recordQuery="正文" activeRecordTagId={23} />);
+  expect(recordList().getAllByRole("button")[0]).toHaveTextContent("Needle 标题");
+  rerender(<WorkspaceOverviewSidebar {...props} recordQuery="无关" />);
+  expect(recordList().queryByText("Needle 标题")).toBeNull();
+  rerender(<WorkspaceOverviewSidebar {...props} />);
+  expect(recordList().getAllByRole("button")[0]).toHaveTextContent("Needle 标题");
+  fireEvent.contextMenu(recordList().getByRole("button", { name: /Needle 标题/ }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "取消置顶" }));
+  expect(recordList().getAllByRole("button")[0]).toHaveTextContent("无关记录");
+});
+
+it("pins projects independently and preserves pin ordering after project search is cleared", () => {
+  const projects = [1, 2].map(id => ({ id, name: `项目 ${id}`, kind: "normal" as const, status: "active" as const, rootPath: `/tmp/p${id}`, quickNote: "", isArchived: false, createdAt: "", updatedAt: `2026-09-0${id}T08:00:00Z`, openTodoCount: 0 }));
+  render(<WorkspaceOverviewSidebar {...sidebarProps({ projects })} />);
+  const projectList = within(screen.getByRole("region", { name: "项目列表" }));
+  expect(projectList.getAllByRole("button")[0]).toHaveTextContent("项目 2");
+  fireEvent.contextMenu(projectList.getByRole("button", { name: "项目 1" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "置顶" }));
+  expect(projectList.getAllByRole("button")[0]).toHaveTextContent("项目 1");
+  const search = screen.getByRole("textbox", { name: "搜索项目" });
+  fireEvent.change(search, { target: { value: "项目 2" } });
+  expect(projectList.getAllByRole("button")).toHaveLength(1);
+  fireEvent.change(search, { target: { value: "" } });
+  expect(projectList.getAllByRole("button")[0]).toHaveTextContent("项目 1");
+  fireEvent.contextMenu(projectList.getByRole("button", { name: /项目 1/ }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "取消置顶" }));
+  expect(projectList.getAllByRole("button")[0]).toHaveTextContent("项目 2");
 });

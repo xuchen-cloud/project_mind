@@ -85,7 +85,6 @@ import { ProjectFilePreviewLayer } from "./components/home/ProjectFilePreviewLay
 import { ToastStack } from "./components/layout/ToastStack";
 import { VoiceFloatingPanel } from "./components/voice/VoiceFloatingPanel";
 import { ProjectOverviewPage } from "./components/project/ProjectOverviewPage";
-import { rememberProjectRecord } from "./components/home/project-record-history";
 import { WorkspacePage } from "./components/workspace/WorkspacePage";
 import { WorkspaceGatePage } from "./components/workspace/WorkspaceGatePage";
 import { clearAllTodoComposerDrafts } from "./components/todo/todo-draft-storage";
@@ -371,11 +370,6 @@ export function WorkspaceLayout({
     if (businessChangeError) setStatus({ tone: "error", label: "Refresh failed", message: "工作区变更同步失败，重新切回窗口后会重试" });
   }, [businessChangeError, setStatus]);
   useEffect(() => () => cancelAllQuickNoteRecordMetadata(), [currentWorkspace?.rootPath]);
-  useEffect(() => {
-    if (currentWorkspace && activeProjectId && activeRecordId) {
-      rememberProjectRecord(currentWorkspace.rootPath, activeProjectId, activeRecordId);
-    }
-  }, [currentWorkspace?.rootPath, activeProjectId, activeRecordId]);
   const hasWorkspace = Boolean(currentWorkspace);
   const internalRecordSaveCoordinator = useMemo(
     () =>
