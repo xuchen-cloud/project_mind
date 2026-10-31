@@ -267,6 +267,13 @@ impl WorkspaceRuntime {
                 workspace_id: metadata.workspace_id.clone(),
                 generation: format!("{:032x}", rand::random::<u128>()),
             };
+        let connection_credentials = agent::bridge::credentials::FileCredentialStore::local()
+            .map_err(|error| anyhow!(error.message))?;
+        db.agent_connection_migrate_local_credentials(
+            &agent_binding,
+            |id| connection_credentials.load_optional(id),
+            |id, token| connection_credentials.save(id, token),
+        ).map_err(|error| anyhow!("Cannot migrate local connection credentials: {}", error.message))?;
         db.agent_gui_interrupt_orphans(&agent_binding)
             .map_err(|error| anyhow!(error.message))?;
         db.voice_diarization_recover()?;

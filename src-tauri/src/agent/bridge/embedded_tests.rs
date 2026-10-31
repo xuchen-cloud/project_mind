@@ -714,3 +714,83 @@ fn contacts_upgrade_rejects_malformed_native_grants_without_changing_credentials
         assert_eq!(*secrets.0.borrow(), saved_secrets, "{change}");
     }
 }
+
+// Use the production file store through the same provisioning seam as native sessions.
+impl CredentialStore for credentials::FileCredentialStore {
+    fn load(&self, id: &str) -> AgentResult<String> {
+        credentials::FileCredentialStore::load(self, id)
+    }
+    fn save(&self, id: &str, token: &str) -> AgentResult<()> {
+        credentials::FileCredentialStore::save(self, id, token)
+    }
+    fn delete(&self, id: &str) -> AgentResult<()> {
+        credentials::FileCredentialStore::delete(self, id)
+    }
+}
+
+#[test]
+fn keychain_migration_reopens_native_session_and_preserves_original_receipt() {
+    let (root, db, binding, _, _) = fixture();
+    let id = grant_id(&binding.workspace_id, None);
+    let old_token = "a".repeat(64);
+    let original = db
+        .agent_connection_create(&binding, &grant_input(None), &id, &old_token)
+        .unwrap();
+    // Seed the on-disk format produced before local file credentials existed.
+    rusqlite::Connection::open(root.path().join("app.sqlite")).unwrap().execute(
+        "UPDATE agent_connection_grants SET scope_grant_json=json_remove(scope_grant_json,'$.localCredentialVersion') WHERE id=?1", [&id],
+    ).unwrap();
+    let input = ConnectionTodoCreateInput {
+        scope: Scope::Workspace,
+        content: "Receipt survives credential migration".into(),
+        priority: "urgent_important".into(),
+        due_date: None,
+        tag_ids: vec![],
+        children: vec![],
+    };
+    let request = db
+        .agent_connection_authenticate(&binding, &id, &old_token, "native-before-migration")
+        .unwrap();
+    let saved = db
+        .agent_connection_todo_create(&request, &binding, &input)
+        .unwrap();
+    drop(db);
+    let mut db = Database::open(&root.path().join("app.sqlite"), root.path(), None).unwrap();
+    db.bind_native_workspace(&binding.workspace_id).unwrap();
+    let binding = WorkspaceBinding {
+        generation: "open-2".into(),
+        ..binding
+    };
+    let store = credentials::FileCredentialStore::new(root.path().join("local-credentials"));
+    db.agent_connection_migrate_local_credentials(
+        &binding,
+        |id| store.load_optional(id),
+        |id, token| store.save(id, token),
+    )
+    .unwrap();
+    let (new_id, token) = ensure_grant(&db, &binding, None, &store).unwrap();
+    assert_eq!(new_id, id);
+    assert_ne!(token, old_token);
+    assert!(db
+        .agent_connection_authenticate(&binding, &id, &old_token, "old-token")
+        .is_err());
+    let actual = db
+        .agent_connection_embedded_grant(&binding, &id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(actual).unwrap(),
+        serde_json::to_value(original).unwrap()
+    );
+    let request = db
+        .agent_connection_authenticate(&binding, &id, &token, "native-before-migration")
+        .unwrap();
+    let replay = db
+        .agent_connection_todo_create(&request, &binding, &input)
+        .unwrap();
+    assert_eq!(replay.operation_id, saved.operation_id);
+    assert_eq!(replay.object, saved.object);
+    db.agent_connection_revoke(&binding, &id).unwrap();
+    assert!(ensure_grant(&db, &binding, None, &store).is_err());
+    assert_eq!(store.load(&id).unwrap(), token);
+}
