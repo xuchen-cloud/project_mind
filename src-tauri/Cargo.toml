@@ -33,7 +33,6 @@ hyper-util = { version = "0.1.20", features = ["client-proxy", "client-proxy-sys
 percent-encoding = "2.3.2"
 mime_guess = "2.0.5"
 notify = "8.2.0"
-keyring = "=4.2.0"
 rand = "0.8.5"
 regex = "=1.12.3"
 reqwest = { version = "0.12.24", default-features = false, features = ["blocking", "json", "rustls-tls", "system-proxy"] }

@@ -484,17 +484,9 @@ async fn real_socket_uses_native_projects_and_live_grant_checks() {
     bridge.stop().await.unwrap();
 }
 
-struct CredentialCleanup(String);
-
-impl Drop for CredentialCleanup {
-    fn drop(&mut self) {
-        let _ = credentials::delete(&self.0);
-    }
-}
-
 #[tokio::test]
-#[ignore = "requires isolated unlocked OS Secret Service and PROJECT_MIND_TEST_CLI binary"]
-async fn real_keyring_client_roundtrip() {
+#[ignore = "requires PROJECT_MIND_TEST_CLI pointing to a debug mind executable"]
+async fn real_local_credentials_client_roundtrip() {
     let root = tempfile::tempdir().unwrap();
     let workspace_path = root.path().canonicalize().unwrap();
     let discovery_path = root.path().join("agent-bridge.json");
@@ -504,7 +496,10 @@ async fn real_keyring_client_roundtrip() {
         rand::random::<u128>(),
         rand::random::<u128>()
     );
-    let _cleanup = CredentialCleanup(grant_id.clone());
+    let cli_data_home = root.path().join("client-data");
+    let cli_app_data = cli_data_home.join(crate::APP_IDENTIFIER);
+    let credential_directory = cli_app_data.join("connection-credentials");
+    let credential_store = credentials::FileCredentialStore::new(&credential_directory);
 
     let (metadata, paths) = crate::workspace::create_workspace(root.path(), "test-password").unwrap();
     let mut db = Database::open(&paths.db_path, root.path(), None).unwrap();
@@ -534,8 +529,8 @@ async fn real_keyring_client_roundtrip() {
         &token,
     )
     .unwrap();
-    credentials::save(&grant_id, &token).unwrap();
-    assert!(credentials::load(&grant_id).unwrap() == token);
+    credential_store.save(&grant_id, &token).unwrap();
+    assert!(credential_store.load(&grant_id).unwrap() == token);
 
     let handler = Arc::new(WorkspaceHandler {
         db: Mutex::new(db),
@@ -550,9 +545,11 @@ async fn real_keyring_client_roundtrip() {
         .unwrap();
     let client_path = discovery_path.clone();
     let client_grant = grant_id.clone();
+    let client_credential_directory = credential_directory.clone();
     let client_workspace = workspace_path.clone();
     let (client, connected, listed, context_result) = tokio::task::spawn_blocking(move || {
-        let client = BridgeClient::from_discovery(&client_path, &client_grant)?;
+        let store = credentials::FileCredentialStore::new(client_credential_directory);
+        let client = BridgeClient::from_discovery_with_store(&client_path, &client_grant, &store)?;
         let connected = client.connect(&client_grant, &client_workspace, "keyring-connect")?;
         let listed = client.call(
             &client_grant,
@@ -725,8 +722,6 @@ async fn real_keyring_client_roundtrip() {
     // isolated app-data directory; it reads the body file itself.
     let cli_binary = PathBuf::from(std::env::var_os("PROJECT_MIND_TEST_CLI")
         .expect("PROJECT_MIND_TEST_CLI must point to the built mind executable"));
-    let cli_data_home = root.path().join("client-data");
-    let cli_app_data = cli_data_home.join(crate::APP_IDENTIFIER);
     std::fs::create_dir_all(&cli_app_data).unwrap();
     std::fs::copy(&discovery_path, cli_app_data.join("agent-bridge.json")).unwrap();
     let record_target = crate::record_documents::RecordTarget {
@@ -758,7 +753,9 @@ async fn real_keyring_client_roundtrip() {
             .args(["record", "patch", "--patch-file"]).arg(patch_path)
             .args(["--dry-run", "--budget-chars", "5", "--workspace"]).arg(workspace)
             .arg("--connection").arg(connection).arg("--json")
-            .env("XDG_DATA_HOME", data_home).output()
+            .env("PROJECT_MIND_APP_DATA_DIR", data_home.join(crate::APP_IDENTIFIER))
+                .env_remove("PROJECT_MIND_CLI_DISCOVERY")
+                .env_remove("PROJECT_MIND_CLI_TOKEN").output()
     }).await.unwrap().unwrap();
     assert!(preview_output.status.success(), "{}", String::from_utf8_lossy(&preview_output.stderr));
     assert!(preview_output.stderr.is_empty());
@@ -798,7 +795,9 @@ async fn real_keyring_client_roundtrip() {
                 .arg(workspace)
                 .arg("--connection").arg(connection)
                 .arg("--json")
-                .env("XDG_DATA_HOME", data_home)
+                .env("PROJECT_MIND_APP_DATA_DIR", data_home.join(crate::APP_IDENTIFIER))
+                .env_remove("PROJECT_MIND_CLI_DISCOVERY")
+                .env_remove("PROJECT_MIND_CLI_TOKEN")
                 .output()
         }).await.unwrap().unwrap();
         assert!(output.status.success(), "CLI Record restore: {:?}, stdout: {}, stderr: {}",
@@ -840,7 +839,9 @@ async fn real_keyring_client_roundtrip() {
                 .arg(workspace)
                 .arg("--connection").arg(connection)
                 .arg("--json")
-                .env("XDG_DATA_HOME", data_home)
+                .env("PROJECT_MIND_APP_DATA_DIR", data_home.join(crate::APP_IDENTIFIER))
+                .env_remove("PROJECT_MIND_CLI_DISCOVERY")
+                .env_remove("PROJECT_MIND_CLI_TOKEN")
                 .output()
         }).await.unwrap().unwrap();
         assert!(output.status.success(), "CLI status: {:?}, stdout: {}, stderr: {}",
@@ -895,7 +896,9 @@ async fn real_keyring_client_roundtrip() {
                 .arg(workspace)
                 .arg("--connection").arg(connection)
                 .arg("--json")
-                .env("XDG_DATA_HOME", data_home)
+                .env("PROJECT_MIND_APP_DATA_DIR", data_home.join(crate::APP_IDENTIFIER))
+                .env_remove("PROJECT_MIND_CLI_DISCOVERY")
+                .env_remove("PROJECT_MIND_CLI_TOKEN")
                 .output()
         }).await.unwrap().unwrap();
         assert!(output.status.success(), "CLI File update: {:?}, stdout: {}, stderr: {}",
@@ -929,7 +932,9 @@ async fn real_keyring_client_roundtrip() {
             .arg(workspace)
             .arg("--connection").arg(connection)
             .arg("--json")
-            .env("XDG_DATA_HOME", data_home)
+            .env("PROJECT_MIND_APP_DATA_DIR", data_home.join(crate::APP_IDENTIFIER))
+                .env_remove("PROJECT_MIND_CLI_DISCOVERY")
+                .env_remove("PROJECT_MIND_CLI_TOKEN")
             .output()
     }).await.unwrap().unwrap();
     assert_eq!(stale_output.status.code(), Some(5));
@@ -960,7 +965,9 @@ async fn real_keyring_client_roundtrip() {
                 .arg(workspace)
                 .arg("--connection").arg(connection)
                 .arg("--json")
-                .env("XDG_DATA_HOME", data_home)
+                .env("PROJECT_MIND_APP_DATA_DIR", data_home.join(crate::APP_IDENTIFIER))
+                .env_remove("PROJECT_MIND_CLI_DISCOVERY")
+                .env_remove("PROJECT_MIND_CLI_TOKEN")
                 .output()
         }).await.unwrap().unwrap();
         assert!(output.status.success(), "CLI File create: {:?}, stdout: {}, stderr: {}",
@@ -1012,7 +1019,9 @@ async fn real_keyring_client_roundtrip() {
                 .arg(workspace)
                 .arg("--connection").arg(connection)
                 .arg("--json")
-                .env("XDG_DATA_HOME", data_home)
+                .env("PROJECT_MIND_APP_DATA_DIR", data_home.join(crate::APP_IDENTIFIER))
+                .env_remove("PROJECT_MIND_CLI_DISCOVERY")
+                .env_remove("PROJECT_MIND_CLI_TOKEN")
                 .stdin(std::process::Stdio::piped())
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::piped())
@@ -1065,7 +1074,9 @@ async fn real_keyring_client_roundtrip() {
             .arg(workspace)
             .arg("--connection").arg(connection)
             .arg("--json")
-            .env("XDG_DATA_HOME", data_home)
+            .env("PROJECT_MIND_APP_DATA_DIR", data_home.join(crate::APP_IDENTIFIER))
+                .env_remove("PROJECT_MIND_CLI_DISCOVERY")
+                .env_remove("PROJECT_MIND_CLI_TOKEN")
             .output()
     }).await.unwrap().unwrap();
     assert!(preview_output.status.success(), "CLI Record preview: {:?}, stdout: {}, stderr: {}",
@@ -1096,7 +1107,9 @@ async fn real_keyring_client_roundtrip() {
                 .arg(workspace)
                 .arg("--connection").arg(connection)
                 .arg("--json")
-                .env("XDG_DATA_HOME", data_home)
+                .env("PROJECT_MIND_APP_DATA_DIR", data_home.join(crate::APP_IDENTIFIER))
+                .env_remove("PROJECT_MIND_CLI_DISCOVERY")
+                .env_remove("PROJECT_MIND_CLI_TOKEN")
                 .output()
         }).await.unwrap().unwrap();
         assert!(output.status.success(), "CLI Record create: {:?}, stdout: {}, stderr: {}",
@@ -1151,7 +1164,9 @@ async fn real_keyring_client_roundtrip() {
                 .arg("--workspace").arg(workspace)
                 .arg("--connection").arg(connection)
                 .arg("--json")
-                .env("XDG_DATA_HOME", data_home)
+                .env("PROJECT_MIND_APP_DATA_DIR", data_home.join(crate::APP_IDENTIFIER))
+                .env_remove("PROJECT_MIND_CLI_DISCOVERY")
+                .env_remove("PROJECT_MIND_CLI_TOKEN")
                 .output()
         }).await.unwrap().unwrap();
         assert!(output.status.success(), "CLI reference list: {:?}, stdout: {}, stderr: {}",
@@ -1184,7 +1199,9 @@ async fn real_keyring_client_roundtrip() {
                 .arg(workspace)
                 .arg("--connection").arg(connection)
                 .arg("--json")
-                .env("XDG_DATA_HOME", data_home);
+                .env("PROJECT_MIND_APP_DATA_DIR", data_home.join(crate::APP_IDENTIFIER))
+                .env_remove("PROJECT_MIND_CLI_DISCOVERY")
+                .env_remove("PROJECT_MIND_CLI_TOKEN");
             if let Some(cursor) = next { command.arg("--cursor").arg(cursor); }
             if let Some(revision) = revision { command.arg("--revision").arg(revision); }
             command.output()
@@ -1232,7 +1249,9 @@ async fn real_keyring_client_roundtrip() {
             .arg(workspace)
             .arg("--connection").arg(connection)
             .arg("--json")
-            .env("XDG_DATA_HOME", data_home)
+            .env("PROJECT_MIND_APP_DATA_DIR", data_home.join(crate::APP_IDENTIFIER))
+                .env_remove("PROJECT_MIND_CLI_DISCOVERY")
+                .env_remove("PROJECT_MIND_CLI_TOKEN")
             .output()
     }).await.unwrap().unwrap();
     assert_eq!(conflict_output.status.code(), Some(5));
@@ -1286,8 +1305,10 @@ async fn real_keyring_client_roundtrip() {
     }
     let client_path = discovery_path.clone();
     let client_grant = grant_id.clone();
+    let client_credential_directory = credential_directory.clone();
     let rejected = tokio::task::spawn_blocking(move || {
-        let client = BridgeClient::from_discovery(&client_path, &client_grant)?;
+        let store = credentials::FileCredentialStore::new(client_credential_directory);
+        let client = BridgeClient::from_discovery_with_store(&client_path, &client_grant, &store)?;
         client.call(
             &client_grant,
             &connected,
@@ -1304,8 +1325,8 @@ async fn real_keyring_client_roundtrip() {
     server.close().await.unwrap();
 
     bridge.stop().await.unwrap();
-    credentials::delete(&grant_id).unwrap();
-    credentials::delete(&grant_id).unwrap();
+    credential_store.delete(&grant_id).unwrap();
+    credential_store.delete(&grant_id).unwrap();
 }
 
 // This headless transport fixture has no registered editors.
@@ -1326,3 +1347,6 @@ impl crate::file_version_service::BoundFileCommitStore for WorkspaceHandler {
         ))
     }
 }
+
+#[path = "passwordless_tests.rs"]
+mod passwordless_tests;

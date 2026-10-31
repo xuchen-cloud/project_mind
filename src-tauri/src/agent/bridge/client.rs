@@ -70,7 +70,15 @@ impl BridgeClient {
     }
 
     pub(crate) fn from_discovery(path: &Path, grant_id: &str) -> AgentResult<Self> {
-        Self::with_token(path, || credentials::load(grant_id))
+        Self::from_discovery_with_store(path, grant_id, &credentials::FileCredentialStore::local()?)
+    }
+
+    pub(super) fn from_discovery_with_store(
+        path: &Path,
+        grant_id: &str,
+        store: &credentials::FileCredentialStore,
+    ) -> AgentResult<Self> {
+        Self::with_token(path, || store.load(grant_id))
     }
 
     fn with_token(path: &Path, token: impl FnOnce() -> AgentResult<String>) -> AgentResult<Self> {

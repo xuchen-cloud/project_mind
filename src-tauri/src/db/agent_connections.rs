@@ -44,6 +44,8 @@ struct StoredScope {
     #[serde(default)]
     objects: Option<Vec<ObjectRef>>,
     token_hash: String,
+    #[serde(default)]
+    local_credential_version: u32,
 }
 
 struct StoredGrant {
@@ -148,6 +150,73 @@ pub(crate) fn connection_caller_live(
 }
 
 impl Database {
+    /// Trusted Workspace-open migration. A saved pending token is retained when
+    /// the database update fails, allowing the next open to complete the CAS.
+    pub(crate) fn agent_connection_migrate_local_credentials(
+        &self,
+        binding: &WorkspaceBinding,
+        mut load: impl FnMut(&str) -> AgentResult<Option<String>>,
+        mut save: impl FnMut(&str, &str) -> AgentResult<()>,
+    ) -> AgentResult<()> {
+        self.connection_binding(binding)?;
+        let grants = {
+            let mut statement = self.conn.prepare(
+                "SELECT id,client_label,scope_grant_json,operations_json,enabled,created_at,revoked_at FROM agent_connection_grants WHERE enabled=1 AND revoked_at IS NULL ORDER BY id",
+            ).map_err(io_error)?;
+            let rows = statement.query_map([], row_to_stored).map_err(io_error)?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(io_error)?
+        };
+        for stored in grants {
+            let scope: StoredScope = decode(&stored.scope_json)?;
+            let _: Vec<String> = decode(&stored.operations_json)?;
+            object_keys(scope.objects.as_deref())?;
+            if scope.workspace_id != binding.workspace_id {
+                return Err(denied());
+            }
+            if scope.local_credential_version == 1 {
+                continue;
+            }
+            if scope.local_credential_version != 0
+                || !valid_hex(&stored.id, 32)
+                || !valid_hex(&scope.token_hash, 64)
+            {
+                return Err(denied());
+            }
+            let token = match load(&stored.id)? {
+                Some(token) => token,
+                None => {
+                    use rand::RngCore;
+                    let mut bytes = [0u8; 32];
+                    rand::rngs::OsRng.fill_bytes(&mut bytes);
+                    let token = bytes
+                        .iter()
+                        .map(|byte| format!("{byte:02x}"))
+                        .collect::<String>();
+                    save(&stored.id, &token)?;
+                    token
+                }
+            };
+            if !valid_hex(&token, 64) {
+                return Err(denied());
+            }
+            // Mutate only credential metadata: retain every existing scope field
+            // including omitted optional fields, and leave operations untouched.
+            let mut updated: serde_json::Value = decode(&stored.scope_json)?;
+            updated["tokenHash"] = format!("{:x}", Sha256::digest(token.as_bytes())).into();
+            updated["localCredentialVersion"] = 1.into();
+            self.connection_binding(binding)?;
+            let changed = self.conn.execute(
+                "UPDATE agent_connection_grants SET scope_grant_json=?1 WHERE id=?2 AND scope_grant_json=?3 AND operations_json=?4 AND client_label=?5 AND created_at=?6 AND enabled=1 AND revoked_at IS NULL",
+                params![serde_json::to_string(&updated).map_err(io_error)?, stored.id, stored.scope_json, stored.operations_json, stored.client_label, stored.created_at],
+            ).map_err(io_error)?;
+            if changed != 1 {
+                return Err(denied());
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn agent_active_project_ids(&self) -> AgentResult<Vec<i64>> {
         let mut stmt = self.conn.prepare("SELECT id FROM projects WHERE is_archived=0 ORDER BY id")
             .map_err(io_error)?;
@@ -368,6 +437,7 @@ impl Database {
             all_projects: input.all_projects,
             objects: None,
             token_hash: format!("{:x}", Sha256::digest(token.as_bytes())),
+            local_credential_version: 1,
         };
         let scope_json = serde_json::to_string(&scope).map_err(io_error)?;
         let operations_json = serde_json::to_string(&operations).map_err(io_error)?;
@@ -625,3 +695,7 @@ impl Database {
 #[cfg(test)]
 #[path = "agent_connections_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "agent_connection_credentials_tests.rs"]
+mod credential_tests;
