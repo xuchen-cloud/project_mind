@@ -380,3 +380,14 @@ it("pins projects independently and preserves pin ordering after project search 
   fireEvent.click(screen.getByRole("menuitem", { name: "取消置顶" }));
   expect(projectList.getAllByRole("button")[0]).toHaveTextContent("项目 2");
 });
+
+it("preserves the native text menu while renaming a workspace record", () => {
+  useUiStore.setState(createUiStoreState());
+  render(<WorkspaceOverviewSidebar {...sidebarProps({ records, onRenameRecord: vi.fn() })} />);
+  fireEvent.click(screen.getByRole("tab", { name: "记录" }));
+  fireEvent.contextMenu(recordList().getByRole("button", { name: /Needle 标题/ }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "重命名" }));
+  const input = screen.getByRole("textbox", { name: "记录名称" });
+  expect(fireEvent.contextMenu(input)).toBe(true);
+  expect(screen.queryByRole("menu", { name: "记录操作" })).not.toBeInTheDocument();
+});
