@@ -684,6 +684,7 @@ impl Database {
         )>,
         gui: Option<(&str, &file_versions::GuiFileVersionIntent, bool)>,
     ) -> Result<DirectoryFile> {
+        if !replacement && self.file_working_matches_live(existing)? { return self.directory_projection(existing); }
         let _identity_lock = self.file_storage_lock("file-import-identities", 1, true)?;
         let root = self.directory_owner(workspace, project)?;
         let relative = file_versions::relative(&root, path)?.replace('\\', "/");
@@ -921,6 +922,7 @@ impl Database {
         let (project, id) = file_id(object)?;
         let _project_lock = self.file_project_lock(project, false)?;
         let _file_lock = self.file_version_lock(id)?;
+        if self.file_working_matches_live(object)? { return self.directory_projection(object); }
         let (document, root) = self.directory_target(object)?;
         let path = PathBuf::from(&document.managed_path);
         let relative = path
@@ -1213,6 +1215,8 @@ impl Database {
         let _project_lock = self.file_project_lock(project, false)?;
         let _file_lock = self.file_version_lock(id)?;
         self.directory_restore_recover_locked(object)?;
+        self.working_recover_locked(object).map_err(|e| anyhow!(e.message))?;
+        self.file_working_require_archived(id).map_err(|e| anyhow!(e.message))?;
         let document = self.directory_baseline(object, version, hash.unwrap_or(""))?;
         let root = self.directory_owner(&object.workspace_id, project)?;
         let path = business_path(&root, relative)?;

@@ -9,8 +9,8 @@ const ast=ts.createSourceFile('renderer-host.ts',source,ts.ScriptTarget.Latest,t
 const compiled=ts.transpileModule(ast.statements.filter(node=>!ts.isImportDeclaration(node)).map(node=>node.getFullText(ast)).join('\n'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 function fixture(build){
- const timers=new Map(),listeners=new Map(),changes=[],errors=[],pending=[];let id=0;
- const options={sourceBase64:'YQ==',baselineHash:'baseline',readOnly:false,presentationMode:'edit',hasDraft:false,appearance:{theme:'light',font:'sans',tokens:{}},onChange:edits=>changes.push(edits),onPending:value=>pending.push(value),onError:error=>errors.push(error)};
+ const timers=new Map(),listeners=new Map(),changes=[],snapshots=[],errors=[],pending=[];let id=0;
+ const options={sourceBase64:'YQ==',baselineHash:'baseline',readOnly:false,presentationMode:'edit',hasDraft:false,appearance:{theme:'light',font:'sans',tokens:{}},onChange:(edits,snapshot)=>{changes.push(edits);snapshots.push(snapshot)},onPending:value=>pending.push(value),onError:error=>errors.push(error)};
  const window={frameElement:{__projectMindDocxOptions:options},dispatchEvent(event){listeners.get(event.type)?.(event);},addEventListener(){}};
  const document={activeElement:null,addEventListener:(name,callback)=>listeners.set(name,callback),querySelectorAll:()=>[],documentElement:{dataset:{},classList:{toggle(){}},style:{setProperty(){}}}};
  const exports={},builds=[];
@@ -20,7 +20,7 @@ function fixture(build){
  const host=window.__projectMindDocxHost;
  const render=value=>host.render({doc:{value}},false);
  const fire=async()=>{const batch=[...timers.values()];timers.clear();for(const timer of batch)timer.fn();await tick();await tick();};
- return{host,render,fire,listeners,changes,errors,pending,builds,timers};
+ return{host,options,snapshots,render,fire,listeners,changes,errors,pending,builds,timers};
 }
 
 test('ten separate input renders coalesce before DOCX generation and retain the final bytes',async()=>{
@@ -104,5 +104,23 @@ test('failed paste blocks save, failed build is reported and an explicit retry c
   f.host.endOperation(Error('paste failed'));await assert.rejects(pasteSave,/paste failed/);
   assert.equal(f.builds.length,0);await f.fire();assert.equal(f.errors.at(-1),'DOCX build failed');
   fails=false;await f.host.flush(true);assert.equal(f.changes.length,1);assert.equal(f.pending.at(-1),false);
+ }finally{f.host.destroy();}
+});
+
+
+test('save revisions acknowledge only captured DOCX content and keep cumulative snapshots',async()=>{
+ const f=fixture();try{
+  f.render(1);await f.host.flush(true);
+  const first=f.snapshots.at(-1).editRevision;
+  f.render(2);await f.host.flush(true);
+  const second=f.snapshots.at(-1).editRevision;
+  assert.ok(second>first);
+  f.host.update({...f.options,savedEditRevision:first});assert.equal(f.host.dirty,true);
+  f.host.update({...f.options,savedEditRevision:second});assert.equal(f.host.dirty,false);
+  const before=f.changes.length;const edits=await f.host.flush(true);
+  assert.equal(f.changes.length,before,'unchanged flush must not mint another revision');
+  assert.equal(edits[0].base64,btoa(String.fromCharCode(2)));
+  f.render(3);f.host.update({...f.options,savedEditRevision:second});
+  assert.equal(f.pending.at(-1),true,'old receipt cannot clear pending unbuilt input');
  }finally{f.host.destroy();}
 });

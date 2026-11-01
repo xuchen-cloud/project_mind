@@ -162,3 +162,10 @@ it("opens above a low trigger and clamps horizontal position and available heigh
   expect(Number.parseFloat(menu.style.maxHeight)).toBeLessThanOrEqual(window.innerHeight - 58);
   scrollHeight.mockRestore();
 });
+
+it('labels current working content separately from immutable archive versions',()=>{
+ render(<FileVersionMenu {...defaults} triggerLabel="当前内容" includeLatest latestVersion={3} latestLabel="当前内容"/>);open();
+ expect(screen.getByRole('menuitemradio',{name:'当前内容',exact:true})).toHaveAttribute('aria-checked','true');
+ expect(screen.getByRole('menuitemradio',{name:'v3',exact:true})).toHaveAttribute('aria-checked','false');
+ expect(screen.queryByRole('menuitemradio',{name:'v3（当前）'})).not.toBeInTheDocument();
+});

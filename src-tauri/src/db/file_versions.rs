@@ -808,6 +808,7 @@ impl Database {
         self.file_journal_clear(directory)
     }
     pub(crate) fn file_version_recover_pending(&self) -> Result<()> {
+        self.file_working_recover_pending()?;
         self.file_import_recover_pending()?;
         self.file_metadata_recover_pending()?;
         self.file_delete_recover_pending()?;
@@ -1552,6 +1553,7 @@ impl Database {
                 return Ok(FileVersionCommitOutcome::replay(receipt));
             }
         }
+        self.file_working_require_archived(input.document_id).map_err(CommitFailure)?;
         let restore_source = if let Some((restore, _)) = restore {
             let (request, update) = registered.expect("restore needs registered target");
             let source = self

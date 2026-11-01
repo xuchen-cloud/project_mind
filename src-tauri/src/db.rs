@@ -1,3 +1,4 @@
+pub(crate) mod file_working;
 pub(crate) mod agent;
 pub(crate) mod contacts;
 mod agent_connections;
@@ -154,7 +155,7 @@ const VOICE_RECOVERY_SCHEMA_VERSION: i64 = 25;
 const AGENT_FOUNDATION_SCHEMA_VERSION: i64 = 26;
 const RECORD_DOCUMENT_SCHEMA_VERSION: i64 = 28;
 const AGENT_RUNTIME_SCHEMA_VERSION: i64 = 29;
-const CURRENT_SCHEMA_VERSION: i64 = 39;
+const CURRENT_SCHEMA_VERSION: i64 = 40;
 const PROJECT_KIND_NORMAL: &str = "normal";
 const AI_CAPABILITIES: [&str; 2] = ["default", "image_default"];
 const RICH_TEXT_FONT_PRESETS: [&str; 4] = [
@@ -383,6 +384,7 @@ impl Database {
             db.bind_native_workspace(&crate::workspace::load_metadata(workspace_root)?.0.workspace_id)?;
         }
         db.migrate()?;
+        db.file_working_recover_pending()?;
         db.voice_retry_asset_cleanup()?;
         Ok(db)
     }
@@ -425,8 +427,14 @@ impl Database {
         if initial_schema_version == CURRENT_SCHEMA_VERSION {
             return Ok(());
         }
+        if initial_schema_version == 39 {
+            self.ensure_file_working_schema()?;
+            return self.set_schema_version(40);
+        }
         if initial_schema_version == 38 {
-            return self.ensure_contacts_schema();
+            self.ensure_file_working_schema()?;
+            self.ensure_contacts_schema()?;
+            return self.set_schema_version(40);
         }
         if initial_schema_version > CURRENT_SCHEMA_VERSION {
             anyhow::bail!("Workspace database schema is newer than this application");
@@ -921,7 +929,9 @@ impl Database {
         // Publish the current version only after every preceding schema step
         // succeeds. An interrupted initialization remains eligible for retry.
         self.ensure_workspace_file_schema()?;
+        self.ensure_file_working_schema()?;
         self.ensure_contacts_schema()?;
+        self.set_schema_version(40)?;
         Ok(())
     }
 

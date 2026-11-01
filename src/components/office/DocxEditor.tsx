@@ -10,7 +10,7 @@ export type {FaceVerticalMetrics} from '../../../packages/office-docx/editor-typ
 export type {DocxModel,DocxModel as Model,Edit,Edit as DocxEdit} from '../../../packages/office-docx/types';
 export type DocxSelectionController=Pick<EditorController,'captureSelection'|'replaceSelection'>&{applySelection(input:{selectionId:string;change:unknown}):Promise<{text:string}>};
 export interface DocxEditorProps extends OfficePreviewProps{
-  model:DocxModel;edits:Edit[];onChange(edits:Edit[]):void;readOnly?:boolean;presentationMode?:'preview'|'edit';
+  model:DocxModel;edits:Edit[];onChange(edits:Edit[], snapshot?:{editRevision:number}):void;savedEditRevision?:number;readOnly?:boolean;presentationMode?:'preview'|'edit';
   registerOutput?:RegisterEditorOutput;
   registerSelection?:(controller:DocxSelectionController)=>()=>void;
   registerBeforeSave?:(callback:()=>Promise<void>)=>()=>void;
@@ -40,7 +40,7 @@ export function DocxEditor(props:DocxEditorProps){
     const current=()=>controller.current===mounted&&mounted.ready===ready;
     void ready.then(()=>{if(current())setLoading(null);},reason=>{if(current())setError(reason instanceof Error?reason.message:String(reason));});
   }
-  function options():EditorOptions{return{...latest.current,onError:setError,onSaveRequest:latest.current.onSaveRequest?()=>latest.current.onSaveRequest?.():undefined,onChange:edits=>{setError(null);latest.current.onChange(edits);}};}
+  function options():EditorOptions{return{...latest.current,onError:setError,onSaveRequest:latest.current.onSaveRequest?()=>latest.current.onSaveRequest?.():undefined,onChange:(edits,snapshot)=>{setError(null);latest.current.onChange(edits,snapshot);}};}
   useEffect(()=>{
     let active=true;
     mounting.current=import('../../../packages/office-docx/dist/full-editor.mjs').then(runtime=>{
@@ -70,7 +70,7 @@ export function DocxEditor(props:DocxEditorProps){
     if(!mounted)throw Error('Word 编辑器尚未加载');
     await mounted.output(command as 'pdf'|'images'|'html'|'print'|'preview');
   }),[props.registerOutput]);
-  useLayoutEffect(()=>{try{controller.current?.update(options());if(controller.current)observeReady(controller.current);}catch(reason){setError(reason instanceof Error?reason.message:String(reason));}},[props.model,props.edits,props.readOnly,props.presentationMode,props.onPendingChange,props.onSaveRequest,props.onExport,props.onPrint,props.onRenderPdf,props.onGetSystemFonts,props.onFontMetrics,props.onConvertAltChunkHtml,props.onFetchImage]);
+  useLayoutEffect(()=>{try{controller.current?.update(options());if(controller.current)observeReady(controller.current);}catch(reason){setError(reason instanceof Error?reason.message:String(reason));}},[props.model,props.edits,props.savedEditRevision,props.readOnly,props.presentationMode,props.onPendingChange,props.onSaveRequest,props.onExport,props.onPrint,props.onRenderPdf,props.onGetSystemFonts,props.onFontMetrics,props.onConvertAltChunkHtml,props.onFetchImage]);
   return <section className="office-docx editor-loading-boundary" aria-label="Word 文档编辑器">
     {error&&<p className="office-docx__error" role="alert">{error}</p>}
     <div ref={host} className="office-docx__embed" />

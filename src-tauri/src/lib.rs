@@ -1,3 +1,5 @@
+mod file_working_commands;
+mod file_working;
 pub mod agent;
 mod ai_jobs;
 mod dsh_assistant;
@@ -1699,6 +1701,7 @@ pub fn run() {
             agent::bridge::commands::restore(app.handle());
             source_maintenance::start(app.handle());
             project_file_maintenance::start(app.handle());
+            file_working_commands::start(app.handle());
             overview_maintenance::start(app.handle());
             dsh_assistant::start_scheduled_tasks(app.handle());
             start_record_checkpoints(app.handle());
@@ -1871,6 +1874,15 @@ pub fn run() {
             file_office_commands::file_office_inspect,
             file_office_commands::file_office_recalculate,
             file_office_commands::file_office_save,
+            file_working_commands::file_working_open,
+            file_working_commands::file_working_save_text,
+            file_working_commands::file_working_save_office,
+            file_working_commands::file_working_activity,
+            file_working_commands::file_working_close,
+            file_working_commands::file_working_tick,
+            file_working_commands::file_working_archive,
+            file_working_commands::file_working_recalculate,
+            file_working_commands::file_working_recovery_read,
             file_text_commands::file_text_save,
             editor_print::desktop_print_editor_html,
             editor_print::desktop_render_editor_pdf,

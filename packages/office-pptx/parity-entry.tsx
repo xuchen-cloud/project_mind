@@ -35,7 +35,7 @@ const post=(type:string,payload:object={},context=epoch)=>{if(context!==epoch)re
 const checkContext=(context:number)=>{if(context!==epoch)throw new Error('PPTX 编辑内容已替换')};
 let session:ReturnType<typeof createParitySession>;
 let baseline:ReturnType<typeof captureCandidateBaseline>;
-let initializing=false,dirtyVersion=0,snapshotVersion=0;
+let initializing=false,dirtyVersion=0,snapshotVersion=0,persistedVersion=0;
 let snapshotTimer:ReturnType<typeof setTimeout>|undefined;
 let composing=false,activeInput=false,readOnly=false;
 let queue:Promise<unknown>=Promise.resolve();
@@ -64,7 +64,7 @@ function snapshotNow():Promise<void>{
   if(version===snapshotVersion)return;
   const bytes=await target.save();checkContext(context);
   const candidate=await candidateEdit(source,bytes);checkContext(context);
-  snapshotVersion=version;post('change',{edits:candidate.changedParts.length?[candidate]:[]},context);pending();
+  snapshotVersion=version;post('change',{edits:candidate.changedParts.length?[candidate]:[],editRevision:version},context);pending();
  });
  queue=next.catch(e=>reportError(e,context));return next;
 }
@@ -86,6 +86,7 @@ const ipcRenderer={
   if(name==='slides:private-font-data')return privateFontData(args[0]);
   if(Object.hasOwn(metadata,name))return Promise.resolve(metadata[name]);
   if(['app:set-auto-save-pref','app:set-ai-panel-prefs','slides:set-auto-save-pref','slides:autosave','slides:editing-active'].includes(name))return Promise.resolve();
+  if(name==='slides:is-dirty')return Promise.resolve(dirtyVersion!==persistedVersion||activeInput||composing);
   if(name==='slides:consume-pending-open')return Promise.resolve(session.openResult(args[0]));
   if(name==='slides:save'||name==='slides:save-as')return new Promise(resolve=>{const requestId=++saveSequence;saveRequests.set(requestId,resolve);post('save-request',{requestId})});
   if(name==='slides:export-pdf'||name==='slides:print')return queue.then(async()=>{
@@ -186,7 +187,8 @@ async function receiveHost(m:any){
  else if(m.type==='render-pdf-finished'){const request=renderPdfRequests.get(m.requestId);renderPdfRequests.delete(m.requestId);if(m.error)request?.reject(new Error(m.error));else request?.resolve(m.bytes)}
  else if(m.type==='print-finished'){const request=printRequests.get(m.requestId);printRequests.delete(m.requestId);if(m.error)request?.reject(new Error(m.error));else request?.resolve()}
  else if(m.type==='export-finished'){const request=exportRequests.get(m.requestId);exportRequests.delete(m.requestId);if(m.error)request?.reject(new Error(m.error));else request?.resolve(m.ok)}
- else if(m.type==='save-finished'){settleTextEditSave();saveRequests.get(m.requestId)?.(m.error?{ok:false,error:m.error}:{ok:true});saveRequests.delete(m.requestId)}
+ else if(m.type==='saved-revision'){persistedVersion=m.editRevision??persistedVersion}
+ else if(m.type==='save-finished'){persistedVersion=m.savedEditRevision??persistedVersion;settleTextEditSave();saveRequests.get(m.requestId)?.(m.error?{ok:false,error:m.error}:{ok:true,hasLaterEdits:dirtyVersion!==persistedVersion||activeInput||composing});saveRequests.delete(m.requestId)}
  else if(m.type==='cancel-save-focus')cancelTextEditResume();
  else if(m.type==='theme'){
   document.documentElement.dataset.theme=m.theme;
@@ -213,7 +215,7 @@ async function receiveHost(m:any){
    const opened=candidate?await openPptx(new Uint8Array(Buffer.from(candidate.base64,'base64'))):nextBaseline;checkContext(context);
    previousSaves.forEach(resolve=>resolve({ok:false,error:'PPTX 编辑内容已替换'}));previousSaves=[];
    abandonTextEdit();root.render(null);
-   dirtyVersion=0;snapshotVersion=0;error=null;activeInput=false;composing=false;
+   dirtyVersion=0;snapshotVersion=0;persistedVersion=0;error=null;activeInput=false;composing=false;
    setTextEditReadOnly(readOnly);setTextEditComposing(false);baseline=source;
    const created=createParitySession(opened,{lazyInitialLayout:true,metrics:browserFontMetrics,emit:(name,payload)=>{if(session===created&&!initializing)emit(name,payload)},onCommand:()=>{if(session===created&&!initializing){dirtyVersion++;activeInput=false;pending();scheduleSnapshot()}},confirmChart:async message=>confirm(message)});
    session=created;

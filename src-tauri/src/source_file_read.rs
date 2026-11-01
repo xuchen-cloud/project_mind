@@ -311,6 +311,14 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
             _ => return Err(invalid("Choose an explicit full view or File text range")),
         }
         let cursor = crate::source_text_page::decode_cursor(input)?;
+        // Explicit current-File reads are a handoff to fixed evidence. Indexing
+        // and inventory extraction never pass through this checkpoint boundary.
+        if input.source.file_version.is_none() {
+            let (result,changes)=self.store.with_current(|binding,db|crate::committed_changes::capture_committed(binding,db,&request.request_id,||db.file_working_checkpoint_source(request,binding,&input.source.object)))?;
+            if let Some(changes)=changes {self.store.publish_committed(changes);}
+            result?;
+        }
+
         let extraction = self.extract_file(request, &input.source, utility).await?;
         let data: Extraction =
             serde_json::from_value((**extraction.data).clone()).map_err(|_| protocol())?;

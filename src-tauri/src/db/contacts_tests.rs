@@ -491,7 +491,7 @@ fn contact_schema_38_migration_authorizer_rejects_unrelated_business_reads_or_wr
         ffi::sqlite3_set_authorizer(db.conn.handle(), None, std::ptr::null_mut());
     }
     result.unwrap();
-    assert_eq!(db.schema_version().unwrap(), 39);
+    assert_eq!(db.schema_version().unwrap(), crate::db::CURRENT_SCHEMA_VERSION);
     let summary: (String, String, String) = db
         .conn
         .query_row(

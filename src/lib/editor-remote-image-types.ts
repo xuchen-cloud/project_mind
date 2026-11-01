@@ -6,6 +6,7 @@ export interface EditorRemoteImage {
   base64: string;
 }
 export interface FetchEditorRemoteImageInput {
+  workingSessionId?: string;
   binding: AgentWorkspaceBinding;
   document: FileBytesInput;
   url: string;

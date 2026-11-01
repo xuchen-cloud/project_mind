@@ -36,6 +36,8 @@ type RemoteResult<T> = Result<T, EditorRemoteImageFailure>;
 pub(crate) struct FetchEditorRemoteImageInput {
     pub binding: WorkspaceBinding,
     pub document: FileBytesInput,
+    #[serde(default)]
+    pub working_session_id: Option<String>,
     pub url: String,
 }
 #[derive(Debug, Serialize)]
@@ -565,6 +567,24 @@ async fn fetch_for_document<S: BoundSourceStore, R: Resolver>(
         true,
     )
     .map_err(agent_failure)?;
+    if let Some(session_id)=&input.working_session_id {
+        let session=crate::file_working::WorkingSession{object:input.document.object.clone(),session_id:session_id.clone()};
+        let check=||{
+            let label=caller()?;
+            store.with_current(|binding,db|{
+                crate::file_version_service::validate_binding(&input.binding,binding)?;
+                let name=db.file_working_session_name(&request,binding,&session)?;
+                if !Path::new(&name).extension().is_some_and(|s|s.eq_ignore_ascii_case("docx")) {return Err(AgentError::new(ErrorCode::InvalidArgument,"Remote images require a DOCX session"));}
+                db.file_working_open_status(&request,binding,&session.object)?;
+                let target=db.file_version_registered_target(&request,binding,&session.object)?;
+                Ok(target.project_id)
+            }).map_err(agent_failure).and_then(|project|authorize_project(&label,project))
+        };
+        check()?;
+        let result=downloader.download(&input.url,&check).await;
+        check()?;
+        return result;
+    }
     let before = metadata(store, input, &request)?;
     authorize_project(&label, before.input.project_id)?;
     let check = || {

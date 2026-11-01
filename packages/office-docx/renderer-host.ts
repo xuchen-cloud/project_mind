@@ -9,7 +9,8 @@ import type {FaceVerticalMetrics,EditorRemoteImage} from './editor-types';
 interface EmbeddedOptions {
   sourceBase64: string; baselineHash: string; readOnly: boolean; presentationMode:'preview'|'edit'; hasDraft:boolean;initialDocument?:unknown;
   appearance:{theme:'light'|'dark';font:string;tokens:Record<string,string>};
-  onChange(edits:Edit[]):void; onPending?(value:boolean):void; onError?(message:string):void;
+  savedEditRevision?:number;
+  onChange(edits:Edit[],snapshot?:{editRevision:number}):void; onPending?(value:boolean):void; onError?(message:string):void;
   onReady?():void; onSaveRequest?():void|Promise<void>;
   onExport?(file:{name:string;mime:string;bytes:Uint8Array}):Promise<boolean>;
   onPrint?(document:{html:string;title?:string;pageSize?:{widthPt:number;heightPt:number}}):Promise<void>;
@@ -132,7 +133,7 @@ export function initializeHost(deps:{buildDocBytes(ctx:FileActionContext):Promis
           scheduleBuild();return last;
         }
         last=[{type:'snapshot',baselineHash:options.baselineHash,base64:base64(bytes)}];
-        savedRevision=at;options.onChange(last);
+        savedRevision=at;options.onChange(last,{editRevision:at});
       }
       cancelBuild();pending(false);return last;
     })();
@@ -160,7 +161,7 @@ export function initializeHost(deps:{buildDocBytes(ctx:FileActionContext):Promis
     subscribeDirty(fn:Function){return subscribe('hostDirty',fn);},
     subscribeReadOnly(fn:Function){return subscribe('hostReadonly',fn);},
     flush,
-    update(next:EmbeddedOptions){if(destroyed)return;if(next.readOnly)captured=null;options=next;emit('hostReadonly',options.readOnly);applyAppearance();if(context)host.render(context,loading);},
+    update(next:EmbeddedOptions){if(destroyed)return;if(next.readOnly)captured=null;options=next;if(next.savedEditRevision!==undefined)persistedRevision=next.savedEditRevision;pending(savedRevision!==revision);emit('hostReadonly',options.readOnly);applyAppearance();if(context)host.render(context,loading);},
     acknowledge(next:EmbeddedOptions){if(destroyed)return;if(next.readOnly)captured=null;options=next;persistedRevision=savedRevision;last=[];pending(false);context?.setStatus('已保存');emit('hostReadonly',options.readOnly);applyAppearance();if(context)host.render(context,loading);},
     captureSelection(){
       const editor=selectionEditor(),{doc,selection}=editor.state,{from,to,$from,$to}=selection;

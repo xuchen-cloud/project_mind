@@ -6,14 +6,14 @@ import { ProjectFileContent } from './ProjectFileContent';
 import { projectFileApi } from '../../services/projectFileApi';
 import { fileDocumentApi } from '../../services/fileDocumentApi';
 import { recordDocumentApi } from '../../services/recordDocumentApi';
-import { fileTextApi } from '../../services/fileTextApi';
+import {fileWorkingApi} from '../../services/fileWorkingApi';
 import { queryKeys } from '../../lib/queryKeys';
 vi.mock('../../services/fileDocumentApi', () => ({ fileDocumentApi: { versionsList: vi.fn(), sourceRead: vi.fn() } }));
 vi.mock('../../services/recordDocumentApi', () => ({ recordDocumentApi: { bindingGet: vi.fn() } }));
 vi.mock('../../services/projectFileApi', () => ({ projectFileApi: { resolve: vi.fn(), readBytes: vi.fn(), resolveRelated: vi.fn(), applications: vi.fn(), openWith: vi.fn(), openLocal: vi.fn() }, fileBytes: (result: {
         base64: string;
     }) => Uint8Array.from(atob(result.base64), c => c.charCodeAt(0)) }));
-vi.mock('../../services/fileTextApi', () => ({ fileTextApi: { save: vi.fn() } }));
+vi.mock('../../services/fileWorkingApi',()=>({fileWorkingApi:{open:vi.fn(),saveText:vi.fn(),activity:vi.fn(),close:vi.fn(),tick:vi.fn()}}));
 vi.mock('../markdown/MarkdownEditor', async () => {
     const { useState } = await import('react');
     return { MarkdownEditor: (props: {
@@ -31,18 +31,25 @@ const binding = { workspaceId: 'w', generation: 'g' };
 const projectObject = { workspaceId: 'w', scope: { kind: 'project' as const, projectId: 2 }, kind: 'file' as const, id: '7' };
 let object: AgentObjectRef = projectObject;
 let current: number;
+function status(){return{object,revision:current,contentHash:`hash${current}`,archivedVersionNumber:2,pendingArchive:current>2,lastActivityAtMs:0,archiveDueAtMs:900000,noChange:false};}
+function opened(){return{...status(),sessionId:`session${current}`,name:'sample.md',base64:btoa(unescape(encodeURIComponent(current===2?'原文':'保留草稿'))),format:'markdown',model:null};}
+
 function resolved() { return { object, relativePath: 'sample.md', name: 'sample.md', versionNumber: current, contentHash: `hash${current}`, state: 'ready' as const, reason: null }; }
 beforeEach(() => {
     vi.resetAllMocks();
     object = projectObject;
     current = 2;
+    vi.mocked(fileWorkingApi.open).mockImplementation(async()=>opened());
+    vi.mocked(fileWorkingApi.activity).mockImplementation(async()=>status());
+    vi.mocked(fileWorkingApi.tick).mockImplementation(async()=>status());
+    vi.mocked(fileWorkingApi.close).mockResolvedValue();
     vi.mocked(projectFileApi.applications).mockResolvedValue([]);
     vi.mocked(recordDocumentApi.bindingGet).mockResolvedValue(binding);
     vi.mocked(projectFileApi.resolve).mockImplementation(async () => resolved());
     vi.mocked(fileDocumentApi.versionsList).mockImplementation(async () => ({ object, currentVersionNumber: current, currentContentHash: `hash${current}`, versions: [{ id: String(current), versionNumber: current, name: 'sample.md', createdAt: '2026-10-13', contentHash: `hash${current}`, isCurrent: true }], nextCursor: null }));
     vi.mocked(projectFileApi.readBytes).mockImplementation(async (_, input) => ({ object, versionNumber: input.versionNumber, contentHash: `hash${input.versionNumber}`, name: 'sample.md', mime: 'text/markdown', byteLength: 1, base64: 'Iw==' }));
     vi.mocked(fileDocumentApi.sourceRead).mockImplementation(async (_, input) => { const text = input.versionNumber === 2 ? '原文' : '保留草稿'; return { object, versionNumber: input.versionNumber, contentHash: `hash${input.versionNumber}`, title: 'sample.md', byteLength: new TextEncoder().encode(text).byteLength, format: 'markdown', text, startChar: 0, endChar: [...text].length, totalChars: [...text].length, nextCursor: null, complete: true }; });
-    vi.mocked(fileTextApi.save).mockImplementation(async () => { current = 3; return { receipt: { documentId: 7, versionNumber: 3, contentHash: 'hash3', noChange: false }, versionPath: null }; });
+    vi.mocked(fileWorkingApi.saveText).mockImplementation(async () => { current = 3; return status(); });
 });
 async function mount(projectId: number | null = 2) {
     const client = new QueryClient();
@@ -60,12 +67,12 @@ it('keeps an unsaved Markdown draft and its baseline when an external version ar
     view.client.setQueryData(queryKeys.documentVersions(7), []);
     await act(async () => { await view.client.invalidateQueries({ queryKey: queryKeys.documentVersions(7) }); });
     expect(screen.getByText('保留草稿')).toBeVisible();
-    vi.mocked(fileTextApi.save).mockRejectedValue(new Error('文件已在外部修改，请处理保存冲突'));
+    vi.mocked(fileWorkingApi.saveText).mockRejectedValue(new Error('文件已在外部修改，请处理保存冲突'));
     fireEvent.click(screen.getByRole('button', { name: '刷新', exact: true }));
     await waitFor(() => expect(screen.getAllByRole('alert').some(alert => alert.textContent?.includes('文件已在外部修改'))).toBe(true));
-    expect(fileTextApi.save).toHaveBeenCalledWith(binding, expect.objectContaining({ object, versionNumber: 2, expectedContentHash: 'hash2', text: '保留草稿' }), expect.any(String));
+    expect(fileWorkingApi.saveText).toHaveBeenCalledWith(binding, expect.objectContaining({ object, sessionId:'session2',expectedRevision:2,expectedContentHash:'hash2',text: '保留草稿' }), expect.any(String));
     expect(screen.getByText('保留草稿')).toBeVisible();
-    expect(screen.getByRole('button', { name: '文件查看版本' })).toHaveTextContent('v2');
+    expect(screen.getByRole('button', { name: '文件查看版本' })).toHaveTextContent('当前内容');
     view.unmount();
 });
 it('closing a hidden edited Markdown tab commits its fixed baseline; reopening reads the new File version', async () => {
@@ -75,28 +82,20 @@ it('closing a hidden edited Markdown tab commits its fixed baseline; reopening r
     view.rerender(view.wrap(false));
     expect(screen.getByText('保留草稿')).toBeInTheDocument();
     await act(() => view.close());
-    expect(fileTextApi.save).toHaveBeenCalledWith(binding, expect.objectContaining({ object, versionNumber: 2, expectedContentHash: 'hash2' }), expect.any(String));
+    expect(fileWorkingApi.saveText).toHaveBeenCalledWith(binding, expect.objectContaining({ object, sessionId:'session2',expectedRevision:2,expectedContentHash:'hash2' }), expect.any(String));
     view.unmount();
     const reopened = await mount();
     await screen.findByText('保留草稿');
-    expect(fileDocumentApi.sourceRead).toHaveBeenLastCalledWith(binding, expect.objectContaining({ object, versionNumber: 3, expectedContentHash: 'hash3' }));
+    expect(fileWorkingApi.open).toHaveBeenLastCalledWith(binding,object);
+    expect(fileDocumentApi.sourceRead).not.toHaveBeenCalled();
     reopened.unmount();
 });
-it('a draft created during asynchronous tab revalidation survives the incoming clean baseline', async () => {
-    const view = await mount();
-    await screen.findByText('原文');
-    view.rerender(view.wrap(false));
-    let finish!: (value: ReturnType<typeof resolved>) => void;
-    vi.mocked(projectFileApi.resolve).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
-    view.rerender(view.wrap());
-    await waitFor(() => expect(finish).toBeTypeOf('function'));
-    fireEvent.click(screen.getByRole('button', { name: '编辑文档' }));
-    await act(async () => finish(resolved()));
-    await waitFor(() => expect(screen.queryByText('正在读取固定版本…')).not.toBeInTheDocument());
-    expect(screen.getByText('保留草稿')).toBeVisible();
-    await act(() => view.close());
-    expect(fileTextApi.save).toHaveBeenCalledOnce();
-    view.unmount();
+it('retains the Markdown working session across hide and show',async()=>{
+ const view=await mount();await screen.findByText('原文');fireEvent.click(screen.getByRole('button',{name:'编辑文档'}));
+ view.rerender(view.wrap(false));view.rerender(view.wrap());
+ expect(screen.getByText('保留草稿')).toBeVisible();expect(fileWorkingApi.open).toHaveBeenCalledOnce();expect(fileWorkingApi.close).not.toHaveBeenCalled();
+ await act(()=>view.close());expect(fileWorkingApi.saveText).toHaveBeenCalledOnce();view.unmount();
+ await waitFor(()=>expect(fileWorkingApi.close).toHaveBeenCalledOnce());
 });
 it.each(['default', 'selected'])('flushes Markdown edits before %s external open', async (mode) => {
     vi.mocked(projectFileApi.applications).mockResolvedValue([{ id: 'viewer', name: 'Viewer', icon: null, isDefault: true }]);
@@ -104,14 +103,14 @@ it.each(['default', 'selected'])('flushes Markdown edits before %s external open
     await screen.findByText('原文');
     fireEvent.click(screen.getByRole('button', { name: '编辑文档' }));
     let finish!: () => void;
-    vi.mocked(fileTextApi.save).mockImplementationOnce(() => new Promise(resolve => { finish = () => { current = 3; resolve({ receipt: { documentId: 7, versionNumber: 3, contentHash: 'hash3', noChange: false }, versionPath: null }); }; }));
+    vi.mocked(fileWorkingApi.saveText).mockImplementationOnce(() => new Promise(resolve => { finish = () => { current = 3; resolve(status()); }; }));
     if (mode === 'default')
         fireEvent.click(screen.getByRole('button', { name: '在外部应用打开当前原件' }));
     else {
         fireEvent.click(screen.getByRole('button', { name: '选择其他应用打开当前原件' }));
         fireEvent.click(await screen.findByRole('button', { name: 'Viewer（默认）' }));
     }
-    await waitFor(() => expect(fileTextApi.save).toHaveBeenCalledOnce());
+    await waitFor(() => expect(fileWorkingApi.saveText).toHaveBeenCalledOnce());
     expect(projectFileApi.openLocal).not.toHaveBeenCalled();
     expect(projectFileApi.openWith).not.toHaveBeenCalled();
     await act(async () => finish());
@@ -126,11 +125,11 @@ it('keeps the latest Markdown draft when saving before a version switch fails', 
     const view = await mount();
     await screen.findByText('原文');
     fireEvent.click(screen.getByRole('button', { name: '编辑文档' }));
-    vi.mocked(fileTextApi.save).mockRejectedValueOnce(new Error('保存冲突'));
+    vi.mocked(fileWorkingApi.saveText).mockRejectedValueOnce(new Error('保存冲突'));
     fireEvent.click(screen.getByRole('button', { name: '文件查看版本' }));
     fireEvent.click(await screen.findByRole('menuitemradio', { name: 'v1', exact: true }));
     await waitFor(() => expect(screen.getAllByRole('alert').some(alert => alert.textContent === '保存冲突')).toBe(true));
-    expect(screen.getByRole('button', { name: '文件查看版本' })).toHaveTextContent('v2');
+    expect(screen.getByRole('button', { name: '文件查看版本' })).toHaveTextContent('当前内容');
     expect(screen.getByText('保留草稿')).toBeVisible();
     view.unmount();
 });
@@ -163,8 +162,8 @@ it('edits a Workspace Markdown File and commits a new version through the shared
     await screen.findByText('原文');
     fireEvent.click(screen.getByRole('button', { name: '编辑文档' }));
     await act(() => view.close());
-    expect(fileTextApi.save).toHaveBeenCalledWith(binding, expect.objectContaining({ object, versionNumber: 2, expectedContentHash: 'hash2', text: '保留草稿' }), expect.any(String));
-    expect(screen.getByRole('button', { name: '文件查看版本' })).toHaveTextContent('v3');
+    expect(fileWorkingApi.saveText).toHaveBeenCalledWith(binding, expect.objectContaining({ object, sessionId:'session2',expectedRevision:2,expectedContentHash:'hash2',text: '保留草稿' }), expect.any(String));
+    expect(screen.getByRole('button', { name: '文件查看版本' })).toHaveTextContent('当前内容');
 });
 
 it('keeps a failed Markdown version switch open with its original draft and baseline', async () => {
@@ -172,12 +171,26 @@ it('keeps a failed Markdown version switch open with its original draft and base
     const view = await mount();
     await screen.findByText('原文');
     fireEvent.click(screen.getByRole('button', {name:'编辑文档'}));
-    vi.mocked(fileTextApi.save).mockRejectedValue(new Error('Markdown 保存冲突'));
+    vi.mocked(fileWorkingApi.saveText).mockRejectedValue(new Error('Markdown 保存冲突'));
     fireEvent.click(screen.getByRole('button', {name:'文件查看版本'}));
     fireEvent.click(await screen.findByRole('menuitemradio', {name:'v1',exact:true}));
     await waitFor(() => expect(screen.getByRole('menu', {name:'文件查看版本列表'})).toHaveTextContent('Markdown 保存冲突'));
     expect(screen.getByText('保留草稿')).toBeVisible();
-    expect(screen.getByRole('button', {name:'文件查看版本'})).toHaveTextContent('v2');
-    expect(fileTextApi.save).toHaveBeenCalledWith(binding,expect.objectContaining({object,versionNumber:2,expectedContentHash:'hash2',text:'保留草稿'}),expect.any(String));
+    expect(screen.getByRole('button', {name:'文件查看版本'})).toHaveTextContent('当前内容');
+    expect(fileWorkingApi.saveText).toHaveBeenCalledWith(binding,expect.objectContaining({object,sessionId:'session2',expectedRevision:2,expectedContentHash:'hash2',text:'保留草稿'}),expect.any(String));
     view.unmount();
+});
+
+it('does not display working bytes as the archived version while history is loading',async()=>{
+ vi.mocked(fileWorkingApi.open).mockResolvedValueOnce({...opened(),revision:8,contentHash:'working8',pendingArchive:true,base64:btoa('unarchived current')});
+ const view=await mount();await screen.findByText('unarchived current');
+ const read=vi.mocked(fileDocumentApi.sourceRead).getMockImplementation()!;
+ let release!:(value:Awaited<ReturnType<typeof fileDocumentApi.sourceRead>>)=>void;
+ vi.mocked(fileDocumentApi.sourceRead).mockImplementationOnce(()=>new Promise(resolve=>{release=resolve;}));
+ fireEvent.click(screen.getByRole('button',{name:'文件查看版本'}));fireEvent.click(await screen.findByRole('menuitemradio',{name:'v2',exact:true}));
+ await waitFor(()=>expect(fileDocumentApi.sourceRead).toHaveBeenCalledOnce());
+ expect(screen.queryByText('unarchived current')).not.toBeInTheDocument();
+ await act(async()=>release(await read(binding,{object,versionNumber:2,expectedContentHash:'hash2'})));
+ expect(await screen.findByText('原文')).toBeVisible();expect(screen.getByRole('button',{name:'编辑文档'})).toBeDisabled();
+ expect(fileWorkingApi.close).toHaveBeenCalledOnce();view.unmount();
 });

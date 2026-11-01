@@ -8,6 +8,7 @@ import { setDshWorkspaceRoot, showDshBusyFeedback } from "./lib/dsh-host-events"
 import { useAgentPanelStore } from "./state/agent-panel-store";
 import { useSidebarTextFade } from "./hooks/useSidebarTextFade";
 import { useWorkspaceBusinessChanges } from "./hooks/useWorkspaceBusinessChanges";
+import {useFileWorkingErrors} from './hooks/useFileWorkingErrors';
 import { useSourceMaintenanceSelection } from "./hooks/useSourceMaintenanceSelection";
 import { ArchivedProjectsDialog } from "./components/workspace/ArchivedProjectsDialog";
 import { HomeWorkspaceActionsContext } from "./components/home/HomeWorkspaceIdentity";
@@ -365,6 +366,7 @@ export function WorkspaceLayout({
     if (!currentWorkspace && agentPanelBinding) useAgentPanelStore.getState().clearWorkspace();
   }, [currentWorkspace, agentPanelBinding]);
   const businessChangeError = useWorkspaceBusinessChanges(currentWorkspace?.rootPath);
+  useFileWorkingErrors(currentWorkspace?.rootPath);
   useSourceMaintenanceSelection(currentWorkspace?.rootPath, activeProjectId);
   useEffect(() => {
     if (businessChangeError) setStatus({ tone: "error", label: "Refresh failed", message: "工作区变更同步失败，重新切回窗口后会重试" });
