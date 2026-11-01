@@ -331,6 +331,18 @@ export function WorkspaceLayout({
     window.addEventListener(PROJECT_CONTENT_OPEN_EVENT, open);
     return () => window.removeEventListener(PROJECT_CONTENT_OPEN_EVENT, open);
   }, [currentWorkspace?.rootPath, navigate, openProjectTab]);
+  useEffect(() => {
+    if (projectWindow) return;
+    let disposed = false;
+    const listener = desktopApi.listenEvent<{ workspaceRoot: string; snapshot: import("./lib/voice-types").VoiceSessionSnapshot }>("voice:open-record", ({ workspaceRoot, snapshot }) => {
+      if (disposed || workspaceRoot !== currentWorkspace?.rootPath) return;
+      if (snapshot.projectId !== null && snapshot.projectNoteId !== null) {
+        openProjectTab(snapshot.projectId);
+        navigate(recordPath(snapshot.projectId, snapshot.projectNoteId));
+      } else if (snapshot.workspaceNoteId !== null) navigate(`/workspace/records/${snapshot.workspaceNoteId}`);
+    });
+    return () => { disposed = true; void listener.then(stop => stop()); };
+  }, [projectWindow, currentWorkspace?.rootPath, navigate, openProjectTab]);
   useEffect(() => { setDshWorkspaceRoot(currentWorkspace?.rootPath ?? null); }, [currentWorkspace?.rootPath]);
   const agentPanelBinding = useAgentPanelStore(state => state.binding);
   const agentPanelOpen = useAgentPanelStore(state => state.open);
@@ -1496,6 +1508,29 @@ export function WorkspaceLayout({
     >
     <div className={`flex h-dvh min-h-0 min-w-0 flex-col overflow-hidden bg-bg-subtle${!projectWindow && (workspaceActive || showProjectSidebarShell) ? " home-window-shell" : ""}`}>
       {projectWindow ? null : workspaceTopBar}
+      <VoiceFloatingPanel
+        target={activeProjectId === null ? { scope: "workspace" } : { scope: "project", projectId: activeProjectId }}
+        targetLabel={activeProjectId === null ? " Workspace" : `项目「${activeProject?.name ?? "未命名"}」`}
+        onOpenRecord={(snapshot) => {
+          if (projectWindow) {
+            void desktopApi.openVoiceRecord(snapshot, currentWorkspace.rootPath).catch(error => pushToast({ tone: "error", title: "无法打开录音记录", detail: String(error) }));
+            return;
+          }
+          if (snapshot.projectNoteId !== null && snapshot.projectId != null) {
+            navigate(recordPath(snapshot.projectId, snapshot.projectNoteId));
+          } else if (snapshot.workspaceNoteId !== null) {
+            navigate(`/workspace/records/${snapshot.workspaceNoteId}`);
+          }
+        }}
+        onChanged={async () => {
+          await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
+          await queryClient.invalidateQueries({ queryKey: ["voice-playback"] });
+          if (activeProjectId !== null) {
+            await queryClient.invalidateQueries({ queryKey: queryKeys.projectPage(activeProjectId) });
+          }
+        }}
+      />
+
 
       <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
         {showProjectSidebarShell && (projectOverviewActive || activeRecordFocusRoute?.kind === "project") ? (
@@ -1628,24 +1663,6 @@ export function WorkspaceLayout({
         </Suspense>
       ) : null}
 
-      <VoiceFloatingPanel
-        target={activeProjectId === null ? { scope: "workspace" } : { scope: "project", projectId: activeProjectId }}
-        targetLabel={activeProjectId === null ? " Workspace" : `项目「${activeProject?.name ?? "未命名"}」`}
-        onOpenRecord={(snapshot) => {
-          if (snapshot.projectNoteId !== null && activeProjectId !== null) {
-            navigate(recordPath(activeProjectId, snapshot.projectNoteId));
-          } else if (snapshot.workspaceNoteId !== null) {
-            navigate(`/workspace/records/${snapshot.workspaceNoteId}`);
-          }
-        }}
-        onChanged={async () => {
-          await queryClient.invalidateQueries({ queryKey: queryKeys.workspacePage });
-          await queryClient.invalidateQueries({ queryKey: ["voice-playback"] });
-          if (activeProjectId !== null) {
-            await queryClient.invalidateQueries({ queryKey: queryKeys.projectPage(activeProjectId) });
-          }
-        }}
-      />
 
       <ProjectFilePreviewLayer currentProjectId={activeProjectId ?? null} workspaceRoot={currentWorkspace.rootPath} />
       <ToastStack toasts={toasts} onDismiss={dismissToast} />

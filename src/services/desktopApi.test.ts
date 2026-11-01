@@ -117,7 +117,7 @@ import { desktopApi } from "./desktopApi";
 
 describe("desktopApi", () => {
   beforeEach(() => {
-    tauriMocks.invokeMock.mockReset();
+    tauriMocks.invokeMock.mockReset().mockImplementation(async (command) => command === "workspace_status_get" ? { currentWorkspace: { rootPath: "/voice-workspace" } } : undefined);
     tauriMocks.openMock.mockReset();
     tauriMocks.saveMock.mockReset();
     tauriMocks.askMock.mockReset();
@@ -707,4 +707,46 @@ it('maps Word remote image reads to a fixed File command and preserves native fa
   const failure = {code: 'blocked_target', message: '图片地址不是公开网络地址'};
   tauriMocks.invokeMock.mockRejectedValueOnce(failure);
   await expect(desktopApi.fetchEditorRemoteImage(input)).rejects.toBe(failure);
+});
+
+it("activates the hidden main window and sends the exact ended record with its workspace binding", async () => {
+  const originalLocation = window.location;
+  Object.defineProperty(window, "location", { configurable: true, value: { search: "?workspaceRoot=%2Fvoice-workspace" } });
+  const main = { emit: vi.fn(async () => {}), unminimize: vi.fn(async () => {}), show: vi.fn(async () => {}), setFocus: vi.fn(async () => {}) };
+  tauriMocks.invokeMock.mockReset().mockResolvedValue({ currentWorkspace: { rootPath: "/voice-workspace" } });
+  tauriMocks.getByLabelMock.mockReset().mockResolvedValue(main);
+  const snapshot = { sessionId: "ended-session", phase: "ended", projectId: 7, projectNoteId: 42 } as import("../lib/voice-types").VoiceSessionSnapshot;
+  try {
+    await desktopApi.captionWindowOpenRecord(snapshot);
+    expect(tauriMocks.getByLabelMock).toHaveBeenCalledWith("main");
+    expect(main.emit).toHaveBeenCalledWith("voice:open-record", { workspaceRoot: "/voice-workspace", snapshot });
+    expect(main.emit.mock.invocationCallOrder[0]).toBeLessThan(main.show.mock.invocationCallOrder[0]);
+    expect(main.unminimize).toHaveBeenCalledOnce();
+    expect(main.setFocus).toHaveBeenCalledOnce();
+  } finally { Object.defineProperty(window, "location", { configurable: true, value: originalLocation }); }
+});
+
+it("refuses to navigate a recording after its bound workspace has changed", async () => {
+  const originalLocation = window.location;
+  Object.defineProperty(window, "location", { configurable: true, value: { search: "?workspaceRoot=%2Fold-workspace" } });
+  tauriMocks.invokeMock.mockReset().mockResolvedValue({ currentWorkspace: { rootPath: "/new-workspace" } });
+  tauriMocks.getByLabelMock.mockClear();
+  try {
+    await expect(desktopApi.captionWindowOpenRecord({} as import("../lib/voice-types").VoiceSessionSnapshot)).rejects.toThrow("录音所属工作区已切换");
+    expect(tauriMocks.getByLabelMock).not.toHaveBeenCalled();
+  } finally { Object.defineProperty(window, "location", { configurable: true, value: originalLocation }); }
+});
+
+it("opens another project's recording in main from a project-window banner with explicit workspace binding", async () => {
+  const main = { emit: vi.fn(async () => {}), unminimize: vi.fn(async () => {}), show: vi.fn(async () => {}), setFocus: vi.fn(async () => {}) };
+  tauriMocks.getCurrentWebviewWindowMock.mockReturnValue({ label: "project-99", listen: vi.fn(async () => () => {}) });
+  tauriMocks.invokeMock.mockReset().mockResolvedValue({ currentWorkspace: { rootPath: "/voice-workspace" } });
+  tauriMocks.getByLabelMock.mockReset().mockResolvedValue(main);
+  const snapshot = { sessionId: "active-session", phase: "recording", projectId: 7, projectNoteId: 42 } as import("../lib/voice-types").VoiceSessionSnapshot;
+  await desktopApi.openVoiceRecord(snapshot, "/voice-workspace");
+  expect(tauriMocks.getByLabelMock).toHaveBeenCalledWith("main");
+  expect(main.emit).toHaveBeenCalledWith("voice:open-record", { workspaceRoot: "/voice-workspace", snapshot });
+  expect(main.unminimize).toHaveBeenCalledOnce();
+  expect(main.setFocus).toHaveBeenCalledOnce();
+  expect(mainWindowCapability.permissions).toContain("core:window:allow-unminimize");
 });

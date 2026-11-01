@@ -110,11 +110,6 @@ body,
   scrollbar-width: none;
 }
 
-.voice-caption-scroll--overflow {
-  -webkit-mask-image: linear-gradient(to bottom, transparent, black 22px, black);
-  mask-image: linear-gradient(to bottom, transparent, black 22px, black);
-}
-
 .voice-caption-scroll::-webkit-scrollbar {
   display: none;
 }
@@ -209,4 +204,9 @@ body,
     from { opacity: 0; }
     to { opacity: 1; }
   }
+}
+
+.voice-caption-status-dot--saved {
+  background: var(--color-text-secondary);
+  box-shadow: none;
 }

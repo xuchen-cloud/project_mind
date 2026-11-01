@@ -27,6 +27,7 @@ export interface VoiceProfileTestInput {
 export interface VoiceSettings {
   speechProfile: SpeechProfile | null;
   livePreviewEnabled: boolean;
+  liveTranscriptionEnabled: boolean;
   textProfileId: number | null;
   translationProfileId: number | null;
   contextEnabled: boolean;
@@ -46,6 +47,10 @@ export interface VoiceSessionSnapshot {
   activeMs: number;
   pauseReason: string | null;
   interimText: string | null;
+  liveTranscriptionEnabled: boolean;
+  liveTranscriptionDegraded: boolean;
+  activityWarning: string | null;
+  projectId: number | null;
   recognitionError?: string | null;
   projectNoteId: number | null;
   workspaceNoteId: number | null;

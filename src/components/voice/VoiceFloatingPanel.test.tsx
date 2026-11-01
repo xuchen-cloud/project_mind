@@ -32,6 +32,7 @@ it('closes the caption window as soon as ending succeeds, before record refresh 
   await waitFor(() => expect(mocks.end).toHaveBeenCalledOnce());
   await waitFor(() => expect(onChanged).toHaveBeenCalledOnce());
   expect(mocks.closeVoiceCaptionWindow).toHaveBeenCalledOnce();
+  expect(screen.queryByRole('region', { name: '语音录制控制' })).not.toBeInTheDocument();
   finishRefresh();
   view.unmount();
 });
@@ -47,22 +48,20 @@ it('hides the idle start control without starting a recording', async () => {
   view.unmount();
 });
 
-it('shows the latest stable caption lines for the active session', async () => {
-  mocks.snapshotGet.mockReset().mockResolvedValue({ sessionId: 'session-one', revision: 1, phase: 'recording', activeMs: 1000 });
-  mocks.transcriptTail.mockReset().mockResolvedValue([{ id: 'segment-one', startMs: 0, endMs: 1000, text: '会议开始', language: 'zh' }]);
-  const view = render(<VoiceFloatingPanel target={{ scope: 'workspace' }} targetLabel="Workspace" onChanged={vi.fn()} onOpenRecord={vi.fn()} />);
-  expect(await screen.findByText('会议开始')).toBeInTheDocument();
-  expect(mocks.transcriptTail).toHaveBeenCalledWith({ sessionId: 'session-one', limit: 8 });
-  view.unmount();
-});
-
-it('shows provisional text separately from saved captions', async () => {
-  mocks.snapshotGet.mockReset().mockResolvedValue({ sessionId: 'session-one', revision: 1, phase: 'recording', activeMs: 2000, interimText: '正在讲话' });
-  mocks.transcriptTail.mockReset().mockResolvedValue([{ id: 'final-one', startMs: 0, endMs: 1000, text: '已确认。', language: 'zh' }]);
-  const view = render(<VoiceFloatingPanel target={{ scope: 'workspace' }} targetLabel="Workspace" onChanged={vi.fn()} onOpenRecord={vi.fn()} />);
-  expect(await screen.findByLabelText('临时字幕')).toHaveTextContent('正在讲话');
-  expect(screen.getByText('已确认。')).toBeInTheDocument();
-  expect(mocks.transcriptTail).toHaveBeenCalledWith({ sessionId: 'session-one', limit: 8 });
+it('uses an integrated banner that opens the recording snapshot across navigation', async () => {
+  const snapshot = { sessionId: 'session-one', revision: 1, phase: 'recording', activeMs: 1000, projectId: 7, projectNoteId: 9 };
+  mocks.snapshotGet.mockReset().mockResolvedValue(snapshot);
+  const onOpenRecord = vi.fn();
+  const view = render(<VoiceFloatingPanel target={{ scope: 'workspace' }} targetLabel="Workspace" onChanged={vi.fn()} onOpenRecord={onOpenRecord} />);
+  fireEvent.click(await screen.findByRole('button', { name: '打开正在录制的记录' }));
+  expect(onOpenRecord).toHaveBeenCalledWith(snapshot);
+  expect(screen.getByRole('region', { name: '语音录制控制' })).not.toHaveClass('fixed');
+  view.rerender(<VoiceFloatingPanel target={{ scope: 'project', projectId: 99 }} targetLabel="Other" onChanged={vi.fn()} onOpenRecord={onOpenRecord} />);
+  expect(screen.getByText('录音中')).toBeInTheDocument();
+  onOpenRecord.mockClear();
+  fireEvent.click(screen.getByRole('button', { name: '打开正在录制的记录' }));
+  expect(onOpenRecord).toHaveBeenCalledWith(expect.objectContaining({ projectId: 7, projectNoteId: 9 }));
+  expect(mocks.transcriptTail).not.toHaveBeenCalled();
   view.unmount();
 });
 
@@ -77,10 +76,10 @@ it('does not request captions in audio-only mode', async () => {
 });
 
 it('shows local recognition failure while audio recording continues', async () => {
-  mocks.snapshotGet.mockReset().mockResolvedValue({ sessionId: 'session-one', revision: 1, phase: 'recording', activeMs: 2000, recognitionError: 'local inference failed' });
+  mocks.snapshotGet.mockReset().mockResolvedValue({ sessionId: 'session-one', revision: 1, phase: 'recording', activeMs: 2000, liveTranscriptionDegraded: true, recognitionError: 'local inference failed' });
   mocks.transcriptTail.mockReset().mockResolvedValue([]);
   const view = render(<VoiceFloatingPanel target={{ scope: 'workspace' }} targetLabel="Workspace" onChanged={vi.fn()} onOpenRecord={vi.fn()} />);
-  expect(await screen.findByRole('alert')).toHaveTextContent('实时转写已中断，录音继续保存。local inference failed');
+  expect(await screen.findByText('录音正常，文字稍后补齐')).toBeInTheDocument();
   expect(screen.getByText('录音中')).toBeInTheDocument();
   view.unmount();
 });
@@ -107,20 +106,30 @@ it('does not overlap a slow snapshot poll and slows hidden polling to five secon
   view.unmount();
 });
 
-it('reports a repeated caption failure once until a successful refresh clears it', async () => {
+it('reports a repeated snapshot failure once until a successful refresh clears it', async () => {
   vi.useFakeTimers();
   mocks.pushToast.mockClear();
   mocks.snapshotGet.mockReset().mockResolvedValue({ sessionId: 's', revision: 1, phase: 'recording', activeMs: 1000 });
-  mocks.transcriptTail.mockRejectedValue(new Error('tail offline'));
+  mocks.snapshotGet.mockRejectedValue(new Error('snapshot offline'));
   const view = render(<VoiceFloatingPanel target={{ scope: 'workspace' }} targetLabel="Workspace" onChanged={vi.fn()} onOpenRecord={vi.fn()} />);
   await act(() => vi.advanceTimersByTimeAsync(10));
   await act(() => vi.advanceTimersByTimeAsync(2000));
-  expect(screen.getByText('录音中')).toBeInTheDocument();
   expect(mocks.pushToast).toHaveBeenCalledOnce();
-  mocks.transcriptTail.mockResolvedValue([]);
-  await act(() => vi.advanceTimersByTimeAsync(1000));
-  mocks.transcriptTail.mockRejectedValue(new Error('tail offline'));
-  await act(() => vi.advanceTimersByTimeAsync(1000));
+  mocks.snapshotGet.mockResolvedValue(null);
+  await act(() => vi.advanceTimersByTimeAsync(5000));
+  mocks.snapshotGet.mockRejectedValue(new Error('snapshot offline'));
+  await act(() => vi.advanceTimersByTimeAsync(5000));
   expect(mocks.pushToast).toHaveBeenCalledTimes(2);
+  view.unmount();
+});
+
+it('retains the banner while audio save is pending and disables capture commands', async () => {
+  mocks.snapshotGet.mockResolvedValue({ sessionId: 'pending-save', revision: 9, phase: 'ending', activeMs: 2000, pauseReason: '保存待重试：磁盘空间不足' });
+  const view = render(<VoiceFloatingPanel target={{ scope: 'workspace' }} targetLabel="Workspace" onChanged={vi.fn()} onOpenRecord={vi.fn()} />);
+  expect(await screen.findByText('音频待保存')).toBeInTheDocument();
+  expect(screen.getByRole('status')).toHaveTextContent('保存待重试：磁盘空间不足');
+  expect(screen.getByRole('button', { name: '暂停' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: '结束' })).toBeDisabled();
+  expect(screen.queryByText('录音中')).not.toBeInTheDocument();
   view.unmount();
 });

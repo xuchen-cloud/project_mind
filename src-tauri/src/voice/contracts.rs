@@ -208,9 +208,23 @@ pub enum SpeechProfile {
     },
 }
 
+fn default_live_transcription() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LiveTranscriptionInput {
+    pub session_id: String,
+    pub expected_revision: u64,
+    pub enabled: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VoiceSettings {
+    #[serde(default = "default_live_transcription")]
+    pub live_transcription_enabled: bool,
     pub speech_profile: Option<SpeechProfile>,
     #[serde(default)]
     pub live_preview_enabled: bool,
@@ -223,6 +237,10 @@ pub struct VoiceSettings {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VoiceSessionSnapshot {
+    pub live_transcription_enabled: bool,
+    pub live_transcription_degraded: bool,
+    pub activity_warning: Option<String>,
+    pub project_id: Option<i64>,
     pub session_id: String,
     pub revision: u64,
     pub phase: String,

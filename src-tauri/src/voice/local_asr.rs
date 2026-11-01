@@ -4,6 +4,8 @@ use anyhow::{anyhow, Result};
 use sherpa_onnx::{OfflineRecognizer, OfflineRecognizerConfig, OfflineSenseVoiceModelConfig};
 use std::{path::Path, sync::mpsc, thread};
 
+static INFERENCE_GATE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 const SAMPLE_RATE: i32 = 16_000;
 const MAX_SAMPLES: usize = 30 * SAMPLE_RATE as usize;
 const MAX_BACKLOG: usize = 8;
@@ -15,6 +17,7 @@ pub struct LocalAsrWorker {
 
 struct Work {
     segment: UtteranceSegment,
+    control: Option<(std::sync::Arc<std::sync::atomic::AtomicU64>, u64)>,
     answer: mpsc::Sender<Result<LocalAsrResult>>,
 }
 
@@ -50,6 +53,14 @@ impl LocalAsrWorker {
                 }
                 let recognizer = recognizer.expect("checked above");
                 while let Ok(work) = receiver.recv() {
+                    let _ownership = INFERENCE_GATE
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner());
+                    if work.control.as_ref().is_some_and(|(control, generation)| {
+                        control.load(std::sync::atomic::Ordering::SeqCst) != *generation
+                    }) {
+                        continue;
+                    }
                     let _ = work.answer.send(recognize(&recognizer, work.segment));
                 }
             })?;
@@ -62,11 +73,29 @@ impl LocalAsrWorker {
 
     #[cfg(test)]
     pub(crate) fn for_test(
+        recognize: impl FnMut(UtteranceSegment) -> Result<LocalAsrResult> + Send + 'static,
+    ) -> Self {
+        Self::for_test_with_gate(false, recognize)
+    }
+
+    #[cfg(test)]
+    fn for_test_with_gate(
+        exclusive: bool,
         mut recognize: impl FnMut(UtteranceSegment) -> Result<LocalAsrResult> + Send + 'static,
     ) -> Self {
         let (sender, receiver) = mpsc::sync_channel::<Work>(MAX_BACKLOG);
         let join = thread::spawn(move || {
             while let Ok(work) = receiver.recv() {
+                let _ownership = exclusive.then(|| {
+                    INFERENCE_GATE
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner())
+                });
+                if work.control.as_ref().is_some_and(|(control, generation)| {
+                    control.load(std::sync::atomic::Ordering::SeqCst) != *generation
+                }) {
+                    continue;
+                }
                 let _ = work.answer.send(recognize(work.segment));
             }
         });
@@ -82,6 +111,14 @@ impl LocalAsrWorker {
         &self,
         segment: UtteranceSegment,
     ) -> Result<mpsc::Receiver<Result<LocalAsrResult>>> {
+        self.submit_controlled(segment, None)
+    }
+
+    pub(crate) fn submit_controlled(
+        &self,
+        segment: UtteranceSegment,
+        control: Option<(std::sync::Arc<std::sync::atomic::AtomicU64>, u64)>,
+    ) -> Result<mpsc::Receiver<Result<LocalAsrResult>>> {
         if segment.samples.is_empty() || segment.samples.len() > MAX_SAMPLES {
             return Err(anyhow!(
                 "SenseVoice segment exceeds the verified input limit"
@@ -91,7 +128,11 @@ impl LocalAsrWorker {
         self.sender
             .as_ref()
             .ok_or_else(|| anyhow!("SenseVoice worker is closed"))?
-            .try_send(Work { segment, answer })
+            .try_send(Work {
+                segment,
+                control,
+                answer,
+            })
             .map_err(|error| anyhow!("SenseVoice worker backlog: {error}"))?;
         Ok(result)
     }
@@ -161,6 +202,35 @@ fn transcript_text(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn queued_controlled_work_is_cancelled_after_waiting_for_shared_inference_ownership() {
+        use super::*;
+        let ownership = INFERENCE_GATE
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let worker = LocalAsrWorker::for_test_with_gate(true, |_| {
+            panic!("cancelled queued inference must never compute")
+        });
+        let control = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(1));
+        let answer = worker
+            .submit_controlled(
+                UtteranceSegment {
+                    start_sample: 0,
+                    samples: vec![0.2; 480],
+                    forced_split: false,
+                },
+                Some((control.clone(), 1)),
+            )
+            .unwrap();
+        control.store(0, std::sync::atomic::Ordering::SeqCst);
+        drop(ownership);
+        assert!(matches!(
+            answer.recv_timeout(std::time::Duration::from_secs(1)),
+            Err(mpsc::RecvTimeoutError::Disconnected)
+        ));
+        worker.shutdown_and_wait().unwrap();
+    }
+
     use super::*;
     #[cfg(target_os = "macos")]
     use sherpa_onnx::Wave;

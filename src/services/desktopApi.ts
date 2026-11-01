@@ -104,6 +104,22 @@ export const desktopApi = {
     if (width >= 380) await current.setMinSize(minSize);
   },
 
+  captionWindowOpenRecord(snapshot: VoiceSessionSnapshot) {
+    const workspaceRoot = new URLSearchParams(window.location.search).get("workspaceRoot");
+    return desktopApi.openVoiceRecord(snapshot, workspaceRoot);
+  },
+
+  async openVoiceRecord(snapshot: VoiceSessionSnapshot, workspaceRoot: string | null) {
+    const status = await invoke<{ currentWorkspace: { rootPath: string } | null }>("workspace_status_get");
+    if (!workspaceRoot || status.currentWorkspace?.rootPath !== workspaceRoot) throw new Error("录音所属工作区已切换，无法打开记录");
+    const main = await webviewWindow.WebviewWindow.getByLabel("main");
+    if (!main) throw new Error("主窗口不可用");
+    await main.emit("voice:open-record", { workspaceRoot, snapshot });
+    await main.unminimize();
+    await main.show();
+    await main.setFocus();
+  },
+
   captionWindowClose() {
     return getCurrentWindow().destroy();
   },
@@ -142,7 +158,10 @@ export const desktopApi = {
     const scale = monitor?.scaleFactor ?? 1;
     const x = bounds ? Math.round(bounds.position.x / scale + (bounds.size.width / scale - width) / 2) : undefined;
     const y = bounds ? Math.round(bounds.position.y / scale + bounds.size.height / scale - height - 30) : undefined;
+    const status = await invoke<{ currentWorkspace: { rootPath: string } | null }>("workspace_status_get");
+    if (!status.currentWorkspace) throw new Error("当前没有工作区");
     const url = new URL("voice.html", window.location.href);
+    url.searchParams.set("workspaceRoot", status.currentWorkspace.rootPath);
     if (audioOnly) url.searchParams.set("audioOnly", "1");
     const captionWindow = new webviewWindow.WebviewWindow("voice-caption", {
       title: "语音记录",

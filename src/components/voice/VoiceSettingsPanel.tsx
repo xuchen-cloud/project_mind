@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LoaderCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import type { SpeechProfile, VoiceModelPackageStatus, VoiceSettings } from "../../lib/voice-types";
+import type { SpeechProfile, VoiceModelPackageStatus, VoiceSettings, VoiceSessionSnapshot } from "../../lib/voice-types";
 import type { AiProviderProfileRecord } from "../../lib/types";
 import { desktopApi } from "../../services/desktopApi";
 import { projectMindApi } from "../../services/projectMindApi";
@@ -13,6 +13,7 @@ import { Button, TextField } from "../../ui/components";
 const DEFAULT_SETTINGS: VoiceSettings = {
   speechProfile: null,
   livePreviewEnabled: false,
+  liveTranscriptionEnabled: true,
   textProfileId: null,
   translationProfileId: null,
   contextEnabled: false,
@@ -23,6 +24,13 @@ export function VoiceSettingsPanel({ open }: { open: boolean }) {
   const queryClient = useQueryClient();
   const { pushToast } = useFeedbackStore();
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+  const [liveSession, setLiveSession] = useState<VoiceSessionSnapshot | null>(null);
+  const [livePending, setLivePending] = useState(false);
+  const liveBusy = useRef(false);
+  const liveLoading = useRef(false);
+  const liveGeneration = useRef(0);
+  const liveSessionRef = useRef(liveSession);
+  liveSessionRef.current = liveSession;
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -63,11 +71,14 @@ export function VoiceSettingsPanel({ open }: { open: boolean }) {
 
   useEffect(() => {
     if (!open) return;
+    setLiveSession(null);
+    liveLoading.current = true;
     setLoading(true);
-    void voiceApi.settingsGet()
-      .then(setSettings)
+    let disposed = false;
+    void Promise.all([voiceApi.settingsGet(), voiceApi.snapshotGet()])
+      .then(([settings, snapshot]) => { if (!disposed) { setSettings(settings); setLiveSession(snapshot && ["recording", "paused", "ending"].includes(snapshot.phase) ? snapshot : null); } })
       .catch((error) => pushToast({ tone: "error", title: "读取语音设置失败", detail: String(error) }))
-      .finally(() => setLoading(false));
+      .finally(() => { if (!disposed) { liveLoading.current = false; setLoading(false); } });
     void voiceApi.modelStatusGet()
       .then(setModelStatus)
       .catch((error) => pushToast({ tone: "error", title: "读取本地模型状态失败", detail: String(error) }));
@@ -75,7 +86,47 @@ export function VoiceSettingsPanel({ open }: { open: boolean }) {
     void projectMindApi.aiSettingsGet()
       .then((snapshot) => setCredentialProfiles(snapshot.profiles.filter((profile) => profile.enabled && profile.hasStoredKey)))
       .catch((error) => pushToast({ tone: "error", title: "读取密钥配置失败", detail: String(error) }));
+    return () => { disposed = true; liveGeneration.current++; };
   }, [open, pushToast]);
+
+  useEffect(() => {
+    if (!open) return;
+    let disposed = false;
+    const listener = desktopApi.listenEvent<{ type: string }>("voice:live-state", message => {
+      if (!["changed", "state"].includes(message.type) || liveBusy.current || liveLoading.current) return;
+      const generation = ++liveGeneration.current;
+      void Promise.all([voiceApi.settingsGet(), voiceApi.snapshotGet()]).then(([latest, snapshot]) => {
+        if (!disposed && generation === liveGeneration.current) {
+          if (message.type === "changed") setSettings(current => ({ ...current, liveTranscriptionEnabled: latest.liveTranscriptionEnabled }));
+          setLiveSession(snapshot && ["recording", "paused", "ending"].includes(snapshot.phase) ? snapshot : null);
+        }
+      }).catch(error => pushToast({ tone: "error", title: "读取语音设置失败", detail: String(error) }));
+    });
+    return () => { disposed = true; void listener.then(stop => stop()); };
+  }, [open, pushToast]);
+
+  async function changeLiveTranscription(enabled: boolean) {
+    const session = liveSessionRef.current;
+    if (session?.phase === "ending") return;
+    if (!session) { setSettings(current => ({ ...current, liveTranscriptionEnabled: enabled })); return; }
+    if (liveBusy.current) return;
+    liveBusy.current = true;
+    const generation = ++liveGeneration.current;
+    setLivePending(true);
+    try {
+      const next = await voiceApi.liveTranscriptionSet({ sessionId: session.sessionId, expectedRevision: session.revision, enabled });
+      if (generation !== liveGeneration.current) return;
+      setLiveSession(next);
+      setSettings(current => ({ ...current, liveTranscriptionEnabled: enabled }));
+      await desktopApi.emitEvent("voice:live-state", { origin: "settings", type: "changed", packet: { session: next, captions: null } });
+    } catch (error) {
+      pushToast({ tone: "error", title: "实时转写切换失败", detail: String(error) });
+      try {
+        const snapshot = await voiceApi.snapshotGet();
+        if (generation === liveGeneration.current) setLiveSession(snapshot && ["recording", "paused", "ending"].includes(snapshot.phase) ? snapshot : null);
+      } catch (refreshError) { pushToast({ tone: "error", title: "读取语音状态失败", detail: String(refreshError) }); }
+    } finally { liveBusy.current = false; setLivePending(false); }
+  }
 
   function setProfile(kind: "none" | "paraformer" | "sense_voice_onnx") {
     const speechProfile: SpeechProfile | null = kind === "none"
@@ -142,6 +193,8 @@ export function VoiceSettingsPanel({ open }: { open: boolean }) {
     setSaving(true);
     try {
       await voiceApi.settingsUpsert(settings);
+      const snapshot = await voiceApi.snapshotGet();
+      if (snapshot) await desktopApi.emitEvent("voice:live-state", { origin: "settings", type: "changed", packet: { session: snapshot, captions: null } });
       pushToast({ tone: "success", title: "语音设置已保存" });
     } catch (error) {
       pushToast({ tone: "error", title: "保存语音设置失败", detail: String(error) });
@@ -204,11 +257,18 @@ export function VoiceSettingsPanel({ open }: { open: boolean }) {
         </div>
       ) : null}
 
+      {settings.speechProfile ? <label className="flex items-center gap-2 text-body text-text">
+        <input type="checkbox" checked={liveSession ? liveSession.liveTranscriptionEnabled : settings.liveTranscriptionEnabled} disabled={livePending || saving || liveSession?.phase === "ending"}
+          onChange={(event) => void changeLiveTranscription(event.target.checked)} />
+        实时转写（关闭后录音照常，结束后补齐文字）
+      </label> : null}
+      {liveSession?.phase === "ending" ? <p role="status" className="text-caption text-text-muted">音频待保存{liveSession.pauseReason ? `：${liveSession.pauseReason}` : ""}</p> : null}
+      {liveSession?.phase !== "ending" && liveSession?.liveTranscriptionDegraded ? <p role="status" className="text-caption text-text-muted">录音正常，文字稍后补齐；可手动重新开启实时转写。</p> : null}
       {settings.speechProfile ? (
         <label className="flex items-center gap-2 text-body text-text">
           <input type="checkbox" checked={settings.livePreviewEnabled}
             onChange={(event) => setSettings((current) => ({ ...current, livePreviewEnabled: event.target.checked }))} />
-          实时临时字幕{settings.speechProfile.kind === "sense_voice_onnx" ? "（增加本地模型推理开销）" : ""}
+          实时临时字幕预览{settings.speechProfile.kind === "sense_voice_onnx" ? "（增加本地模型推理开销）" : ""}
         </label>
       ) : null}
 
@@ -258,7 +318,7 @@ export function VoiceSettingsPanel({ open }: { open: boolean }) {
         识别时使用当前 Workspace 上下文
       </label>
 
-      <div><Button variant="primary" disabled={saving} onClick={() => void save()}>{saving ? "保存中…" : "保存设置"}</Button></div>
+      <div><Button variant="primary" disabled={saving || livePending} onClick={() => void save()}>{saving ? "保存中…" : "保存设置"}</Button></div>
     </section>
   );
 }

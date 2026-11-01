@@ -1,5 +1,11 @@
 use super::*;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub(crate) enum RecoveryBackend {
+    Paraformer,
+    SenseVoice,
+}
+
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CloudGap {
@@ -17,6 +23,12 @@ pub(crate) struct CloudGap {
     pub credential_profile_id: i64,
     #[serde(skip)]
     pub epoch_offset_ms: u64,
+    #[serde(skip)]
+    pub backend: RecoveryBackend,
+    #[serde(skip)]
+    lease: i64,
+    #[serde(skip)]
+    pub local_state: Option<String>,
 }
 
 fn unsigned(row: &rusqlite::Row<'_>, column: usize) -> rusqlite::Result<u64> {
@@ -67,6 +79,22 @@ impl Database {
               FOREIGN KEY(session_id, epoch) REFERENCES voice_cloud_epochs(session_id, epoch) ON DELETE CASCADE
             );
         "#)?;
+        self.ensure_column("voice_cloud_epochs", "backend", "ALTER TABLE voice_cloud_epochs ADD COLUMN backend TEXT NOT NULL DEFAULT 'paraformer' CHECK(backend IN ('paraformer','sense_voice'))")?;
+        self.ensure_column(
+            "voice_cloud_gaps",
+            "lease",
+            "ALTER TABLE voice_cloud_gaps ADD COLUMN lease INTEGER NOT NULL DEFAULT 0",
+        )?;
+        self.ensure_column(
+            "voice_cloud_gaps",
+            "local_state",
+            "ALTER TABLE voice_cloud_gaps ADD COLUMN local_state TEXT",
+        )?;
+        Ok(())
+    }
+
+    pub fn voice_local_epoch(&self, session: &str, epoch: u64, offset_ms: u64) -> Result<()> {
+        self.conn.execute("INSERT INTO voice_cloud_epochs(session_id,epoch,offset_ms,endpoint,credential_profile_id,acknowledged_ms,backend) VALUES (?1,?2,?3,'',0,?3,'sense_voice') ON CONFLICT DO NOTHING", params![session,i64::try_from(epoch)?,i64::try_from(offset_ms)?])?;
         Ok(())
     }
 
@@ -89,16 +117,16 @@ impl Database {
         epoch: u64,
         error: &str,
     ) -> Result<()> {
-        let cloud: bool = self.conn.query_row(
+        let registered: bool = self.conn.query_row(
             "SELECT EXISTS(SELECT 1 FROM voice_cloud_epochs WHERE session_id=?1 AND epoch=?2)",
             params![session, i64::try_from(epoch)?],
             |row| row.get(0),
         )?;
-        if cloud {
+        if registered {
             return self.voice_cloud_open_gap(session, epoch, error);
         }
-        // Local recognition has no cloud recovery epoch. Preserve its failure separately
-        // from capture/storage faults, including after the recording has ended.
+        // Older unregistered epochs retain their error history independently
+        // from capture/storage faults, including after recording has ended.
         self.conn.execute(
             "INSERT INTO voice_timeline_events(session_id, epoch, kind, media_position_ms, reason, created_at)
              SELECT id, ?2, 'recognition_error', active_ms, ?3, ?4 FROM recording_sessions
@@ -121,14 +149,16 @@ impl Database {
     }
 
     pub fn voice_cloud_open_gap(&self, session: &str, epoch: u64, error: &str) -> Result<()> {
-        // A single open interval extends until new live audio is accepted.
+        // Only an unfinished capture epoch can acquire new live gaps. Paused
+        // control changes and late callbacks cannot reopen a finalized interval.
         self.conn.execute(r#"INSERT INTO voice_cloud_gaps(session_id, epoch, start_ms, cursor_ms, error)
             SELECT e.session_id, e.epoch,
-              e.acknowledged_ms,
-              e.acknowledged_ms, ?3
-            FROM voice_cloud_epochs e WHERE session_id=?1 AND epoch=?2
+              MAX(e.acknowledged_ms, COALESCE((SELECT MAX(end_ms) FROM voice_cloud_gaps prior WHERE prior.session_id=e.session_id AND prior.epoch=e.epoch), e.offset_ms)),
+              MAX(e.acknowledged_ms, COALESCE((SELECT MAX(end_ms) FROM voice_cloud_gaps prior WHERE prior.session_id=e.session_id AND prior.epoch=e.epoch), e.offset_ms)), ?3
+            FROM voice_cloud_epochs e WHERE session_id=?1 AND epoch=?2 AND e.finalized=0
               AND NOT EXISTS (SELECT 1 FROM voice_cloud_gaps g WHERE g.session_id=e.session_id AND g.epoch=e.epoch AND g.end_ms IS NULL)
-            ON CONFLICT DO NOTHING"#, params![session, i64::try_from(epoch)?, error])?;
+            ON CONFLICT(session_id,epoch,start_ms) DO UPDATE SET end_ms=NULL,status='waiting',error=excluded.error
+              WHERE voice_cloud_gaps.end_ms=voice_cloud_gaps.start_ms AND voice_cloud_gaps.cursor_ms=voice_cloud_gaps.start_ms"#, params![session, i64::try_from(epoch)?, error])?;
         Ok(())
     }
 
@@ -169,7 +199,12 @@ impl Database {
         epoch: u64,
         end_ms: u64,
     ) -> Result<()> {
-        self.conn.execute("UPDATE voice_cloud_epochs SET acknowledged_ms=MAX(acknowledged_ms, ?3) WHERE session_id=?1 AND epoch=?2", params![session, i64::try_from(epoch)?, i64::try_from(end_ms)?])?;
+        let transaction = self.conn.unchecked_transaction()?;
+        transaction.execute("UPDATE voice_cloud_epochs SET acknowledged_ms=MAX(acknowledged_ms, ?3) WHERE session_id=?1 AND epoch=?2", params![session, i64::try_from(epoch)?, i64::try_from(end_ms)?])?;
+        // A stop can open the gap before accepted inference drains. Its late final
+        // remains authoritative; never replay that already acknowledged prefix.
+        transaction.execute("UPDATE voice_cloud_gaps SET start_ms=MAX(start_ms,?3),cursor_ms=MAX(cursor_ms,?3) WHERE session_id=?1 AND epoch=?2 AND end_ms IS NULL", params![session, i64::try_from(epoch)?, i64::try_from(end_ms)?])?;
+        transaction.commit()?;
         Ok(())
     }
 
@@ -177,7 +212,7 @@ impl Database {
         &self,
         gap: &CloudGap,
     ) -> Result<Vec<crate::voice::recovery::SavedChunk>> {
-        let mut statement = self.conn.prepare("SELECT relative_path,start_sample,sample_count,sample_rate,channels FROM voice_audio_chunks WHERE session_id=?1 AND epoch=?2 AND state='complete' ORDER BY source,start_sample")?;
+        let mut statement = self.conn.prepare("SELECT relative_path,start_sample,sample_count,sample_rate,channels,source FROM voice_audio_chunks WHERE session_id=?1 AND epoch=?2 AND state='complete' ORDER BY source,start_sample")?;
         let rows = statement
             .query_map(params![gap.session_id, i64::try_from(gap.epoch)?], |row| {
                 Ok((
@@ -186,6 +221,7 @@ impl Database {
                     unsigned(row, 2)?,
                     row.get::<_, u32>(3)?,
                     row.get::<_, u16>(4)?,
+                    row.get::<_, String>(5)?,
                 ))
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -194,9 +230,10 @@ impl Database {
         }
         rows.into_iter()
             .map(
-                |(path, start_sample, sample_count, sample_rate, channels)| {
+                |(path, start_sample, sample_count, sample_rate, channels, source)| {
                     Ok(crate::voice::recovery::SavedChunk {
                         path: crate::voice::recovery::managed_path(&self.workspace_root, &path)?,
+                        source,
                         start_sample,
                         sample_count,
                         sample_rate,
@@ -225,7 +262,7 @@ impl Database {
             [now_ms], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))).optional()?;
         if let Some((id, _)) = &candidate {
             transaction.execute(
-                "UPDATE voice_cloud_gaps SET status='running',next_retry_ms=?2 WHERE id=?1",
+                "UPDATE voice_cloud_gaps SET status='running',next_retry_ms=?2,lease=lease+1 WHERE id=?1",
                 params![id, now_ms + 120_000],
             )?;
         }
@@ -246,29 +283,60 @@ impl Database {
         end_ms: u64,
         results: &[crate::voice::live_local::TranscriptFinal],
     ) -> Result<()> {
-        if end_ms <= gap.cursor_ms || Some(end_ms) > gap.end_ms {
+        self.voice_cloud_commit_state(gap, end_ms, results, None)
+    }
+
+    pub(crate) fn voice_cloud_commit_state(
+        &mut self,
+        gap: &CloudGap,
+        end_ms: u64,
+        results: &[crate::voice::live_local::TranscriptFinal],
+        state: Option<&crate::voice::recovery::LocalReplayState>,
+    ) -> Result<()> {
+        let scan_ms = state.map(|s| s.scan_ms).unwrap_or(end_ms);
+        let previous_scan = gap
+            .local_state
+            .as_deref()
+            .map(serde_json::from_str::<serde_json::Value>)
+            .transpose()?
+            .and_then(|value| value.get("scan_ms").and_then(|v| v.as_u64()))
+            .unwrap_or(gap.cursor_ms);
+        if end_ms < gap.cursor_ms
+            || scan_ms <= previous_scan
+            || scan_ms < end_ms
+            || Some(scan_ms) > gap.end_ms
+        {
             return Err(anyhow!("invalid recovery progress"));
+        }
+        let checkpoint = state.map(serde_json::to_string).transpose()?;
+        if checkpoint.as_ref().is_some_and(|s| s.len() > 5_000_000) {
+            return Err(anyhow!("local replay checkpoint exceeds budget"));
         }
         let transaction = self.conn.unchecked_transaction()?;
         for (index, result) in results.iter().enumerate() {
-            if result.start_ms < gap.cursor_ms || result.end_ms > end_ms {
+            let earliest = if state.is_some() {
+                gap.start_ms
+            } else {
+                gap.cursor_ms
+            };
+            if result.start_ms < earliest || result.end_ms > scan_ms {
                 return Err(anyhow!("recovered text escaped its interval"));
             }
             self.voice_transcript_append_final_in_transaction(
                 &gap.session_id,
-                &format!("recovery:{}:{}:{index}", gap.id, gap.cursor_ms),
+                &format!("recovery:{}:{}:{index}", gap.id, previous_scan),
                 result.start_ms,
                 result.end_ms,
                 &result.text,
                 None,
             )?;
         }
-        let updated = transaction.execute("UPDATE voice_cloud_gaps SET cursor_ms=?2,status=CASE WHEN end_ms=?2 THEN 'ready' ELSE 'pending' END,error=NULL,attempt=0,next_retry_ms=0 WHERE id=?1 AND cursor_ms=?3 AND status='running'", params![gap.id, i64::try_from(end_ms)?, i64::try_from(gap.cursor_ms)?])?;
+        let updated = transaction.execute("UPDATE voice_cloud_gaps SET cursor_ms=?2,status=CASE WHEN end_ms=?2 THEN 'ready' ELSE 'pending' END,error=NULL,attempt=0,next_retry_ms=0,local_state=?5 WHERE id=?1 AND cursor_ms=?3 AND status='running' AND lease=?4", params![gap.id, i64::try_from(end_ms)?, i64::try_from(gap.cursor_ms)?, gap.lease, checkpoint])?;
         if updated != 1 {
             return Err(anyhow!("stale recovery task"));
         }
         if !results.is_empty() && self.voice_settings_get()?.text_profile_id.is_some() {
-            self.voice_minutes_enqueue(&gap.session_id, &format!("recovery:{}:{end_ms}", gap.id))?;
+            self.voice_minutes_enqueue(&gap.session_id, &format!("recovery:{}:{scan_ms}", gap.id))?;
         }
         transaction.commit()?;
         Ok(())
@@ -276,14 +344,14 @@ impl Database {
 
     pub(crate) fn voice_cloud_release(
         &self,
-        id: i64,
+        gap: &CloudGap,
         error: Option<&str>,
         now_ms: i64,
     ) -> Result<()> {
         if let Some(error) = error {
-            self.conn.execute("UPDATE voice_cloud_gaps SET attempt=attempt+1,status=CASE WHEN attempt>=4 THEN 'failed' ELSE 'pending' END,error=?2,next_retry_ms=?3+MIN(300000,5000*(1 << attempt)) WHERE id=?1 AND status='running'", params![id, error, now_ms])?;
+            self.conn.execute("UPDATE voice_cloud_gaps SET attempt=attempt+1,status=CASE WHEN attempt>=4 THEN 'failed' ELSE 'pending' END,error=?2,next_retry_ms=?3+MIN(300000,5000*(1 << attempt)) WHERE id=?1 AND status='running' AND lease=?4", params![gap.id, error, now_ms, gap.lease])?;
         } else {
-            self.conn.execute("UPDATE voice_cloud_gaps SET status='pending',next_retry_ms=0 WHERE id=?1 AND status='running'", [id])?;
+            self.conn.execute("UPDATE voice_cloud_gaps SET status='pending',next_retry_ms=0 WHERE id=?1 AND status='running' AND lease=?2", params![gap.id, gap.lease])?;
         }
         Ok(())
     }
@@ -304,7 +372,7 @@ impl Database {
     }
 
     pub(crate) fn voice_cloud_gaps(&self, session: &str) -> Result<Vec<CloudGap>> {
-        let mut statement = self.conn.prepare("SELECT g.id,g.session_id,g.epoch,g.start_ms,g.end_ms,g.cursor_ms,g.status,g.error,e.endpoint,e.credential_profile_id,e.offset_ms FROM voice_cloud_gaps g JOIN voice_cloud_epochs e ON e.session_id=g.session_id AND e.epoch=g.epoch WHERE g.session_id=?1 ORDER BY g.start_ms,g.id")?;
+        let mut statement = self.conn.prepare("SELECT g.id,g.session_id,g.epoch,g.start_ms,g.end_ms,g.cursor_ms,g.status,g.error,e.endpoint,e.credential_profile_id,e.offset_ms,e.backend,g.lease,g.local_state FROM voice_cloud_gaps g JOIN voice_cloud_epochs e ON e.session_id=g.session_id AND e.epoch=g.epoch WHERE g.session_id=?1 ORDER BY g.start_ms,g.id")?;
         let rows = statement
             .query_map([session], |row| {
                 Ok(CloudGap {
@@ -325,6 +393,17 @@ impl Database {
                     endpoint: row.get(8)?,
                     credential_profile_id: row.get(9)?,
                     epoch_offset_ms: unsigned(row, 10)?,
+                    backend: match row.get::<_, String>(11)?.as_str() {
+                        "sense_voice" => RecoveryBackend::SenseVoice,
+                        "paraformer" => RecoveryBackend::Paraformer,
+                        value => {
+                            return Err(rusqlite::Error::InvalidParameterName(format!(
+                                "unknown recovery backend: {value}"
+                            )))
+                        }
+                    },
+                    lease: row.get(12)?,
+                    local_state: row.get(13)?,
                 })
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -335,6 +414,219 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[cfg(unix)]
+    #[ignore = "requires private read-only WAV/model fixtures; set PROJECT_MIND_TEST_MIC_WAV, PROJECT_MIND_TEST_SYSTEM_WAV, PROJECT_MIND_TEST_MODEL_DIR"]
+    fn actual_local_off_recovery_matches_restart_and_preserves_edited_record() {
+        use sha2::{Digest, Sha256};
+        use std::sync::atomic::AtomicBool;
+        fn run(restart: bool) -> (String, usize, u64, String, usize) {
+            let root = tempfile::tempdir().unwrap();
+            let cache = tempfile::tempdir().unwrap();
+            let models = cache.path().join("voice-models");
+            std::fs::create_dir(&models).unwrap();
+            std::os::unix::fs::symlink(
+                std::env::var("PROJECT_MIND_TEST_MODEL_DIR").unwrap(),
+                models.join(crate::voice::model_package::PACKAGE_ID),
+            )
+            .unwrap();
+            let path = root.path().join("db.sqlite");
+            let mut db = Database::open(&path, root.path(), None).unwrap();
+            let session = db
+                .voice_session_create(
+                    &RecordTarget::Workspace,
+                    "actual-local",
+                    "actual-local",
+                    "Voice",
+                )
+                .unwrap();
+            let id = session.workspace_note_id.unwrap();
+            let edited = db
+                .workspace_record_upsert(WorkspaceRecordUpsertInput {
+                    note_id: Some(id),
+                    title: Some("Edited Voice Record".into()),
+                    markdown: "User edited durable body".into(),
+                    html: "<p>User edited durable body</p>".into(),
+                    tag_ids: vec![],
+                    default_code_language: None,
+                })
+                .unwrap();
+            let before = serde_json::to_string(&edited).unwrap();
+            db.voice_local_epoch("actual-local", 1, 0).unwrap();
+            let directory = root
+                .path()
+                .join(crate::voice::storage::VOICE_ASSET_DIR)
+                .join("actual-local/epoch-1");
+            std::fs::create_dir_all(&directory).unwrap();
+            let mut duration = 0;
+            for (source, variable) in [
+                ("microphone", "PROJECT_MIND_TEST_MIC_WAV"),
+                ("system", "PROJECT_MIND_TEST_SYSTEM_WAV"),
+            ] {
+                let original = std::path::PathBuf::from(std::env::var(variable).unwrap());
+                let bytes = std::fs::read(&original).unwrap();
+                let sample_rate = u32::from_le_bytes(bytes[24..28].try_into().unwrap());
+                let channels = u16::from_le_bytes(bytes[22..24].try_into().unwrap());
+                let sample_count = (bytes.len() as u64 - 44) / 4 / u64::from(channels);
+                let start_sample = original
+                    .file_stem()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .rsplit('-')
+                    .next()
+                    .unwrap()
+                    .parse::<u64>()
+                    .unwrap();
+                duration =
+                    duration.max((start_sample + sample_count) * 1000 / u64::from(sample_rate));
+                let destination = directory.join(original.file_name().unwrap());
+                std::fs::write(&destination, &bytes).unwrap();
+                db.voice_audio_chunk_insert(
+                    "actual-local",
+                    &AudioChunkManifest {
+                        source,
+                        epoch: 1,
+                        chunk_index: 0,
+                        start_sample,
+                        sample_count,
+                        sample_rate,
+                        channels,
+                        relative_path: destination
+                            .strip_prefix(root.path())
+                            .unwrap()
+                            .to_str()
+                            .unwrap()
+                            .into(),
+                        byte_size: bytes.len() as u64,
+                    },
+                )
+                .unwrap();
+            }
+            db.voice_cloud_open_gap("actual-local", 1, "live disabled")
+                .unwrap();
+            db.voice_cloud_finish_epochs("actual-local").unwrap();
+            db.voice_session_transition(
+                "actual-local",
+                session.revision,
+                "ended",
+                None,
+                duration,
+                1,
+            )
+            .unwrap();
+            let mut blocks = 0;
+            while let Some(gap) = db.voice_cloud_claim(10_000_000).unwrap() {
+                let chunks = db.voice_cloud_audio(&gap).unwrap();
+                // Cancellation cannot advance a cursor or persist a provisional checkpoint.
+                assert!(crate::voice::recovery::replay_local_with(
+                    &gap,
+                    &chunks,
+                    cache.path(),
+                    &AtomicBool::new(true)
+                )
+                .unwrap()
+                .is_none());
+                let batch = crate::voice::recovery::replay_local_with(
+                    &gap,
+                    &chunks,
+                    cache.path(),
+                    &AtomicBool::new(false),
+                )
+                .unwrap()
+                .unwrap();
+                db.voice_cloud_commit_state(
+                    &gap,
+                    batch.end_ms,
+                    &batch.results,
+                    batch.local_state.as_ref(),
+                )
+                .unwrap();
+                assert!(
+                    db.voice_cloud_commit_state(
+                        &gap,
+                        batch.end_ms,
+                        &batch.results,
+                        batch.local_state.as_ref()
+                    )
+                    .is_err(),
+                    "stale second commit must fail atomically"
+                );
+                blocks += 1;
+                if restart && blocks == 1 {
+                    drop(db);
+                    db = Database::open(&path, root.path(), None).unwrap();
+                }
+                assert!(blocks <= 3);
+            }
+            let rows = db.conn.prepare("SELECT start_ms,end_ms,text FROM voice_transcript_segments WHERE session_id='actual-local' ORDER BY start_ms,end_ms,provider_key").unwrap().query_map([], |row| Ok((row.get::<_,i64>(0)?,row.get::<_,i64>(1)?,row.get::<_,String>(2)?))).unwrap().collect::<rusqlite::Result<Vec<_>>>().unwrap();
+            assert!(!rows.is_empty());
+            assert!(rows
+                .iter()
+                .all(|(start, end, _)| *start >= 0 && *end >= *start && *end <= duration as i64));
+            let after = serde_json::to_string(&db.workspace_note_record(id).unwrap()).unwrap();
+            assert_eq!(
+                before, after,
+                "background replay cannot edit Record body or metadata"
+            );
+            let hash = format!("{:x}", Sha256::digest(serde_json::to_vec(&rows).unwrap()));
+            let normalized = rows
+                .iter()
+                .flat_map(|(_, _, text)| text.chars())
+                .filter(|ch| {
+                    !ch.is_whitespace()
+                        && !ch.is_ascii_punctuation()
+                        && !matches!(
+                            ch,
+                            '，' | '。'
+                                | '！'
+                                | '？'
+                                | '；'
+                                | '：'
+                                | '、'
+                                | '“'
+                                | '”'
+                                | '（'
+                                | '）'
+                        )
+                })
+                .collect::<String>();
+            let normalized_hash = format!("{:x}", Sha256::digest(normalized.as_bytes()));
+            if !restart {
+                if let Ok(export) = std::env::var("PROJECT_MIND_TEST_RECOVERY_FINALS_JSON") {
+                    use std::os::unix::fs::OpenOptionsExt;
+                    let file = std::fs::OpenOptions::new()
+                        .write(true)
+                        .create(true)
+                        .truncate(true)
+                        .mode(0o600)
+                        .open(export)
+                        .unwrap();
+                    use std::os::unix::fs::PermissionsExt;
+                    file.set_permissions(std::fs::Permissions::from_mode(0o600))
+                        .unwrap();
+                    serde_json::to_writer(file, &rows).unwrap();
+                }
+            }
+            let gaps = db.voice_cloud_gaps("actual-local").unwrap();
+            assert_eq!(
+                (gaps[0].cursor_ms, gaps[0].status.as_str()),
+                (duration, "ready")
+            );
+            (
+                hash,
+                rows.len(),
+                duration,
+                normalized_hash,
+                normalized.chars().count(),
+            )
+        }
+        let reference = run(false);
+        let resumed = run(true);
+        assert_eq!(reference, resumed);
+        eprintln!("actual-local-recovery sha256={} segments={} duration_ms={} normalized_text_sha256={} normalized_chars={} uninterrupted=restart stale_commit=rejected edited_record=unchanged", reference.0,reference.1,reference.2,reference.3,reference.4);
+    }
+
     #[test]
     fn cancelled_minutes_job_resumes_without_advancing_transcript_or_snapshot() {
         let root = tempfile::tempdir().unwrap();
@@ -463,6 +755,113 @@ mod tests {
     }
 
     #[test]
+    fn finalized_epochs_cannot_reopen_live_gaps_while_paused() {
+        let root = tempfile::tempdir().unwrap();
+        let mut db = Database::open(&root.path().join("db.sqlite"), root.path(), None).unwrap();
+        let session = db
+            .voice_session_create(
+                &RecordTarget::Workspace,
+                "paused-local",
+                "paused-local",
+                "Voice",
+            )
+            .unwrap();
+        db.voice_local_epoch("paused-local", 1, 0).unwrap();
+        db.voice_cloud_finish_epochs("paused-local").unwrap();
+        // Finalization created a zero-length ready row. OFF must not reopen it.
+        db.voice_cloud_open_gap("paused-local", 1, "off while paused")
+            .unwrap();
+        let first = db.voice_cloud_gaps("paused-local").unwrap();
+        assert_eq!(first.len(), 1);
+        assert_eq!(
+            (first[0].end_ms, first[0].status.as_str()),
+            (Some(0), "ready")
+        );
+
+        db.voice_local_epoch("paused-local", 2, 1000).unwrap();
+        db.voice_cloud_open_gap("paused-local", 2, "off").unwrap();
+        db.voice_cloud_connected("paused-local", 2, 1500).unwrap();
+        db.voice_cloud_finish_epochs("paused-local").unwrap();
+        db.voice_session_transition(
+            "paused-local",
+            session.revision,
+            "paused",
+            Some("user"),
+            1500,
+            2,
+        )
+        .unwrap();
+        let gap = db.voice_cloud_claim(0).unwrap().unwrap();
+        db.voice_cloud_commit(&gap, 1500, &[]).unwrap();
+        // A completed nonempty gap must not grow an unsealed successor either.
+        let finalized_count = db.voice_cloud_gaps("paused-local").unwrap().len();
+        db.voice_cloud_open_gap("paused-local", 2, "off while paused")
+            .unwrap();
+        let completed = db.voice_cloud_gaps("paused-local").unwrap();
+        assert_eq!(completed.len(), finalized_count);
+        assert!(completed
+            .iter()
+            .all(|gap| gap.end_ms.is_some() && gap.status == "ready"));
+
+        // Resuming capture registers a new unfinished epoch; its OFF gap is valid.
+        db.voice_local_epoch("paused-local", 3, 2000).unwrap();
+        db.voice_cloud_open_gap("paused-local", 3, "off after resume")
+            .unwrap();
+        let resumed = db.voice_cloud_gaps("paused-local").unwrap();
+        assert_eq!(resumed.len(), finalized_count + 1);
+        let last = resumed.last().unwrap();
+        assert_eq!(
+            (last.epoch, last.end_ms, last.status.as_str()),
+            (3, None, "waiting")
+        );
+    }
+
+    #[test]
+    fn local_epochs_recover_gaps_after_restart_and_reject_stale_leases() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("db.sqlite");
+        let mut db = Database::open(&path, root.path(), None).unwrap();
+        let session = db
+            .voice_session_create(&RecordTarget::Workspace, "local", "local", "Voice")
+            .unwrap();
+        db.voice_local_epoch("local", 1, 0).unwrap();
+        db.voice_cloud_acknowledge("local", 1, 500).unwrap();
+        db.voice_cloud_open_gap("local", 1, "disabled").unwrap();
+        db.voice_cloud_connected("local", 1, 500).unwrap();
+        db.voice_cloud_open_gap("local", 1, "disabled immediately again")
+            .unwrap();
+        db.voice_cloud_acknowledge("local", 1, 600).unwrap();
+        db.voice_cloud_connected("local", 1, 1000).unwrap();
+        db.voice_cloud_acknowledge("local", 1, 900).unwrap(); // closed gap stays intact
+                                                              // No final was produced during the brief enabled interval.
+        db.voice_cloud_open_gap("local", 1, "disabled again")
+            .unwrap();
+        db.voice_cloud_connected("local", 1, 1500).unwrap();
+        let gaps = db.voice_cloud_gaps("local").unwrap();
+        assert_eq!(
+            gaps.iter()
+                .map(|g| (g.start_ms, g.end_ms))
+                .collect::<Vec<_>>(),
+            vec![(600, Some(1000)), (1000, Some(1500))]
+        );
+        assert!(db.voice_cloud_claim(0).unwrap().is_none());
+        db.voice_cloud_finish_epochs("local").unwrap();
+        db.voice_session_transition("local", session.revision, "ended", None, 1500, 1)
+            .unwrap();
+        let old = db.voice_cloud_claim(0).unwrap().unwrap();
+        drop(db);
+        let mut db = Database::open(&path, root.path(), None).unwrap();
+        let current = db.voice_cloud_claim(120_001).unwrap().unwrap();
+        assert_eq!(current.id, old.id);
+        assert_eq!(current.backend, RecoveryBackend::SenseVoice);
+        db.voice_cloud_release(&old, Some("late error"), 120_002)
+            .unwrap();
+        assert!(db.voice_cloud_commit(&old, 1000, &[]).is_err());
+        db.voice_cloud_commit(&current, 1000, &[]).unwrap();
+        assert_eq!(db.voice_cloud_gaps("local").unwrap()[0].status, "ready");
+    }
+
+    #[test]
     fn failed_recovery_has_bounded_retries_and_can_be_retried_manually() {
         let root = tempfile::tempdir().unwrap();
         let path = root.path().join("db.sqlite");
@@ -484,8 +883,7 @@ mod tests {
         for attempt in 0..5 {
             let now = attempt * 400_000;
             let gap = db.voice_cloud_claim(now).unwrap().unwrap();
-            db.voice_cloud_release(gap.id, Some("network"), now)
-                .unwrap();
+            db.voice_cloud_release(&gap, Some("network"), now).unwrap();
             assert!(db.voice_cloud_claim(now + 1).unwrap().is_none());
             if attempt == 0 {
                 assert_eq!(db.voice_cloud_next_retry_ms().unwrap(), Some(5_000));

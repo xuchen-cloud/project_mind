@@ -1,6 +1,7 @@
 use super::{
-    bounded_audio_frames, decode_f32_pcm, decode_i16_pcm, AudioFrameSink, AudioFrameStream,
-    AudioIngressError, AudioSource, MicrophoneSelection, PcmBuffer, SourceTimeline,
+    bounded_activity_frames, bounded_audio_frames, decode_f32_pcm, decode_i16_pcm,
+    ActivityFrameSink, ActivityHealth, AudioFrameSink, AudioFrameStream, AudioIngressError,
+    AudioSource, MicrophoneSelection, PcmBuffer, SourceTimeline,
 };
 use screencapturekit::{
     audio_devices::AudioInputDevice,
@@ -141,11 +142,13 @@ impl MacCaptureSession {
         } else {
             (None, None)
         };
+        let activity_health = Arc::new(ActivityHealth::default());
         let (activity_microphone_sink, activity_microphone) =
-            bounded_audio_frames(queue_capacity * 4)
+            bounded_activity_frames(queue_capacity * 4, activity_health.clone())
                 .map_err(|_| MacCaptureError::InvalidQueueCapacity)?;
-        let (activity_system_sink, activity_system) = bounded_audio_frames(queue_capacity * 4)
-            .map_err(|_| MacCaptureError::InvalidQueueCapacity)?;
+        let (activity_system_sink, activity_system) =
+            bounded_activity_frames(queue_capacity * 4, activity_health)
+                .map_err(|_| MacCaptureError::InvalidQueueCapacity)?;
         let (fault_sink, faults) = tokio::sync::mpsc::channel(queue_capacity);
         let started_at = Instant::now();
 
@@ -254,7 +257,7 @@ struct TrackHandler {
     timeline: Arc<Mutex<Option<SourceTimeline>>>,
     frames: AudioFrameSink,
     recognition: Option<AudioFrameSink>,
-    activity: AudioFrameSink,
+    activity: ActivityFrameSink,
     faults: tokio::sync::mpsc::Sender<MacCaptureFault>,
 }
 
@@ -265,7 +268,7 @@ impl TrackHandler {
         started_at: Instant,
         frames: AudioFrameSink,
         recognition: Option<AudioFrameSink>,
-        activity: AudioFrameSink,
+        activity: ActivityFrameSink,
         faults: tokio::sync::mpsc::Sender<MacCaptureFault>,
     ) -> Self {
         Self {
@@ -386,11 +389,7 @@ impl SCStreamOutputTrait for TrackHandler {
             });
             return;
         };
-        if self.activity.try_push(frame.clone()).is_err() {
-            self.report(MacCaptureFault::ConsumerClosed {
-                source: self.source,
-            });
-        }
+        self.activity.push(&frame);
         if let Some(recognition) = &self.recognition {
             // Recognition detects skipped timestamps and records recovery intervals.
             // A failed network consumer must never stop the independent raw tracks.

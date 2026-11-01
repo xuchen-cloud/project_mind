@@ -1,6 +1,9 @@
 //! WASAPI shared capture. COM objects stay on one owner thread; raw tracks have
 //! independent bounded queues. Real Windows device/installer acceptance is pending.
-use super::{bounded_audio_frames, AudioFrame, AudioFrameSink, AudioFrameStream, AudioSource};
+use super::{
+    bounded_activity_frames, bounded_audio_frames, ActivityFrameSink, ActivityHealth, AudioFrame,
+    AudioFrameSink, AudioFrameStream, AudioSource,
+};
 use anyhow::{anyhow, Context, Result};
 use std::{
     sync::{
@@ -61,8 +64,12 @@ impl WindowsCaptureSession {
         let queue = || bounded_audio_frames(capacity).map_err(|error| anyhow!("{error:?}"));
         let (mic, microphone) = queue()?;
         let (sys, system) = queue()?;
-        let (mic_activity, activity_microphone) = queue()?;
-        let (sys_activity, activity_system) = queue()?;
+        let activity_health = Arc::new(ActivityHealth::default());
+        let (mic_activity, activity_microphone) =
+            bounded_activity_frames(capacity, activity_health.clone())
+                .map_err(|error| anyhow!("{error:?}"))?;
+        let (sys_activity, activity_system) = bounded_activity_frames(capacity, activity_health)
+            .map_err(|error| anyhow!("{error:?}"))?;
         let (mic_asr, recognition_microphone) = if recognize {
             let (a, b) = queue()?;
             (Some(a), Some(b))
@@ -148,7 +155,7 @@ impl Drop for Com {
         }
     }
 }
-type Sinks = (AudioFrameSink, AudioFrameSink, Option<AudioFrameSink>);
+type Sinks = (AudioFrameSink, ActivityFrameSink, Option<AudioFrameSink>);
 struct Track {
     client: IAudioClient,
     capture: IAudioCaptureClient,
@@ -246,10 +253,7 @@ impl Track {
                 .0
                 .try_push(frame.clone())
                 .map_err(|_| anyhow!("{:?} raw audio queue unavailable", self.source))?;
-            self.sinks
-                .1
-                .try_push(frame.clone())
-                .map_err(|_| anyhow!("{:?} activity queue unavailable", self.source))?;
+            self.sinks.1.push(&frame);
             if let Some(asr) = &self.sinks.2 {
                 let _ = asr.try_push(frame);
             }
