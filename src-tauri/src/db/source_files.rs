@@ -154,6 +154,7 @@ impl Database {
             .id
             .parse::<i64>()
             .map_err(|_| AgentError::new(ErrorCode::InvalidArgument, "Invalid File identity"))?;
+        if source.file_version.is_none() { self.file_working_require_archived(id)?; }
         let row: Option<(u32, String, String, Option<String>, String)> = self
             .conn
             .query_row(

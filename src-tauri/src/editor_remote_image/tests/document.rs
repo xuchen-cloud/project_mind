@@ -55,6 +55,7 @@ fn fixture() -> (
     };
     let input = FetchEditorRemoteImageInput {
         binding: binding.clone(),
+        working_session_id: None,
         document: FileBytesInput {
             object: file.object,
             version_number: 1,

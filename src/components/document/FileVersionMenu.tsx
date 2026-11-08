@@ -14,6 +14,7 @@ export interface FileVersionMenuProps {
   selectedVersion?: number;
   includeLatest?: boolean;
   latestVersion?: number;
+  latestLabel?: string;
   loading?: boolean;
   error?: string;
   onRetry?: () => void;
@@ -25,7 +26,7 @@ export interface FileVersionMenuProps {
 }
 
 /** Menu name is `${label}列表`; use a parent key for file identity changes. */
-export function FileVersionMenu({ label, triggerLabel, versions, selectedVersion, includeLatest = false, latestVersion, loading = false, error, onRetry, onSelect, onHistory, visible = true, onOpenChange, variant = "toolbar" }: FileVersionMenuProps) {
+export function FileVersionMenu({ label, triggerLabel, versions, selectedVersion, includeLatest = false, latestVersion, latestLabel, loading = false, error, onRetry, onSelect, onHistory, visible = true, onOpenChange, variant = "toolbar" }: FileVersionMenuProps) {
   const id = useId();
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
@@ -125,7 +126,7 @@ export function FileVersionMenu({ label, triggerLabel, versions, selectedVersion
     </span>
     {open && visible ? createPortal(<PopoverPanel ref={panel} id={id} role="menu" aria-label={`${label}列表`} tabIndex={-1} className="file-version-menu" style={{ top: position.top, left: position.left, maxHeight: position.maxHeight }} motion="trigger" motionOrigin={position.above ? "bottom right" : "top right"} onKeyDown={navigate} onClick={event => event.stopPropagation()}>
       <HomeSidebarList label={`${label}选项`}>
-        {includeLatest ? row(latestVersion ? `v${latestVersion}（当前）` : "当前版本", undefined) : null}
+        {includeLatest ? row(latestLabel ?? (latestVersion ? `v${latestVersion}（当前）` : "当前版本"), undefined) : null}
         {versions.map(version => <span className="file-version-menu__entry" key={version.id}>{row(`v${version.versionNumber}`, version.versionNumber, version.createdAt, !includeLatest && version.isCurrent)}</span>)}
         {loading ? <p role="status">正在读取版本…</p> : null}
         {!loading && !error && !versions.length && !includeLatest ? <p role="status">暂无版本</p> : null}

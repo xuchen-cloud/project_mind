@@ -1073,3 +1073,210 @@ fn office_directory_staged_recovery_never_overwrites_a_foreign_live_identity() {
         identity
     );
 }
+
+/// Working content uses real format serialization twice against one immutable
+/// editing base. No GUI model is reloaded by either successful save receipt.
+#[tokio::test]
+#[ignore = "requires staged Office resources and shared pinned Node"]
+async fn office_real_formats_working_saves_share_fixed_base_and_archive_once() {
+    use crate::file_working::{self, WorkingObject, WorkingSaveOffice, WorkingSession};
+    let resources = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("resources");
+    let worker = crate::office_worker::OfficeWorker::bundled(&resources).unwrap();
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap();
+    for (format, relative) in [
+        (
+            "docx",
+            "packages/office-docx/test/fixtures/simple.original.docx",
+        ),
+        (
+            "xlsx",
+            "packages/office-xlsx/tests/fixtures/simple.original.xlsx",
+        ),
+        ("pptx", "packages/office-pptx/test/fixtures/simple.pptx"),
+    ] {
+        let original_bytes = std::fs::read(root.join(relative)).unwrap();
+        let f = fixture_bytes(&format!("working.{format}"), &original_bytes);
+        let old = f.input.baseline();
+        let opened = file_working::open(
+            &f.store,
+            &worker,
+            &f.request,
+            &WorkingObject {
+                object: old.object.clone(),
+            },
+        )
+        .await
+        .unwrap();
+        assert!(opened.base64.is_empty(), "Office fixed base stays native");
+        let model = opened.model.as_ref().unwrap();
+        let edits = |final_save: bool| -> Vec<Value> {
+            match format {
+                "docx" => {
+                    let node = model["nodes"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .find(|node| {
+                            node["text"]
+                                .as_str()
+                                .is_some_and(|s| s.contains("春风拂面"))
+                        })
+                        .unwrap();
+                    vec![
+                        json!({"type":"text","nodeId":node["id"],"expectedText":node["text"],"text":if final_save{"连续保存：第二次。"}else{"连续保存：第一次。"}}),
+                    ]
+                }
+                "xlsx" => vec![
+                    json!({"sheetId":"sheet-1","row":2,"column":0,"kind":"string","value":"连续保存保留A"}),
+                    json!({"sheetId":"sheet-1","row":2,"column":1,"kind":"number","value":if final_save{10}else{15}}),
+                    json!({"sheetId":"sheet-1","row":4,"column":1,"kind":"formula","formula":"=SUM(B3:B4)+5"}),
+                ],
+                "pptx" => {
+                    let node = model["textElements"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .find(|node| {
+                            node["text"]
+                                .as_str()
+                                .is_some_and(|s| s.contains("项目进展正常"))
+                        })
+                        .unwrap();
+                    vec![
+                        json!({"kind":"text","slideIndex":node["slideIndex"],"cNvPrId":node["cNvPrId"],"paragraphIndex":0,"runIndex":0,"text":if final_save{"连续保存：第二次。"}else{"连续保存：第一次。"}}),
+                    ]
+                }
+                _ => unreachable!(),
+            }
+        };
+        let mut input = WorkingSaveOffice {
+            object: old.object.clone(),
+            session_id: opened.session_id.clone(),
+            expected_revision: opened.status.revision,
+            expected_content_hash: opened.status.content_hash.clone(),
+            edits: edits(false),
+        };
+        let mut first_request = f.request.clone();
+        first_request.request_id = format!("{format}:working-first");
+        let first = file_working::save_office(&f.store, &worker, &first_request, &input)
+            .await
+            .unwrap();
+        assert_eq!(first.revision, 1);
+        assert_eq!(first.archived_version_number, 1);
+        input.expected_revision = first.revision;
+        input.expected_content_hash = first.content_hash;
+        input.edits = edits(true);
+        let mut second_request = f.request.clone();
+        second_request.request_id = format!("{format}:working-second");
+        let second = file_working::save_office(&f.store, &worker, &second_request, &input)
+            .await
+            .unwrap();
+        assert_eq!(second.revision, 2);
+        assert_eq!(second.archived_version_number, 1);
+        assert_eq!(
+            f.store
+                .db
+                .lock()
+                .unwrap()
+                .document_list_versions(crate::models::DocumentListVersionsInput {
+                    document_id: old.object.id.parse().unwrap()
+                })
+                .unwrap()
+                .len(),
+            1
+        );
+        let reader = file_working::open(
+            &f.store,
+            &worker,
+            &second_request,
+            &WorkingObject {
+                object: old.object.clone(),
+            },
+        )
+        .await
+        .unwrap();
+        let current = reader.model.unwrap();
+        match format {
+            "docx" => assert!(current["nodes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|n| n["text"] == "连续保存：第二次。")),
+            "pptx" => assert!(current["textElements"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|n| n["text"] == "连续保存：第二次。")),
+            "xlsx" => {
+                assert_eq!(xlsx_cell(&current, "明细", 2, 0)["value"], "连续保存保留A");
+                assert_eq!(xlsx_cell(&current, "明细", 2, 1)["value"], 10);
+                assert_eq!(xlsx_cell(&current, "说明", 2, 1)["value"], 35);
+            }
+            _ => unreachable!(),
+        }
+        let archived = file_working::with_db(&f.store, &second_request, |db| {
+            db.file_working_archive(
+                &second_request,
+                &f.store.binding,
+                &old.object,
+                chrono::Utc::now().timestamp_millis() + file_working::IDLE_MS,
+                false,
+            )
+        })
+        .unwrap();
+        assert_eq!(archived.archived_version_number, 2);
+        let service = FileOfficeService::new(&f.store, &worker);
+        assert_eq!(
+            service
+                .inspect(
+                    &second_request,
+                    &FileOfficeInput {
+                        object: old.object.clone(),
+                        version_number: 2,
+                        expected_content_hash: second.content_hash.clone()
+                    }
+                )
+                .await
+                .unwrap()
+                .model,
+            current
+        );
+        let history = service.inspect(&second_request, &old).await.unwrap();
+        assert_eq!(history.model, *model);
+        assert_eq!(
+            STANDARD
+                .decode(
+                    f.store
+                        .db
+                        .lock()
+                        .unwrap()
+                        .project_file_read_bytes(&old.bytes_input())
+                        .unwrap()
+                        .base64
+                )
+                .unwrap(),
+            original_bytes
+        );
+        file_working::with_db(&f.store, &second_request, |db| {
+            db.file_working_close(
+                &second_request,
+                &f.store.binding,
+                &WorkingSession {
+                    object: old.object.clone(),
+                    session_id: opened.session_id,
+                },
+            )
+        })
+        .unwrap();
+        // Receipt replay precedes session access and candidate generation.
+        assert_eq!(
+            file_working::save_office(&f.store, &Engine, &second_request, &input)
+                .await
+                .unwrap()
+                .revision,
+            2
+        );
+    }
+}

@@ -13,7 +13,7 @@ export interface PptxSelectionController {
 }
 export interface PptxEditorProps extends OfficePreviewProps {
  registerSelection?:(controller:PptxSelectionController)=>()=>void;
- model:PptxModel; edits:PptxEdit[]; onChange:(edits:PptxEdit[])=>void; readOnly:boolean;
+ model:PptxModel; edits:PptxEdit[]; onChange:(edits:PptxEdit[],snapshot?:{editRevision:number})=>void;savedEditRevision?:number; readOnly:boolean;
  presentationMode?:'preview'|'edit';
  registerOutput?:RegisterEditorOutput;
  registerBeforeSave?:(callback:()=>Promise<void>)=>()=>void;
@@ -72,7 +72,7 @@ export function PptxEditor(props:PptxEditorProps){
    const valid=()=>mounted.current&&epoch.current===requestEpoch&&channel.current===port&&frame.current?.contentWindow===origin;
    const reply=(payload:object)=>{if(!valid())return;const data={source:'project-mind-pptx-host',epoch:requestEpoch,...payload};if(port)port.postMessage(data);else origin?.postMessage(data,'*')};
    if(m.type==='ready'){if(ready.current)return;ready.current=true;if(window.MessageChannel&&!channel.current){const connection=new window.MessageChannel();channel.current=connection.port1;connection.port1.onmessage=event=>{if(mounted.current&&channel.current===connection.port1)receive({source:frame.current?.contentWindow,data:event.data} as MessageEvent)};connection.port1.start();frame.current?.contentWindow?.postMessage({source:'project-mind-pptx-host',type:'connect'},'*',[connection.port2])}init();syncTheme();post({type:'capabilities',export:!!latest.current.onExport,print:!!latest.current.onPrint,renderPdf:!!latest.current.onRenderPdf})}
-   else if(m.type==='change'){lastEdits.current=m.edits;latest.current.onChange(m.edits)}
+   else if(m.type==='change'){lastEdits.current=m.edits;m.editRevision===undefined?latest.current.onChange(m.edits):latest.current.onChange(m.edits,{editRevision:m.editRevision})}
    else if(m.type==='pending')latest.current.onPendingChange?.(m.pending);
    else if(m.type==='error'){setError(m.message);if(m.message){initialization.current.forEach(r=>r.reject(new Error(m.message)));initialization.current.clear()}}
    else if(m.type==='initialized'){setRenderedEpoch(epoch.current);saveFocusPending.current=false;initialized.current=true;initialization.current.forEach(r=>r.resolve());initialization.current.clear();setError('')}
@@ -92,7 +92,7 @@ export function PptxEditor(props:PptxEditorProps){
     void Promise.resolve().then(()=>valid()?handler(m.file):undefined).then(ok=>reply({type:'export-finished',requestId:m.requestId,ok}),e=>reply({type:'export-finished',requestId:m.requestId,error:e instanceof Error?e.message:String(e)}));
    }
    else if(m.type==='save-request'){
-    if(latest.current.onSaveRequest){try{void Promise.resolve(latest.current.onSaveRequest()).then(()=>reply({type:'save-finished',requestId:m.requestId}),e=>reply({type:'save-finished',requestId:m.requestId,error:e instanceof Error?e.message:String(e)}))}catch(e){reply({type:'save-finished',requestId:m.requestId,error:e instanceof Error?e.message:String(e)})}}
+    if(latest.current.onSaveRequest){try{void Promise.resolve(latest.current.onSaveRequest()).then(()=>reply({type:'save-finished',requestId:m.requestId,savedEditRevision:latest.current.savedEditRevision}),e=>reply({type:'save-finished',requestId:m.requestId,error:e instanceof Error?e.message:String(e)}))}catch(e){reply({type:'save-finished',requestId:m.requestId,error:e instanceof Error?e.message:String(e)})}}
     else {const message='PPTX 保存尚未接入宿主';setError(message);post({type:'save-finished',requestId:m.requestId,error:message})}
    }
    else if(m.type==='flushed'||m.type==='output-done'||m.type==='selection-done'){const req=requests.current.get(m.requestId);requests.current.delete(m.requestId);if(m.error)req?.reject(new Error(m.error));else req?.resolve(m.result)}
@@ -109,6 +109,7 @@ export function PptxEditor(props:PptxEditorProps){
  },[]);
  useEffect(()=>{if(sentEpoch.current!==epoch.current)init()},[props.edits]);
  useEffect(()=>{if(ready.current)post({type:'capabilities',export:!!props.onExport,print:!!props.onPrint,renderPdf:!!props.onRenderPdf})},[props.onExport,props.onPrint,props.onRenderPdf]);
+ useEffect(()=>{if(ready.current)post({type:'saved-revision',editRevision:props.savedEditRevision})},[props.savedEditRevision]);
  useEffect(()=>post({type:'readonly',readOnly:props.readOnly||props.presentationMode==='preview',presentationMode:props.presentationMode??'edit'}),[props.readOnly,props.presentationMode]);
  useEffect(()=>{
   let active=true;

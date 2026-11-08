@@ -10,15 +10,15 @@ import type { AgentWorkspaceBinding } from '../../lib/agent-types';
 import type { FileBytesInput } from '../../lib/file-types';
 import type { OfficeEdit, OfficeModel, DocxEdit, XlsxEdit, PptxEdit } from '../../lib/office-types';
 import {useOfficeSelection} from '../../hooks/useOfficeSelection';
-import { OfficeEditSession } from '../../lib/office-edit-session';
-import { officePreviewCache } from '../../lib/office-preview-cache';
+import {FileEditSession} from '../../lib/file-edit-session';
+import {fileWorkingApi, type FileWorkingOpen, type FileWorkingStatus} from '../../services/fileWorkingApi';
 import { officeFileApi } from '../../services/officeFileApi';
 import { exportEditorFile } from '../../services/editorExport';
 import { printEditorHtml, renderEditorPdf } from '../../services/editorPrint';
 import { desktopApi } from '../../services/desktopApi';
 import { inspectImportedWorkbook } from '../../services/editorWorkbookImport';
 import './office-file-content.css';
-import type { RecalculateRequest, RecalculateResult, Model as XlsxModel } from '../../../packages/office-xlsx/types';
+import type { RecalculateRequest, RecalculateResult } from '../../../packages/office-xlsx/types';
 import {loadDocxEditor, loadXlsxEditor, loadPptxEditor} from './office-component-loader';
 async function convertAltChunkHtml(html: string) {
   const converter = await import('../../../packages/office-html2docx/dist/index.mjs');
@@ -31,13 +31,14 @@ interface Props {
   fileName?: string;
   binding: AgentWorkspaceBinding;
   baseline: FileBytesInput;
+  working?: FileWorkingOpen;
   readOnly: boolean;
   registerFlush: (flush: () => Promise<void>) => () => void;
   onDirtyChange: (dirty: boolean) => void;
-  onSaved: (version: number, hash: string) => void;
+  onSaved: (version: number, hash: string, working?: FileWorkingStatus) => void;
 }
 /** Format models are temporary editor state. File versions remain authoritative. */
-export function OfficeFileContent({visible=true,toolbar,menuToolbar,fileName,binding,baseline,readOnly,registerFlush,onDirtyChange,onSaved}:Props) {
+export function OfficeFileContent({visible=true,toolbar,menuToolbar,fileName,binding,baseline,working,readOnly,registerFlush,onDirtyChange,onSaved}:Props) {
   const [components, setComponents] = useState<{
     docx?: typeof import('./DocxEditor').DocxEditor;
     xlsx?: typeof import('./XlsxEditor').XlsxEditor;
@@ -68,14 +69,14 @@ export function OfficeFileContent({visible=true,toolbar,menuToolbar,fileName,bin
     return () => { active = false; cancelHints?.(); };
   },[fileName]);
   const objectKey = JSON.stringify(baseline.object);
-  const viewIdentity = JSON.stringify([binding.workspaceId,binding.generation,baseline]);
-  const session = useRef<OfficeEditSession<OfficeModel,OfficeEdit> | null>(null);
+  const viewIdentity = JSON.stringify([binding.workspaceId,binding.generation,working?.sessionId ?? baseline]);
+  const sessionIdentity = useRef<string | undefined>(undefined);
+  const liveSource = useRef({working,baseline}); liveSource.current = {working,baseline};
+  const session = useRef<FileEditSession<OfficeModel,OfficeEdit> | null>(null);
   const recalculations = useRef(new Map<string, Promise<RecalculateResult>>());
-  const savedXlsxModel = useRef<{previous:XlsxModel;current:XlsxModel} | undefined>(undefined);
-  const saveOperation = useRef<{session: OfficeEditSession<OfficeModel,OfficeEdit>; promise: Promise<void>} | null>(null);
+  const saveOperation = useRef<{session: FileEditSession<OfficeModel,OfficeEdit>; promise: Promise<void>} | null>(null);
   const sessionBinding = useRef<AgentWorkspaceBinding | null>(null);
   const [suspended,setSuspended] = useState(!visible);
-  const [savingInput,setSavingInput] = useState(false);
   const previewView = useRef<OfficePreviewView | undefined>(undefined);
   const captureFailure = useRef<unknown>(undefined);
   const previousViewIdentity = useRef(viewIdentity);
@@ -120,53 +121,54 @@ export function OfficeFileContent({visible=true,toolbar,menuToolbar,fileName,bin
   const callbacks = useRef({onSaved,onDirtyChange}); callbacks.current = {onSaved,onDirtyChange};
   const publish = () => {
     if (!session.current) return;
-    const next = session.current.snapshot; setSnapshot(next); callbacks.current.onDirtyChange(next.edits.length > 0 || pendingEditor.current);
+    const next = session.current.snapshot; setSnapshot(next); callbacks.current.onDirtyChange(next.dirty || pendingEditor.current);
   };
   useEffect(() => {
+    if (working) {session.current?.acknowledgeStatus(working);publish();}
+  },[working?.revision,working?.archivedVersionNumber,working?.pendingArchive]);
+  useEffect(() => {
     if (suspended) {
-      lifetime.current++;session.current = null;sessionBinding.current = null;
-      recalculations.current.clear();savedXlsxModel.current = undefined;setSnapshot(undefined);setReading(false);
+      lifetime.current++;session.current = null;sessionBinding.current = null;sessionIdentity.current = undefined;
+      recalculations.current.clear();setSnapshot(undefined);setReading(false);
       return;
     }
-    const current = session.current?.snapshot.baseline;
-    if (sessionBinding.current?.workspaceId === binding.workspaceId && sessionBinding.current.generation === binding.generation
-      && current?.versionNumber === baseline.versionNumber && current.expectedContentHash === baseline.expectedContentHash && JSON.stringify(current.object) === objectKey) return;
+    if (sessionIdentity.current === viewIdentity) return;
+    sessionIdentity.current = viewIdentity;
     const epoch = ++lifetime.current;
     recalculations.current.clear();
-    session.current = null; savedXlsxModel.current = undefined; pendingEditor.current = false; setEditorPending(false); setSnapshot(undefined); setReading(true); setError(undefined); setEditing(false); setOutputBusy(false); setOutputError(undefined);
-    const cached = readOnly ? undefined : officePreviewCache.get(binding,baseline);
-    void (cached ? Promise.resolve({model:cached}) : officeFileApi.inspect(binding,baseline)).then(result => {
+    session.current = null;pendingEditor.current = false;setEditorPending(false);setSnapshot(undefined);setReading(true);setError(undefined);setEditing(false);setOutputBusy(false);setOutputError(undefined);
+    const opened = readOnly ? officeFileApi.inspect(binding,baseline) : working?.model
+      ? Promise.resolve({model:working.model}) : Promise.reject(new Error('当前文件尚未建立编辑会话'));
+    void opened.then(result => {
       if (lifetime.current !== epoch) return;
-      if (!cached) officePreviewCache.remember(binding,baseline,result.model);
       sessionBinding.current = binding;
-      session.current = new OfficeEditSession(baseline,result.model,input => {
+      session.current = new FileEditSession(working,result.model,input => {
         const {requestId,...data} = input;
-        return officeFileApi.save(binding,data,requestId);
+        return fileWorkingApi.saveOffice(binding,data,requestId);
       });
       publish();
     }).catch(reason => {if (lifetime.current === epoch) setError(message(reason));})
       .finally(() => {if (lifetime.current === epoch) setReading(false);});
-  },[binding.workspaceId,binding.generation,objectKey,baseline.versionNumber,baseline.expectedContentHash,suspended]);
+  },[viewIdentity,suspended]);
   useEffect(() => {
     mounted.current = true;
     return () => {mounted.current = false;lifetime.current++;recalculations.current.clear();callbacks.current.onDirtyChange(false);};
   },[]);
-  function save(): Promise<void> {
+  function save(commitInput = true): Promise<void> {
     const current = session.current;
-    if (!current || readOnly || (!editing && !current.snapshot.edits.length && !pendingEditor.current)) return Promise.resolve();
+    if (!current || readOnly || (!editing && !current.snapshot.dirty && !pendingEditor.current)) return Promise.resolve();
     if (saveOperation.current?.session === current) return saveOperation.current.promise;
-    setSavingInput(true);
-    const promise = performSave(current).finally(() => {
-      if (saveOperation.current?.promise === promise) {saveOperation.current = null;setSavingInput(false);}
+    const promise = performSave(current,commitInput).finally(() => {
+      if (saveOperation.current?.promise === promise) saveOperation.current = null;
     });
     saveOperation.current = {session: current, promise};
     return promise;
   }
-  async function performSave(current: OfficeEditSession<OfficeModel,OfficeEdit>) {
+  async function performSave(current: FileEditSession<OfficeModel,OfficeEdit>, commitInput: boolean) {
     const epoch = lifetime.current;
     setError(undefined);
     // Commit active format input into its journal before taking the File snapshot.
-    if (beforeSave.current && !current.snapshot.saving) {
+    if (commitInput && beforeSave.current && !current.snapshot.saving) {
       try { await beforeSave.current(); }
       catch (reason) { if (epoch === lifetime.current) setError(message(reason)); throw reason; }
       if (epoch !== lifetime.current) return;
@@ -176,16 +178,13 @@ export function OfficeFileContent({visible=true,toolbar,menuToolbar,fileName,bin
       setError(reason.message);
       throw reason;
     }
-    const previousModel = current.snapshot.model;
     const pending = current.save(); publish();
     try {
       const result = await pending;
       if (epoch !== lifetime.current) return;
-      if (result && previousModel.format === 'xlsx' && result.model.format === 'xlsx') savedXlsxModel.current = {previous:previousModel,current:result.model};
       publish();
       if (result) {
-        officePreviewCache.remember(binding,current.snapshot.baseline,result.model);
-        callbacks.current.onSaved(result.commit.receipt.versionNumber,result.commit.receipt.contentHash);
+        callbacks.current.onSaved(result.receipt.archivedVersionNumber,result.receipt.contentHash,result.receipt);
       }
     } catch (reason) {if (epoch === lifetime.current) {publish();setError(message(reason));} throw reason;}
   }
@@ -193,10 +192,10 @@ export function OfficeFileContent({visible=true,toolbar,menuToolbar,fileName,bin
   // Autosave only settled edits. Composition and uncommitted cell input keep the
   // timer cancelled; errors wait for an edit or an explicit retry.
   useEffect(() => {
-    if (!editing || readOnly || !snapshot?.edits.length || editorPending || snapshot.saving || outputBusy || error) return;
-    const timer = window.setTimeout(() => {if (!pendingEditor.current && !currentReadOnly.current) void saveRef.current().catch(() => {});},1200);
+    if (!editing || readOnly || !snapshot?.dirty || editorPending || snapshot.saving || outputBusy || error) return;
+    const timer = window.setTimeout(() => {if (!pendingEditor.current && !currentReadOnly.current) void saveRef.current(false).catch(() => {});},1200);
     return () => window.clearTimeout(timer);
-  },[editing,readOnly,snapshot?.edits,editorPending,snapshot?.saving,outputBusy,error]);
+  },[editing,readOnly,snapshot?.editRevision,editorPending,snapshot?.saving,outputBusy,error]);
   async function runOutput(command:EditorOutputCommand) {
     const epoch = lifetime.current;
     const handler = output.current;
@@ -212,15 +211,11 @@ export function OfficeFileContent({visible=true,toolbar,menuToolbar,fileName,bin
     const currentBinding = sessionBinding.current;
     const epoch = lifetime.current;
     if (!current || !currentBinding) throw new Error('Word 文件尚未加载');
-    if (currentReadOnly.current || current.snapshot.saving) throw new Error('Word 文件只读或正在保存');
+    if (currentReadOnly.current) throw new Error('Word 文件只读');
     if (current.snapshot.model.format !== 'docx') throw new Error('图片下载仅用于 Word 文档');
-    const document = current.snapshot.baseline;
-    const result = await desktopApi.fetchEditorRemoteImage({binding: currentBinding, document, url});
+    const document = liveSource.current.baseline;
+    const result = await desktopApi.fetchEditorRemoteImage({binding: currentBinding, document, workingSessionId:liveSource.current.working?.sessionId, url});
     if (epoch !== lifetime.current || currentReadOnly.current) throw new Error('Word 文件已关闭或切换');
-    const latest = current.snapshot.baseline;
-    if (latest.versionNumber !== document.versionNumber || latest.expectedContentHash !== document.expectedContentHash) {
-      throw new Error('Word 文件版本已变更，请重新插入图片');
-    }
     return result;
   }, []);
   const recalculate = useCallback(async (recalculation: RecalculateRequest) => {
@@ -228,17 +223,17 @@ export function OfficeFileContent({visible=true,toolbar,menuToolbar,fileName,bin
     const currentBinding = sessionBinding.current;
     if (!current || !currentBinding) throw new Error('Excel 文件尚未加载');
     const epoch = lifetime.current;
-    const source = current.snapshot.baseline;
+    const source = liveSource.current.working;
+    if (!source) throw new Error('当前文件尚未建立编辑会话');
     // Only identical pending work shares a native invocation. Different edit
     // journals keep their own result/error; settled results are never cached.
     const key = JSON.stringify([epoch, source, recalculation]);
     const existing = recalculations.current.get(key);
     if (existing) return existing;
     const operation = (async () => {
-      const result = await officeFileApi.recalculate(currentBinding, {...source, recalculation});
+      const result = await fileWorkingApi.recalculate(currentBinding, {object:source.object,sessionId:source.sessionId,recalculation});
       if (epoch !== lifetime.current) throw new Error('Excel 文件已关闭或切换');
-      const latest = current.snapshot.baseline;
-      if (latest.versionNumber !== source.versionNumber || latest.expectedContentHash !== source.expectedContentHash) {
+      if (session.current !== current) {
         throw new Error('Excel 文件版本已变更，请重新计算');
       }
       return result;
@@ -247,15 +242,35 @@ export function OfficeFileContent({visible=true,toolbar,menuToolbar,fileName,bin
     try { return await operation; }
     finally { if (recalculations.current.get(key) === operation) recalculations.current.delete(key); }
   }, []);
-  useEffect(() => registerFlush(() => saveRef.current()),[registerFlush]);
-  function changed(edits:OfficeEdit[]) {
+  useEffect(() => registerFlush(async () => {
+    const current = session.current;
+    await saveRef.current();
+    while (session.current === current && (current?.snapshot.dirty || pendingEditor.current)) {
+      if (currentReadOnly.current) throw new Error('文件已切换为只读，无法完成保存');
+      await saveRef.current();
+    }
+  }),[registerFlush]);
+  function changed(edits:OfficeEdit[], revision?: {editRevision:number}) {
     if (!editing || readOnly) return;
-    session.current?.replaceEdits(edits); setError(undefined); publish();
+    session.current?.replaceEdits(edits,revision); setError(undefined); publish(); reportActivity();
   }
+  function reportActivity() {
+    if (!working || currentReadOnly.current) return;
+    const epoch = lifetime.current;
+    void fileWorkingApi.activity(binding,{object:working.object,sessionId:working.sessionId}).then(status => {
+      if (epoch === lifetime.current) session.current?.acknowledgeStatus(status);
+    }).catch(reason => {if (epoch === lifetime.current) setError(message(reason));});
+  }
+  useEffect(() => {
+    if (!editorPending || readOnly) return;
+    reportActivity();
+    const timer = window.setInterval(reportActivity,30_000);
+    return () => window.clearInterval(timer);
+  },[editorPending,readOnly,working?.sessionId]);
   const editorPendingChanged = useCallback((pending:boolean) => {
     pending = pending && editing && !readOnly;
     pendingEditor.current = pending; setEditorPending(pending);
-    callbacks.current.onDirtyChange(pending || !!session.current?.snapshot.edits.length);
+    callbacks.current.onDirtyChange(pending || !!session.current?.snapshot.dirty);
   }, [editing,readOnly]);
   useLayoutEffect(() => {
     if (visible) {captureFailure.current=undefined;setSuspended(false);return;}
@@ -264,18 +279,13 @@ export function OfficeFileContent({visible=true,toolbar,menuToolbar,fileName,bin
     // alive and the renderer does not reload on re-visibility. The session is
     // only cleared when the document binding actually changes (see effect above).
   },[visible]);
-  const frozen = !editing || readOnly || !!snapshot?.saving;
+  const frozen = !editing || readOnly;
   const selection = useOfficeSelection({
     binding, object: baseline.object, format: snapshot?.model.format, label: fileName ?? 'Office 文件',
     enabled: visible && editing && !readOnly && !reading, writable: !frozen && !outputBusy,
     model: snapshot?.model,
     async prepareCapture() {
-      // Saving replaces the renderer's model. Never silently capture its default
-      // selection after replacing the user's original selection.
-      if (session.current?.snapshot.edits.length || pendingEditor.current || saveOperation.current) {
-        await saveRef.current();
-        return false;
-      }
+      await saveRef.current();
       return true;
     },
   });
@@ -283,11 +293,11 @@ export function OfficeFileContent({visible=true,toolbar,menuToolbar,fileName,bin
     const epoch = lifetime.current;
     try {
       await save();
-      if (mounted.current && epoch === lifetime.current && !session.current?.snapshot.edits.length && !pendingEditor.current) setEditing(false);
+      if (mounted.current && epoch === lifetime.current && !session.current?.snapshot.dirty && !pendingEditor.current) setEditing(false);
     } catch { /* The save error and draft remain in the editing surface. */ }
   }
   return <OfficeVisibilitySnapshot visible={visible} beforeHide={() => {
-    if (!editing && !snapshot?.edits.length && !editorPending && !snapshot?.saving && previewAccess) {
+    if (!editing && !snapshot?.dirty && !editorPending && !snapshot?.saving && previewAccess) {
       previewView.current = undefined;
       try {previewView.current = previewAccess.capture();} catch (reason) {captureFailure.current=reason;}
     }
@@ -298,14 +308,14 @@ export function OfficeFileContent({visible=true,toolbar,menuToolbar,fileName,bin
   }}>
     {menuToolbar && snapshot ? createPortal(<EditorFileMenu format={snapshot.model.format} disabled={reading || outputBusy} documentKey={objectKey+baseline.versionNumber} onSelect={command => void runOutput(command)}/>,menuToolbar) : null}
     {toolbar ? createPortal(<>
-      <span className="office-file-content__status" role="status">{readOnly ? '历史版本 · 只读' : error ? '保存失败' : snapshot?.saving ? '正在保存…' : snapshot?.edits.length || editorPending ? '未保存' : reading ? '正在读取…' : snapshot ? '已保存' : '无法读取'}</span>
+      <span className="office-file-content__status" role="status">{readOnly ? '历史版本 · 只读' : error ? '保存失败' : snapshot?.saving ? '正在保存…' : snapshot?.dirty || editorPending ? '未保存' : reading ? '正在读取…' : snapshot ? (snapshot.working?.pendingArchive ? '已保存 · 空闲后保留版本' : '已保存') : '无法读取'}</span>
       {!editing ? <Button type="button" variant="ghost" className="project-file-content__icon-button" size="sm" disabled={!snapshot} aria-label={readOnly ? '完整视图' : '编辑'} title={readOnly ? '完整视图' : '编辑'} leadingIcon={readOnly ? <Eye size={14} aria-hidden="true"/> : <Pencil size={14} aria-hidden="true"/>} onClick={() => setEditing(true)}/> : <>
-        {!readOnly ? <Button type="button" variant="ghost" className="project-file-content__icon-button" size="sm" disabled={!snapshot || snapshot.saving || (!snapshot.edits.length && !editorPending && snapshot.model.format !== 'xlsx')} aria-label="保存" title="立即保存（默认自动保存）" leadingIcon={<Save size={14} aria-hidden="true" />} onClick={() => void save().catch(() => {})}/> : null}
+        {!readOnly ? <Button type="button" variant="ghost" className="project-file-content__icon-button" size="sm" disabled={!snapshot || snapshot.saving || (!snapshot.dirty && !editorPending && snapshot.model.format !== 'xlsx')} aria-label="保存" title="立即保存（默认自动保存）" leadingIcon={<Save size={14} aria-hidden="true" />} onClick={() => void save().catch(() => {})}/> : null}
         {!readOnly ? <Button type="button" variant="ghost" className="project-file-content__icon-button" size="sm" disabled={!selection.available || selection.busy || outputBusy} aria-label="引用选区" title="引用当前选区到项目会话" onPointerDown={event => event.preventDefault()} onMouseDown={event => event.preventDefault()} leadingIcon={<Quote size={14} aria-hidden="true"/>} onClick={() => void selection.quoteSelection()}/> : null}
         <Button type="button" variant="ghost" className="project-file-content__icon-button" size="sm" disabled={!!snapshot?.saving} aria-label={readOnly ? '快速预览' : '保存并预览'} title={readOnly ? '快速预览' : '保存并预览'} leadingIcon={<Eye size={14} aria-hidden="true"/>} onClick={() => void finishEditing()}/>
       </>}
     </>,toolbar) : null}
-    {error ? <p role="alert">{error}{snapshot?.edits.length ? '。修改已保留，请解决后重试保存。' : ''}</p> : null}
+    {error ? <p role="alert">{error}{snapshot?.dirty ? '。修改已保留，请解决后重试保存。' : ''}</p> : null}
     {selection.error ? <p role="alert">{selection.error}</p> : null}
     {outputError ? <p role="alert">{outputError}</p> : null}
     <div className="office-file-content__editor">
@@ -313,14 +323,14 @@ export function OfficeFileContent({visible=true,toolbar,menuToolbar,fileName,bin
       {componentError ? <p role="alert">{componentError}</p> : null}
       {snapshot && !components[snapshot.model.format] && !componentError ? <EditorLoading format={snapshot.model.format} stage="runtime" /> : null}
       <OfficeFormatCommit format={snapshot && components[snapshot.model.format] ? snapshot.model.format : undefined}>
-        {!suspended && snapshot?.model.format === 'docx' && DocxEditor ? <DocxEditor registerPreview={registerPreview} initialPreviewView={previewView.current} onFetchImage={fetchImage} onGetSystemFonts={desktopApi.listSystemFontFamilies} onFontMetrics={desktopApi.editorFontMetrics} onConvertAltChunkHtml={convertAltChunkHtml} model={snapshot.model} edits={snapshot.edits as DocxEdit[]} onChange={changed} readOnly={frozen} presentationMode={editing ? 'edit' : 'preview'} registerSelection={selection.registerSelection} registerBeforeSave={registerBeforeSave} registerOutput={registerOutput} onPendingChange={editorPendingChanged} onSaveRequest={() => save()} onExport={exportEditorFile} onPrint={printEditorHtml} onRenderPdf={renderEditorPdf} />
-          : !suspended && snapshot?.model.format === 'xlsx' && XlsxEditor ? <XlsxEditor registerPreview={registerPreview} initialPreviewView={previewView.current} savedModelUpdate={savedXlsxModel.current} model={snapshot.model} edits={snapshot.edits as XlsxEdit[]} onChange={changed} readOnly={frozen} presentationMode={editing ? 'edit' : 'preview'} registerSelection={selection.registerSelection} registerBeforeSave={registerBeforeSave} registerOutput={registerOutput} onPendingChange={editorPendingChanged} onSaveRequest={() => save()} onExport={exportEditorFile} onPrint={printEditorHtml} onRenderPdf={renderEditorPdf} onRecalculate={recalculate} onInspectImportedWorkbook={inspectImportedWorkbook} onCaptureScreenSources={desktopApi.editorCaptureSources} onCaptureScreenSource={desktopApi.editorCaptureSource} />
-          : !suspended && snapshot?.model.format === 'pptx' && PptxEditor ? <PptxEditor registerPreview={registerPreview} initialPreviewView={previewView.current} model={snapshot.model} edits={snapshot.edits as PptxEdit[]} onChange={changed} readOnly={frozen} presentationMode={editing ? 'edit' : 'preview'} registerSelection={selection.registerSelection} registerBeforeSave={registerBeforeSave} registerOutput={registerOutput} onPendingChange={editorPendingChanged} onSaveRequest={() => save()} onExport={exportEditorFile} onPrint={printEditorHtml} onRenderPdf={renderEditorPdf} /> : null}
+        {!suspended && snapshot?.model.format === 'docx' && DocxEditor ? <DocxEditor registerPreview={registerPreview} initialPreviewView={previewView.current} onFetchImage={fetchImage} onGetSystemFonts={desktopApi.listSystemFontFamilies} onFontMetrics={desktopApi.editorFontMetrics} onConvertAltChunkHtml={convertAltChunkHtml} savedEditRevision={snapshot.savedEditRevision} model={snapshot.model} edits={snapshot.edits as DocxEdit[]} onChange={changed} readOnly={frozen} presentationMode={editing ? 'edit' : 'preview'} registerSelection={selection.registerSelection} registerBeforeSave={registerBeforeSave} registerOutput={registerOutput} onPendingChange={editorPendingChanged} onSaveRequest={() => save()} onExport={exportEditorFile} onPrint={printEditorHtml} onRenderPdf={renderEditorPdf} />
+          : !suspended && snapshot?.model.format === 'xlsx' && XlsxEditor ? <XlsxEditor registerPreview={registerPreview} initialPreviewView={previewView.current} savedEditRevision={snapshot.savedEditRevision} model={snapshot.model} edits={snapshot.edits as XlsxEdit[]} onChange={changed} readOnly={frozen} presentationMode={editing ? 'edit' : 'preview'} registerSelection={selection.registerSelection} registerBeforeSave={registerBeforeSave} registerOutput={registerOutput} onPendingChange={editorPendingChanged} onSaveRequest={() => save()} onExport={exportEditorFile} onPrint={printEditorHtml} onRenderPdf={renderEditorPdf} onRecalculate={recalculate} onInspectImportedWorkbook={inspectImportedWorkbook} onCaptureScreenSources={desktopApi.editorCaptureSources} onCaptureScreenSource={desktopApi.editorCaptureSource} />
+          : !suspended && snapshot?.model.format === 'pptx' && PptxEditor ? <PptxEditor registerPreview={registerPreview} initialPreviewView={previewView.current} savedEditRevision={snapshot.savedEditRevision} model={snapshot.model} edits={snapshot.edits as PptxEdit[]} onChange={changed} readOnly={frozen} presentationMode={editing ? 'edit' : 'preview'} registerSelection={selection.registerSelection} registerBeforeSave={registerBeforeSave} registerOutput={registerOutput} onPendingChange={editorPendingChanged} onSaveRequest={() => save()} onExport={exportEditorFile} onPrint={printEditorHtml} onRenderPdf={renderEditorPdf} /> : null}
       </OfficeFormatCommit>
     </div>
   </section></OfficeVisibilitySnapshot>;
 }
-type ReturnTypeSnapshot = OfficeEditSession<OfficeModel,OfficeEdit>['snapshot'];
+type ReturnTypeSnapshot = FileEditSession<OfficeModel,OfficeEdit>['snapshot'];
 function message(error:unknown) {return error instanceof Error ? error.message : String(error);}
 
 function OfficeFormatCommit({format, children}: {format?: string; children: import('react').ReactNode}) {

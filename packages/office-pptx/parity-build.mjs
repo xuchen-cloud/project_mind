@@ -4,6 +4,10 @@ import {buildImportPath} from './build-import-path.mjs';
 import ts from 'typescript';
 import {markEditorChrome} from '../editor-chrome/build-adapter.mjs';
 import {installTextEditTransforms} from './parity-text-edit-build.mjs';
+export function preserveLateEditSource(source){
+ if(!source.includes('ctx.setDirty(false)'))throw Error('Pinned save dirty seam changed');
+ return source.replaceAll('ctx.setDirty(false)', 'ctx.setDirty(!!(r as any).hasLaterEdits)');
+}
 export function initialThumbsSource(source){
  if(!source.includes('initial = 24')||!source.includes("rootMargin: '150% 0px'"))throw Error('Pinned thumbnail visibility seam changed');
  return source.replace('initial = 24','initial = 0').replace("rootMargin: '150% 0px'","rootMargin: '25% 0px'");
@@ -39,6 +43,7 @@ export function parityPlugins(root,{browser=false}={}) {return [{name:'pinned-pa
    .replace('export async function exportPdf(ctx: ActionCtx, outPath?: string): Promise<boolean> {','export async function exportPdf(ctx: ActionCtx, outPath?: string, hostOutput = false): Promise<boolean> {\n  const epoch = currentPptxEpoch()')
    .replace('const r = await window.slidesApi.exportImages(', 'assertPptxEpoch(epoch);\n    const r = await window.slidesApi.exportImages(')
    .replace('const r = await window.slidesApi.exportPdf(', 'assertPptxEpoch(epoch);\n    const r = await window.slidesApi.exportPdf(');
+  source=preserveLateEditSource(source);
   // Preserve original status messages while allowing host promises to report real failures.
   source=source.replaceAll('    ctx.setStatus(\n      r.ok', "    if (hostOutput && !r.ok && !(r as any).canceled) throw new Error(r.error ?? t('appUnknownError'))\n    ctx.setStatus(\n      r.ok")
    .replace("ctx.setStatus(t('appExportImagesFailed', { error: String(err) }))", "ctx.setStatus(t('appExportImagesFailed', { error: String(err) })); if (hostOutput) throw err")

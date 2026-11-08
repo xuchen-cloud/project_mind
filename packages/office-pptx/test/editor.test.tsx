@@ -201,3 +201,18 @@ test('selection controller rejects preview and retained controller after unmount
  h.unmount();
  await expect(controller.applySelection({selectionId:'old',change:{elements:[]}})).rejects.toThrow(/关闭/);
 });
+
+
+test('two cumulative save acknowledgments keep the frame initialized and publish renderer revisions',()=>{
+ const ctx=setup();
+ const edits=[{kind:'candidate',sourceHash:'old',base64:'first',changedParts:['ppt/slides/slide1.xml']}] as PptxEdit[];
+ ctx.message({type:'change',edits,editRevision:1});
+ expect(ctx.change).toHaveBeenLastCalledWith(edits,{editRevision:1});
+ ctx.rerender(<PptxEditor {...ctx.props} edits={edits} savedEditRevision={1}/>);
+ const second=[{...edits[0],base64:'second'}] as PptxEdit[];
+ ctx.message({type:'change',edits:second,editRevision:2});
+ ctx.rerender(<PptxEditor {...ctx.props} edits={second} savedEditRevision={2}/>);
+ expect(ctx.post.mock.calls.filter(c=>c[0].type==='init')).toHaveLength(1);
+ expect(ctx.post).toHaveBeenLastCalledWith(expect.objectContaining({type:'saved-revision',editRevision:2}));
+ expect(screen.queryByText('正在渲染 PowerPoint')).toBeNull();
+});

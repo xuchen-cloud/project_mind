@@ -18,8 +18,8 @@ import type { Edit, Model } from './types'
 type Options = { model: Model; edits: Edit[]; readOnly: boolean; presentationMode: 'preview' | 'edit'; appearance: Record<string,string> }
 type AppContext = { univerRef: {current:any}; lazyWorkbookRef:{current:any}; commitActiveEditor:()=>Promise<boolean>; saveContext:()=>any; openingWorkbook:boolean; isCellEditing:()=>boolean; calcManual:boolean; output:(action:string)=>Promise<void> }
 let options:Options,context:AppContext|undefined,loaded=false,ready=false,serializing:Promise<void>|undefined,stopped=false,rangeReadyMarked=false
-let selectionRevision=0,composing=false,selectionBusy=false,reopening=false
-let savedSelection:{sheetId:string;range:{startRow:number;endRow:number;startColumn:number;endColumn:number}}|undefined
+let editRevision=0,savedEditRevision=0,savedSignature='[]'
+let selectionRevision=0,composing=false,selectionBusy=false
 const selection=createSelectionController({
  assertAvailable(){if(stopped||!ready||!context||context.openingWorkbook)throw Error('Excel 编辑器尚未就绪或已关闭');if(options.readOnly||options.presentationMode==='preview')throw Error('Excel 当前只读');if(composing||selectionBusy||serializing||outputBusy||context.isCellEditing()||inputPending)throw Error('Excel 正在编辑或处理其他操作')},
  runtime:()=>context!.univerRef.current,state:()=>context!.lazyWorkbookRef.current,revision:()=>selectionRevision,flush,
@@ -66,7 +66,9 @@ function capture(request:any){assertSession(request.sessionId);const {sessionId,
  captured=[{kind:'gateway',changes,snapshot:{workbook:workbook.getSnapshot(),journal:encode(state.editJournal)}}]
 }
 function applyAppearance(){for(const [key,value]of Object.entries(options.appearance))document.documentElement.style.setProperty(key,value)}
-function syncLock(){document.documentElement.dataset.presentationMode=options.presentationMode;document.documentElement.dataset.hostReadonly=String(options.readOnly);const workbook=context?.univerRef.current?.univerAPI.getActiveWorkbook();if(!workbook||!ready)return;workbook.setEditable(!options.readOnly)
+// Reapplying setEditable cancels an active cell editor, even when its value is unchanged.
+const appliedLocks=new WeakMap<object,boolean>()
+function syncLock(){document.documentElement.dataset.presentationMode=options.presentationMode;document.documentElement.dataset.hostReadonly=String(options.readOnly);const workbook=context?.univerRef.current?.univerAPI.getActiveWorkbook();if(!workbook||!ready)return;const unit=workbook.getWorkbook();if(appliedLocks.get(unit)!==options.readOnly){workbook.setEditable(!options.readOnly);appliedLocks.set(unit,options.readOnly)}
  for(const node of document.querySelectorAll<HTMLElement>('.ribbon,.dialog-backdrop'))node.inert=options.readOnly&&!node.querySelector('.print-dialog')
  document.documentElement.dataset.hostReadonly=String(options.readOnly)}
 // Save serialization and native output stay off the initialize bridge's static graph.
@@ -76,7 +78,7 @@ async function flush(){if(serializing)return serializing;serializing=(async()=>{
  captured=undefined;pruneRestoredCells()
  if(journalSize(context.lazyWorkbookRef.current.editJournal)>0){const {handleSave}=await import('./vendor/apps/sheets/src/renderer/save-actions');const result=await handleSave(context.saveContext(),'recovery',true);if(!result.ok||!captured)throw Error('Excel 编辑日志整理失败')}
  const edits=captured??[],signature=JSON.stringify(edits)
- if(signature!==lastSignature){lastSignature=signature;send('change',edits)}
+ if(signature!==lastSignature){lastSignature=signature;editRevision++;send('change',{edits,editRevision})}
  pending=inputPending;send('pending',pending)
  })().finally(()=>{serializing=undefined});return serializing}
 async function runOutput(command:unknown){
@@ -88,29 +90,12 @@ async function runOutput(command:unknown){
  try{if(!await context.commitActiveEditor())throw Error('单元格输入提交失败');await context.output(action);if(outputFailure)throw outputFailure}
  finally{outputBusy=false;outputFailure=undefined}
 }
-/** Reuse the upstream cross-save reopen, which rebases undo mutations and styles. */
-async function acknowledgeSaved(next:Options){
- if(!ready||!context||serializing||reopening)throw Error('Excel 编辑器尚未准备好接收保存回执')
- // Lock the old unit before awaiting lazy imports; no late user edit may be
- // carried into a baseline that the native save did not contain.
- reopening=true;options={...options,readOnly:true};syncLock()
- try{
- const {captureUndoCarry,hasPendingUndoCarry,stashUndoCarry}=await import('./vendor/apps/sheets/src/renderer/undo-carry')
- const {getScrollAnchor}=await import('./vendor/apps/sheets/src/renderer/univer-sync')
- if(stopped||!context)throw Error('Excel 编辑器已关闭')
- const runtime=context.univerRef.current,state=context.lazyWorkbookRef.current,workbook=runtime.univerAPI.getActiveWorkbook(),sheet=workbook.getActiveSheet(),range=sheet?.getSelection()?.getActiveRange()?.getRange()
- const saveContext=context.saveContext(),anchor=sheet&&getScrollAnchor(workbook,sheet)
- // The existing upstream policy excludes sheet identity changes; cell, formula,
- // formatting and row/column edits retain their native undo mutations.
- const sheets=state.editJournal.sheets,sheetIdentityChanged=sheets.added.size||sheets.removed.size||sheets.renamed.size
- stashUndoCarry(!sheetIdentityChanged&&!hasPendingUndoCarry()?captureUndoCarry(runtime,String(next.model.rendererData!.file.sha256)):null)
- savedSelection=sheet&&range?{sheetId:sheet.getSheetId(),range:{startRow:range.startRow,endRow:range.endRow,startColumn:range.startColumn,endColumn:range.endColumn}}:undefined
- saveContext.stashViewRestore(savedSelection?{sheetId:savedSelection.sheetId,row:range.startRow,column:range.startColumn,viewRow:anchor?.row??range.startRow,viewColumn:anchor?.column??range.startColumn}:null)
- ready=false;selectionRevision++;options=next;lastSignature='[]';captured=undefined;baseline.clear();baselineCaptured=false;restoreStarted=true;rangeReadyMarked=false;calculationReadyMarked=false
-  if(!await saveContext.openLazyWorkbook(file(),{continueChat:true}))throw Error('Excel 保存后工作簿恢复失败')
-  pending=false;inputPending=false;send('pending',false)
- }finally{reopening=false}
- applyAppearance();void finishReady()
+/** A receipt only confirms its captured revision. The live source, journal and
+ * Univer unit remain unchanged, including edits made while persistence runs. */
+function acknowledgeSaved(receipt:{editRevision:number}){
+ if(!Number.isInteger(receipt.editRevision)||receipt.editRevision<savedEditRevision||receipt.editRevision>editRevision)throw Error('无效的 Excel 保存序号')
+ savedEditRevision=receipt.editRevision
+ if(savedEditRevision===editRevision)savedSignature=lastSignature
 }
 const transfers=new Map<string,any[]>()
 let nextSave=0;const saveReplies=new Map<number,{resolve:()=>void,reject:(error:Error)=>void}>()
@@ -179,9 +164,9 @@ export async function initialize(){options=await new Promise<Options>(resolve=>{
    runtime.univerAPI.addEvent(runtime.univerAPI.Event.SheetEditEnded,()=>{inputPending=false;api.notifyPendingEdits(0)})
    runtime.univerAPI.addEvent(runtime.univerAPI.Event.BeforeSheetEditStart,(event:any)=>{if(ready&&options.readOnly)event.cancel=true})
    runtime.univerAPI.addEvent(runtime.univerAPI.Event.BeforeCommandExecute,(event:any)=>{if(ready&&options.readOnly&&event.type===CommandType.MUTATION)event.cancel=true})},
-  requestSave:async()=>{await flush();if(lastSignature==='[]')return{ok:true};const id=++nextSave;await new Promise<void>((resolve,reject)=>{saveReplies.set(id,{resolve,reject});send('saveRequest',undefined,id)});return{ok:true}},
+  requestSave:async()=>{await flush();if(editRevision===savedEditRevision&&lastSignature===savedSignature)return{ok:true};const id=++nextSave;await new Promise<void>((resolve,reject)=>{saveReplies.set(id,{resolve,reject});send('saveRequest',undefined,id)});return{ok:true}},
  }
- onHostMessage(data=>{const{type,value,id}=data;if(type==='saved')void acknowledgeSaved(value).catch(error=>send('error',String(error.message??error)));if(type==='captureSelection'||type==='applySelection'){if(selectionBusy){send('reply',{error:'Excel 正在处理选区操作'},id);return}const action=type==='captureSelection'?selection.captureSelection():selection.applySelection(value);selectionBusy=true;void action.then(result=>send('reply',{result},id),error=>send('reply',{error:String(error.message??error)},id)).finally(()=>{selectionBusy=false})}if(type==='saveReply'){const reply=saveReplies.get(id);saveReplies.delete(id);if(value?.error)reply?.reject(Error(value.error));else reply?.resolve()}if(type==='update'){options={...options,...value};applyAppearance();syncLock()}if(type==='commit'||type==='output')void (type==='commit'?flush():runOutput(value)).then(()=>send('reply',null,id),error=>send('reply',{error:String(error.message??error)},id))})
+ onHostMessage(data=>{const{type,value,id}=data;if(type==='saved'){try{acknowledgeSaved(value)}catch(error:any){send('error',String(error.message??error))}}if(type==='captureSelection'||type==='applySelection'){if(selectionBusy){send('reply',{error:'Excel 正在处理选区操作'},id);return}const action=type==='captureSelection'?selection.captureSelection():selection.applySelection(value);selectionBusy=true;void action.then(result=>send('reply',{result},id),error=>send('reply',{error:String(error.message??error)},id)).finally(()=>{selectionBusy=false})}if(type==='saveReply'){const reply=saveReplies.get(id);saveReplies.delete(id);if(value?.error)reply?.reject(Error(value.error));else reply?.resolve()}if(type==='update'){options={...options,...value};applyAppearance();syncLock()}if(type==='commit'||type==='output')void (type==='commit'?flush():runOutput(value)).then(()=>send('reply',null,id),error=>send('reply',{error:String(error.message??error)},id))})
  const tick=()=>{if(!ready&&initialRangeLoaded(context?.lazyWorkbookRef.current)&&!context.openingWorkbook)void finishReady();if(!stopped)requestAnimationFrame(tick)};requestAnimationFrame(tick)
  window.addEventListener('keydown',event=>{if(!(event.metaKey||event.ctrlKey)||event.altKey)return;const key=event.key.toLowerCase();if(key==='s'&&!event.shiftKey){event.preventDefault();event.stopImmediatePropagation();void (window as any).__projectMindSheetsHost.requestSave().catch((error:any)=>send('error',String(error.message??error)))}else if(key==='p'&&!event.shiftKey){event.preventDefault();event.stopImmediatePropagation();emit('onMenuAction','print')}},true)
  window.addEventListener('compositionstart',()=>{composing=true},true)
@@ -189,7 +174,7 @@ export async function initialize(){options=await new Promise<Options>(resolve=>{
  installScrollMasks(document.body)
  window.addEventListener('pagehide',()=>{stopped=true;initialCalculation.dispose()},{once:true})
 }
-async function finishReady(){if(ready||stopped||reopening||!context)return;const state=context.lazyWorkbookRef.current;if(context.openingWorkbook||!initialRangeLoaded(state))return;if(!rangeReadyMarked){rangeReadyMarked=true;performance.mark('office-xlsx:initial-content-loaded')}const runtime=context.univerRef.current;if(!runtime)return;if(runtime.univerAPI.getCurrentLifecycleStage()<LifecycleStages.Steady)return
+async function finishReady(){if(ready||stopped||!context)return;const state=context.lazyWorkbookRef.current;if(context.openingWorkbook||!initialRangeLoaded(state))return;if(!rangeReadyMarked){rangeReadyMarked=true;performance.mark('office-xlsx:initial-content-loaded')}const runtime=context.univerRef.current;if(!runtime)return;if(runtime.univerAPI.getCurrentLifecycleStage()<LifecycleStages.Steady)return
  if(!initialCalculation.ready(state,context.calcManual,runtime.univer.__getInjector().get(FormulaCalculationSessionService).state))return
  if(state?.formulaMode&&!context.calcManual){
   if(!calculationReadyMarked){calculationReadyMarked=true;performance.mark('office-xlsx:initial-calculation-applied')}
@@ -197,7 +182,7 @@ async function finishReady(){if(ready||stopped||reopening||!context)return;const
  const workbook=runtime.univerAPI.getActiveWorkbook();if(!baselineCaptured){baselineCaptured=true;for(const sheet of workbook.getSheets())sheet.getSheet().getCellMatrix().forValue((row:number,column:number,cell:any)=>{if(cell)baseline.set(`${sheet.getSheetId()}:${row}:${column}`,comparableCell(cell,workbook))})}
  const draft=options.edits.find(edit=>edit.kind==='gateway')
  if(draft?.kind==='gateway'&&draft.snapshot&&!restoreStarted){restoreStarted=true;const saved=draft.snapshot as any;if(saved.workbook&&saved.journal){const state=context.lazyWorkbookRef.current,active=runtime.univerAPI.getActiveWorkbook();journalSuppression.active=true;try{runtime.univerAPI.disposeUnit(active.getId());runtime.univerAPI.createWorkbook(saved.workbook);Object.assign(state.editJournal,decode(saved.journal))}finally{journalSuppression.active=false}}}
- if(savedSelection){const saved=savedSelection;const sheet=workbook.getSheetBySheetId(saved.sheetId);if(sheet){const r=saved.range;sheet.getRange(r.startRow,r.startColumn,r.endRow-r.startRow+1,r.endColumn-r.startColumn+1).activate()}savedSelection=undefined}
+
  performance.mark('office-xlsx:ready');ready=true;syncLock();send('ready');if(options.edits.length){lastSignature=JSON.stringify(options.edits);pending=true;send('pending',true)}
 }
 

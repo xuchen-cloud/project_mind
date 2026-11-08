@@ -13,7 +13,7 @@ export type XlsxEditorProps = EditorProps & OfficePreviewProps & {
   registerBeforeSave?: (callback: () => Promise<void>) => () => void
 }
 
-/** Host owns the draft and persistence. New model means a committed baseline. */
+/** Host owns the draft and persistence. The model is a fixed editing baseline; save receipts advance only the saved revision. */
 export function XlsxEditor(props: XlsxEditorProps) {
   const host = useRef<HTMLDivElement>(null)
   const editor = useRef<MountedEditor | null>(null)
@@ -64,7 +64,7 @@ export function XlsxEditor(props: XlsxEditorProps) {
   useEffect(() => {
     try { editor.current?.update(props); if (editor.current) observeReady(editor.current) }
     catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)) }
-  }, [props.model, props.savedModelUpdate, props.edits, props.onChange, props.readOnly, props.presentationMode, props.onPendingChange, props.onSaveRequest, props.onExport, props.onPrint, props.onRenderPdf, props.onRecalculate, props.onInspectImportedWorkbook, props.onCaptureScreenSources, props.onCaptureScreenSource])
+  }, [props.model, props.savedModelUpdate, props.savedEditRevision, props.edits, props.onChange, props.readOnly, props.presentationMode, props.onPendingChange, props.onSaveRequest, props.onExport, props.onPrint, props.onRenderPdf, props.onRecalculate, props.onInspectImportedWorkbook, props.onCaptureScreenSources, props.onCaptureScreenSource])
   return <div className="editor-loading-boundary office-xlsx-editor h-full min-h-0 w-full" aria-label="Excel 工作表">
     <div ref={host} className="h-full min-h-0 w-full" />
     {error && <div role="alert" className="office-xlsx-status">{error}</div>}

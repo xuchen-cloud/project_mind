@@ -325,6 +325,7 @@ impl Database {
         let _file = self.file_version_lock(id).map_err(error)?;
         self.directory_restore_recover_locked(input.object())
             .map_err(error)?;
+        self.working_recover_locked(input.object())?;
         self.directory_replace_authorize(request,binding,input,historical)?;
         let payload = input.payload(new_hash);
         if let Some(receipt) = self.agent_operation_replay(
@@ -338,6 +339,7 @@ impl Database {
                 committed: false,
             });
         }
+        self.file_working_require_archived(id)?;
         let current = self
             .directory_baseline(
                 input.object(),

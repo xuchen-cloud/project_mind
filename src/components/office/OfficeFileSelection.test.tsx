@@ -5,9 +5,10 @@ import {officePreviewCache} from '../../lib/office-preview-cache';
 import {useProjectContentStore} from '../../state/project-content-store';
 import {useDshFileReferences} from '../../lib/dsh-host-events';
 import type {OfficeSelectionRequest} from '../../services/officeSelectionApi';
-const mocks = vi.hoisted(() => ({register:vi.fn(),bind:vi.fn(),unregister:vi.fn(),claim:vi.fn(),reply:vi.fn(),listen:vi.fn(),stop:vi.fn(),capture:vi.fn(),apply:vi.fn(),save:vi.fn(),inspect:vi.fn(),start:vi.fn(),sessions:vi.fn(),select:vi.fn(),binding:vi.fn(),open:vi.fn(),request:vi.fn(),editBeforeResolve:false,receive:undefined as ((request:OfficeSelectionRequest)=>void)|undefined}));
+const mocks = vi.hoisted(() => ({register:vi.fn(),bind:vi.fn(),unregister:vi.fn(),claim:vi.fn(),reply:vi.fn(),listen:vi.fn(),stop:vi.fn(),capture:vi.fn(),apply:vi.fn(),save:vi.fn(),activity:vi.fn(),inspect:vi.fn(),start:vi.fn(),sessions:vi.fn(),select:vi.fn(),binding:vi.fn(),open:vi.fn(),request:vi.fn(),editBeforeResolve:false,receive:undefined as ((request:OfficeSelectionRequest)=>void)|undefined}));
 vi.mock('../../services/officeSelectionApi',()=>({officeSelectionApi:{register:mocks.register,bind:mocks.bind,unregister:mocks.unregister,claim:mocks.claim,reply:mocks.reply,listen:mocks.listen}}));
-vi.mock('../../services/officeFileApi',()=>({officeFileApi:{inspect:mocks.inspect,save:mocks.save}}));
+vi.mock('../../services/officeFileApi',()=>({officeFileApi:{inspect:mocks.inspect}}));
+vi.mock('../../services/fileWorkingApi',()=>({fileWorkingApi:{saveOffice:mocks.save,activity:mocks.activity}}));
 vi.mock('../../services/dshAssistantApi',()=>({dshAssistantApi:{start:mocks.start,sessions:mocks.sessions,selectSession:mocks.select}}));
 vi.mock('../../services/recordDocumentApi',()=>({recordDocumentApi:{bindingGet:mocks.binding}}));
 vi.mock('../../services/projectContentApi',()=>({openProjectContent:mocks.open}));
@@ -23,17 +24,19 @@ vi.mock('./office-component-loader',async()=>{
 });
 const binding={workspaceId:'workspace',generation:'generation'},object={workspaceId:'workspace',scope:{kind:'project' as const,projectId:7},kind:'file' as const,id:'42'};
 const baseline={object,versionNumber:2,expectedContentHash:'sha256:old'},model={format:'docx',nodes:[{id:'p0',text:'原文'}]};
+const working={object,sessionId:'working-session',revision:4,contentHash:'sha256:old',archivedVersionNumber:2,pendingArchive:false,lastActivityAtMs:null,archiveDueAtMs:null,name:'报告.docx',base64:'UEs=',format:'docx',model} as import('../../services/fileWorkingApi').FileWorkingOpen;
+const saved={object,revision:5,contentHash:'sha256:new',archivedVersionNumber:2,pendingArchive:true,lastActivityAtMs:1,archiveDueAtMs:900001,noChange:false};
 const scope={workspaceId:'workspace',projectId:7};
 beforeEach(()=>{
  vi.clearAllMocks();mocks.editBeforeResolve=false;officePreviewCache.clear();useProjectContentStore.setState({layouts:{}});useDshFileReferences.setState({workspaceRoot:'/workspace',pending:[]});
  const store=useProjectContentStore.getState();store.open(scope,{kind:'session',id:'session-a',title:'会话'});store.open(scope,{kind:'file',id:42,title:'报告.docx'});
- mocks.inspect.mockResolvedValue({model});mocks.save.mockResolvedValue({model:{...model},commit:{receipt:{documentId:42,versionNumber:3,contentHash:'sha256:new',noChange:false},versionPath:null}});
+ mocks.inspect.mockResolvedValue({model});mocks.save.mockResolvedValue(saved);mocks.activity.mockResolvedValue(working);
  mocks.listen.mockImplementation(async(callback)=>{mocks.receive=callback;return mocks.stop;});mocks.capture.mockResolvedValue({selectionId:'selection-a',text:'选中的正文'});mocks.apply.mockResolvedValue({text:'AI 修改'});
  mocks.binding.mockResolvedValue(binding);mocks.sessions.mockResolvedValue([{id:'session-a',title:'会话',running:false}]);mocks.start.mockResolvedValue(undefined);mocks.select.mockResolvedValue('session-new');
  mocks.register.mockResolvedValue(undefined);mocks.bind.mockResolvedValue(undefined);mocks.unregister.mockResolvedValue(undefined);mocks.claim.mockResolvedValue(undefined);mocks.reply.mockResolvedValue(undefined);
  mocks.open.mockImplementation(async(input)=>{input.beforeOpen();return {};});
 });
-async function mount(){const toolbar=document.createElement('div');document.body.append(toolbar);let flush=async()=>{};const view=render(<OfficeFileContent fileName="报告.docx" toolbar={toolbar} binding={binding} baseline={baseline} readOnly={false} registerFlush={fn=>{flush=fn;return()=>{};}} onDirtyChange={()=>{}} onSaved={()=>{}}/>);await waitFor(()=>expect(screen.getByRole('button',{name:'编辑'})).not.toBeDisabled());fireEvent.click(screen.getByRole('button',{name:'编辑'}));return{...view,flush:()=>flush(),close(){view.unmount();toolbar.remove();}};}
+async function mount(){const toolbar=document.createElement('div');document.body.append(toolbar);let flush=async()=>{};const view=render(<OfficeFileContent fileName="报告.docx" toolbar={toolbar} binding={binding} baseline={baseline} working={working} readOnly={false} registerFlush={fn=>{flush=fn;return()=>{};}} onDirtyChange={()=>{}} onSaved={()=>{}}/>);await waitFor(()=>expect(screen.getByRole('button',{name:'编辑'})).not.toBeDisabled());fireEvent.click(screen.getByRole('button',{name:'编辑'}));return{...view,flush:()=>flush(),close(){view.unmount();toolbar.remove();}};}
 it('quotes through the public toolbar, binds an existing session, handles native draft edit and saves normally',async()=>{
  const view=await mount();fireEvent.click(await screen.findByRole('button',{name:'引用选区'}));await waitFor(()=>expect(mocks.open).toHaveBeenCalled());
  expect(mocks.register).toHaveBeenCalledWith(binding,expect.objectContaining({object,selectionId:'selection-a',format:'docx',text:'选中的正文'}));
@@ -45,9 +48,13 @@ it('quotes through the public toolbar, binds an existing session, handles native
  expect(mocks.claim.mock.invocationCallOrder[0]).toBeLessThan(mocks.apply.mock.invocationCallOrder[0]);expect(mocks.save).not.toHaveBeenCalled();
  await act(()=>view.flush());expect(mocks.save).toHaveBeenCalledWith(binding,expect.objectContaining({edits:[{type:'text',nodeId:'p0',text:'AI 修改'}]}),expect.any(String));view.close();
 });
-it('saves pending manual edits and requires reselection instead of capturing a replacement renderer',async()=>{
+it('saves pending manual edits and captures the retained renderer selection without reselection',async()=>{
  const view=await mount();fireEvent.click(screen.getByRole('button',{name:'手工修改'}));fireEvent.click(screen.getByRole('button',{name:'引用选区'}));
- await screen.findByText('文件已保存，请重新选择内容后再次引用选区');expect(mocks.save).toHaveBeenCalled();expect(mocks.capture).not.toHaveBeenCalled();expect(mocks.register).not.toHaveBeenCalled();expect(screen.queryByText('保存失败')).not.toBeInTheDocument();view.close();
+ await waitFor(()=>expect(mocks.bind).toHaveBeenCalledWith(binding,{selectionId:'selection-a',sessionId:'session-a'}));
+ expect(mocks.save).toHaveBeenCalledWith(binding,expect.objectContaining({object,sessionId:'working-session',expectedRevision:4,expectedContentHash:'sha256:old',edits:[{type:'text',nodeId:'p0',text:'手工修改'}]}),expect.any(String));
+ expect(mocks.save.mock.invocationCallOrder[0]).toBeLessThan(mocks.capture.mock.invocationCallOrder[0]);
+ expect(mocks.capture).toHaveBeenCalledOnce();expect(mocks.register).toHaveBeenCalledOnce();expect(mocks.inspect).not.toHaveBeenCalled();
+ expect(screen.queryByText('保存失败')).not.toBeInTheDocument();expect(screen.queryByText('文件已保存，请重新选择内容后再次引用选区')).not.toBeInTheDocument();view.close();
 });
 it('unregisters on close and ignores late native requests',async()=>{
  const view=await mount();fireEvent.click(await screen.findByRole('button',{name:'引用选区'}));await waitFor(()=>expect(mocks.bind).toHaveBeenCalled());const editorId=mocks.register.mock.calls[0][1].editorId;view.close();
@@ -96,7 +103,7 @@ it('keeps iframe selection focus on pointer and mouse down before quoting',async
  expect(fireEvent.pointerDown(button)).toBe(false);expect(fireEvent.mouseDown(button)).toBe(false);
  expect(mocks.capture).not.toHaveBeenCalled();fireEvent.click(button);await waitFor(()=>expect(mocks.capture).toHaveBeenCalled());view.close();
 });
-it('acknowledges an applied draft while an overlapping save temporarily locks the editor',async()=>{
+it('acknowledges an applied draft while a working save is pending without locking the editor',async()=>{
  mocks.editBeforeResolve=true;let finishEdit!:(result:{text:string})=>void,finishSave!:(result:unknown)=>void;
  mocks.apply.mockImplementation(()=>new Promise(resolve=>{finishEdit=resolve;}));
  mocks.save.mockImplementation(()=>new Promise(resolve=>{finishSave=resolve;}));
@@ -104,16 +111,17 @@ it('acknowledges an applied draft while an overlapping save temporarily locks th
  await act(async()=>mocks.receive!({binding,editorId,selectionId:'selection-a',requestId:'overlap',change:{text:'AI 修改'}}));await waitFor(()=>expect(mocks.apply).toHaveBeenCalled());
  let saving!:Promise<void>;await act(async()=>{saving=view.flush();});await screen.findByText('正在保存…');
  await act(async()=>finishEdit({text:'AI 修改'}));await waitFor(()=>expect(mocks.reply).toHaveBeenCalledWith(binding,{editorId,selectionId:'selection-a',requestId:'overlap',text:'AI 修改'}));
- await act(async()=>{finishSave({model:{...model},commit:{receipt:{documentId:42,versionNumber:3,contentHash:'sha256:new',noChange:false},versionPath:null}});await saving;});view.close();
+ await act(async()=>{finishSave(saved);await saving;});view.close();
 });
 
-it('claims a live reference during a temporary save lock and replies with an error without applying',async()=>{
+it('claims a live reference during save and reports the renderer stale-selection conflict',async()=>{
  let finishSave!:(result:unknown)=>void;
  mocks.save.mockImplementation(()=>new Promise(resolve=>{finishSave=resolve;}));
  const view=await mount();fireEvent.click(await screen.findByRole('button',{name:'引用选区'}));await waitFor(()=>expect(mocks.bind).toHaveBeenCalled());const editorId=mocks.register.mock.calls[0][1].editorId;
  fireEvent.click(screen.getByRole('button',{name:'手工修改'}));let saving!:Promise<void>;await act(async()=>{saving=view.flush();});await screen.findByText('正在保存…');
+ mocks.apply.mockRejectedValueOnce(new Error('选区已失效'));
  await act(async()=>mocks.receive!({binding,editorId,selectionId:'selection-a',requestId:'locked',change:{text:'不应修改'}}));
- await waitFor(()=>expect(mocks.reply).toHaveBeenCalledWith(binding,{editorId,selectionId:'selection-a',requestId:'locked',error:'Office 文件只读或正在保存，请稍后重新引用'}));
- expect(mocks.claim).toHaveBeenCalledWith(binding,{editorId,selectionId:'selection-a',requestId:'locked'});expect(mocks.apply).not.toHaveBeenCalled();
- await act(async()=>{finishSave({model:{...model},commit:{receipt:{documentId:42,versionNumber:3,contentHash:'sha256:new',noChange:false},versionPath:null}});await saving;});view.close();
+ await waitFor(()=>expect(mocks.reply).toHaveBeenCalledWith(binding,{editorId,selectionId:'selection-a',requestId:'locked',error:'选区已失效'}));
+ expect(mocks.claim).toHaveBeenCalledWith(binding,{editorId,selectionId:'selection-a',requestId:'locked'});expect(mocks.apply).toHaveBeenCalledOnce();
+ await act(async()=>{finishSave(saved);await saving;});view.close();
 });

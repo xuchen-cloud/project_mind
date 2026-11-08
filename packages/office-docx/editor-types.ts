@@ -9,7 +9,8 @@ export interface EditorRemoteImage {mime:'image/png'|'image/jpeg'|'image/gif';ba
 export interface EditorOptions {
   model: DocxModel;
   edits: Edit[];
-  onChange(edits: Edit[]): void;
+  onChange(edits: Edit[], snapshot?: {editRevision:number}): void;
+  savedEditRevision?: number;
   readOnly?: boolean;
   /** Same full document layout; preview hides editing chrome and always locks edits. */
   presentationMode?: 'preview' | 'edit';
