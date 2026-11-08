@@ -202,3 +202,13 @@ it('does not emit background state or busy messages when there is no caption con
   expect(boundary.snapshot).toHaveBeenCalledTimes(4);
   expect(boundary.messages).toHaveLength(0);
 });
+
+it('keeps the newest toggle snapshot when a lower revision arrives', async () => {
+  const poll = start('main'); await flush();
+  const latest = { ...snapshot(5), liveTranscriptionEnabled: false };
+  boundary.snapshot.mockResolvedValue(latest);
+  poll.changed(latest); await flush();
+  boundary.snapshot.mockResolvedValue({ ...snapshot(4), liveTranscriptionEnabled: true });
+  await poll.refresh();
+  expect(poll.onPacket).toHaveBeenLastCalledWith({ session: latest, captions: [{ id: 'one', text: 'live' }] });
+});

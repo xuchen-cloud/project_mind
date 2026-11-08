@@ -8,7 +8,7 @@ use anyhow::{anyhow, Context, Result};
 use futures_util::{SinkExt, StreamExt};
 use std::{
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc, Arc,
     },
     thread,
@@ -22,6 +22,10 @@ use tokio_tungstenite::{
 };
 
 pub struct LiveParaformerHandle {
+    degraded: Arc<AtomicBool>,
+    send_gate: Arc<std::sync::Mutex<()>>,
+    retained: std::sync::Mutex<std::collections::VecDeque<Result<RecognitionUpdate>>>,
+    control: Arc<AtomicU64>,
     results: mpsc::Receiver<Result<RecognitionUpdate>>,
     join: Option<thread::JoinHandle<Result<()>>>,
     preview_enabled: Arc<AtomicBool>,
@@ -32,16 +36,42 @@ impl LiveParaformerHandle {
     pub fn spawn(
         endpoint: String,
         api_key: String,
+        microphone: AudioFrameStream,
+        system: AudioFrameStream,
+        epoch_offset_ms: u64,
+        preview_enabled: bool,
+    ) -> Result<Self> {
+        Self::spawn_controlled(
+            endpoint,
+            api_key,
+            microphone,
+            system,
+            epoch_offset_ms,
+            preview_enabled,
+            true,
+        )
+    }
+
+    pub fn spawn_controlled(
+        endpoint: String,
+        api_key: String,
         mut microphone: AudioFrameStream,
         mut system: AudioFrameStream,
         epoch_offset_ms: u64,
         preview_enabled: bool,
+        live_enabled: bool,
     ) -> Result<Self> {
         super::paraformer::validate_endpoint(&endpoint)?;
         let (send, results) = mpsc::channel();
         let (stop, shutdown) = tokio::sync::oneshot::channel();
         let preview_enabled = Arc::new(AtomicBool::new(preview_enabled));
         let worker_preview = Arc::clone(&preview_enabled);
+        let control = Arc::new(AtomicU64::new(u64::from(live_enabled)));
+        let worker_control = Arc::clone(&control);
+        let degraded = Arc::new(AtomicBool::new(false));
+        let worker_degraded = degraded.clone();
+        let send_gate = Arc::new(std::sync::Mutex::new(()));
+        let worker_send_gate = send_gate.clone();
         let join = thread::Builder::new()
             .name("voice-paraformer".into())
             .spawn(move || {
@@ -49,8 +79,53 @@ impl LiveParaformerHandle {
                     .enable_all()
                     .build()?;
                 let outcome = runtime.block_on(async {
-                    let connection = run_reconnecting(&endpoint, &api_key, &mut microphone, &mut system,
-                        epoch_offset_ms, &send, &worker_preview);
+                    let connection = async {
+                        if !live_enabled { send.send(Ok(RecognitionUpdate::CloudGap("实时转写已关闭，音频保留用于补转写".into()))).ok(); }
+                        'capture: loop {
+                            let generation = worker_control.load(Ordering::SeqCst);
+                            if generation & 1 == 0 {
+                                tokio::select! {
+                                    frame = microphone.next() => if frame.is_none() { return Ok(()); },
+                                    frame = system.next() => if frame.is_none() { return Ok(()); },
+                                    _ = tokio::time::sleep(Duration::from_millis(20)) => {},
+                                }
+                                continue;
+                            }
+                            let (generation_send, generation_receive) = mpsc::channel();
+                            let connection = run_reconnecting(&endpoint, &api_key, &mut microphone, &mut system, epoch_offset_ms, &generation_send, &worker_preview);
+                            tokio::pin!(connection);
+                            loop {
+                                tokio::select! {
+                                    result = &mut connection => {
+                                        let _gate = worker_send_gate.lock().unwrap_or_else(|error| error.into_inner());
+                                        if worker_control.load(Ordering::SeqCst) != generation {
+                                            send.send(Ok(RecognitionUpdate::CloudGap("实时转写发生切换，音频保留用于补转写".into()))).ok();
+                                            continue 'capture;
+                                        }
+                                        for update in generation_receive.try_iter() { send.send(update).ok(); }
+                                        match result {
+                                            Ok(()) => return Ok(()),
+                                            Err(error) => {
+                                                send.send(Ok(RecognitionUpdate::CloudGap(error.to_string()))).ok();
+                                                worker_degraded.store(true, Ordering::SeqCst);
+                                                worker_control.fetch_and(!1, Ordering::SeqCst);
+                                                send.send(Ok(RecognitionUpdate::LiveDegraded)).ok();
+                                                continue 'capture;
+                                            }
+                                        }
+                                    },
+                                    _ = tokio::time::sleep(Duration::from_millis(20)) => {
+                                        let _gate = worker_send_gate.lock().unwrap_or_else(|error| error.into_inner());
+                                        if worker_control.load(Ordering::SeqCst) != generation {
+                                            send.send(Ok(RecognitionUpdate::CloudGap("实时转写发生切换，音频保留用于补转写".into()))).ok();
+                                            break;
+                                        }
+                                        for update in generation_receive.try_iter() { send.send(update).ok(); }
+                                    }
+                                }
+                            }
+                        }
+                    };
                     tokio::pin!(connection);
                     tokio::select! {
                         result = &mut connection => result,
@@ -64,6 +139,10 @@ impl LiveParaformerHandle {
                 outcome
             })?;
         Ok(Self {
+            degraded,
+            send_gate,
+            retained: std::sync::Mutex::new(std::collections::VecDeque::new()),
+            control,
             results,
             join: Some(join),
             preview_enabled,
@@ -71,11 +150,66 @@ impl LiveParaformerHandle {
         })
     }
 
+    pub fn degraded(&self) -> bool {
+        self.degraded.load(Ordering::SeqCst)
+    }
+
+    pub fn set_live_enabled(&self, enabled: bool) {
+        self.degraded.store(false, Ordering::SeqCst);
+        let _gate = self
+            .send_gate
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        self.control
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |old| {
+                Some(((old >> 1) + 1) * 2 + u64::from(enabled))
+            })
+            .ok();
+        let mut retained = self
+            .retained
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        for result in self.results.try_iter() {
+            if matches!(result, Ok(RecognitionUpdate::Final(_)) | Err(_)) {
+                retained.push_back(result);
+            }
+        }
+    }
+
+    pub fn live_enabled(&self) -> bool {
+        self.control.load(Ordering::SeqCst) & 1 == 1
+            && self.join.as_ref().is_some_and(|join| !join.is_finished())
+    }
+
+    pub fn retire(mut self) -> Vec<Result<RecognitionUpdate>> {
+        let mut results = Vec::new();
+        while let Some(result) = self.try_result() {
+            results.push(result);
+        }
+        if let Some(stop) = self.stop.take() {
+            let _ = stop.send(());
+        }
+        if let Some(join) = self.join.take() {
+            thread::spawn(move || {
+                let _ = join.join();
+            });
+        }
+        results
+    }
+
     pub fn set_preview_enabled(&self, enabled: bool) {
         self.preview_enabled.store(enabled, Ordering::Relaxed);
     }
 
     pub fn try_result(&self) -> Option<Result<RecognitionUpdate>> {
+        if let Some(result) = self
+            .retained
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .pop_front()
+        {
+            return Some(result);
+        }
         while let Ok(result) = self.results.try_recv() {
             if matches!(result, Ok(RecognitionUpdate::Partial(_)))
                 && !self.preview_enabled.load(Ordering::Relaxed)
@@ -446,6 +580,10 @@ mod tests {
             results,
             join: None,
             stop: None,
+            degraded: Arc::new(AtomicBool::new(false)),
+            send_gate: Arc::new(std::sync::Mutex::new(())),
+            retained: std::sync::Mutex::new(std::collections::VecDeque::new()),
+            control: Arc::new(AtomicU64::new(1)),
             preview_enabled: Arc::new(AtomicBool::new(false)),
         };
         sender

@@ -45,6 +45,10 @@ AI 部分更新：2026-10-15。父需求 [#97](https://github.com/xuchen-cloud/p
 
 当前 GUI 轮询权威快照并丢弃过期请求结果，不声明已提供带 epoch/sequence 的事件流或事件缺口协议。真实设备与服务的恢复效果仍按下述证据验收。
 
+### 2026-11-01 录音优先与实时控制
+
+[#296](https://github.com/xuchen-cloud/project_mind/issues/296) 增加持久 SenseVoice 补转写、录音中实时开关、自动降级、停止与转写分离，以及外部浮窗 / 应用内横幅。需求见[执行规格](requirements/voice-durable-transcription.md)，本轮 Mac 证据见[验收记录](technical/voice-durable-transcription-20261101.md)。Windows 165H 的完整应用验收仍由 [#294](https://github.com/xuchen-cloud/project_mind/issues/294) 跟踪，不将 Mac 模拟回放记作 Windows 实机通过。GitHub 账号返回 suspended，远端补充同步及发布待恢复；不关闭父需求 #94。
+
 ### 2026-10-24 Windows 实机结果与剩余条件
 
 - 麦克风 P0 仍失败：Record 28 冷启动约 120 ms 即 fault，实际设备缺口为 4,320 frames（90 ms）；结束后录音已保存为 ended，但没有 ASR submit/decode，`captureIntegrityPassed=false`。不得将该记录视为采集通过，也尚不能指定驱动、DSP 或 APO 为根因。

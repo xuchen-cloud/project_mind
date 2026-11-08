@@ -3,6 +3,9 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  liveListener: undefined as undefined | ((message: { type: string }) => void),
+  snapshotGet: vi.fn(async () => null),
+  liveTranscriptionSet: vi.fn(),
   settingsGet: vi.fn(),
   settingsUpsert: vi.fn(),
   modelStatusGet: vi.fn(),
@@ -19,6 +22,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../../services/voiceApi", () => ({ voiceApi: {
   settingsGet: mocks.settingsGet,
   settingsUpsert: mocks.settingsUpsert,
+  snapshotGet: mocks.snapshotGet,
+  liveTranscriptionSet: mocks.liveTranscriptionSet,
   modelStatusGet: mocks.modelStatusGet,
   diarizationModelStatusGet: mocks.diarizationModelStatusGet,
   diarizationModelImport: mocks.diarizationModelImport,
@@ -27,7 +32,7 @@ vi.mock("../../services/voiceApi", () => ({ voiceApi: {
   profileTest: mocks.profileTest,
 } }));
 vi.mock("../../services/projectMindApi", () => ({ projectMindApi: { aiSettingsGet: mocks.aiSettingsGet } }));
-vi.mock("../../services/desktopApi", () => ({ desktopApi: { pickDirectory: mocks.pickDirectory, openExternalUrl: vi.fn() } }));
+vi.mock("../../services/desktopApi", () => ({ desktopApi: { listenEvent: vi.fn(async (_event, callback) => { mocks.liveListener = callback; return () => {}; }), emitEvent: vi.fn(async () => {}), pickDirectory: mocks.pickDirectory, openExternalUrl: vi.fn() } }));
 vi.mock("../../state/feedback-store", () => ({ useFeedbackStore: () => ({ pushToast: mocks.pushToast }) }));
 
 import { VoiceSettingsPanel } from "./VoiceSettingsPanel";
@@ -38,6 +43,8 @@ function renderPanel(client = new QueryClient({ defaultOptions: { queries: { ret
 
 describe("VoiceSettingsPanel", () => {
   beforeEach(() => {
+    mocks.snapshotGet.mockReset().mockResolvedValue(null);
+    mocks.liveTranscriptionSet.mockReset();
     mocks.settingsGet.mockReset();
     mocks.diarizationModelInstallStatusGet.mockReset().mockResolvedValue({ phase: "idle", downloadedBytes: 0, totalBytes: 0, error: null });
     mocks.diarizationModelInstall.mockReset().mockResolvedValue({ phase: "downloading", downloadedBytes: 0, totalBytes: 100, error: null });
@@ -55,7 +62,7 @@ describe("VoiceSettingsPanel", () => {
     mocks.pushToast.mockReset();
     mocks.settingsGet.mockResolvedValue({
       speechProfile: { kind: "paraformer", endpoint: "wss://dashscope.aliyuncs.com/api-ws/v1/inference", model: "paraformer-realtime-v2", credentialProfileId: null },
-      livePreviewEnabled: false, textProfileId: null, translationProfileId: null, contextEnabled: false, captionLines: 4,
+      liveTranscriptionEnabled: true, livePreviewEnabled: false, textProfileId: null, translationProfileId: null, contextEnabled: false, captionLines: 4,
     });
     mocks.modelStatusGet.mockResolvedValue({ packageId: "sensevoice-small-int8-2024-07-17", ready: false, detail: "模型未就绪" });
     mocks.aiSettingsGet.mockResolvedValue({ profiles: [{ id: 7, name: "DashScope", enabled: true, hasStoredKey: true, apiKeyLast4: "1234", supportsText: true, defaultModel: "qwen-plus" }] });
@@ -226,7 +233,7 @@ describe("VoiceSettingsPanel", () => {
 
   it("saves the cloud interim caption switch", async () => {
     renderPanel();
-    const toggle = await screen.findByRole("checkbox", { name: "实时临时字幕" });
+    const toggle = await screen.findByRole("checkbox", { name: "实时临时字幕预览" });
     fireEvent.click(toggle);
     fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
     await waitFor(() => expect(mocks.settingsUpsert).toHaveBeenCalledWith(
@@ -245,7 +252,7 @@ describe("VoiceSettingsPanel", () => {
   it("saves the local provisional caption switch separately from final recognition", async () => {
     mocks.settingsGet.mockResolvedValue({
       speechProfile: { kind: "sense_voice_onnx", modelPackageId: "sensevoice-small-int8-2024-07-17" },
-      livePreviewEnabled: false,
+      liveTranscriptionEnabled: true, livePreviewEnabled: false,
       textProfileId: null, translationProfileId: null, contextEnabled: false, captionLines: 4,
     });
     renderPanel();
@@ -261,7 +268,7 @@ describe("VoiceSettingsPanel", () => {
   it("keeps ready local recognition management collapsed until requested", async () => {
     mocks.settingsGet.mockResolvedValue({
       speechProfile: { kind: "sense_voice_onnx", modelPackageId: "sensevoice-small-int8-2024-07-17" },
-      livePreviewEnabled: false,
+      liveTranscriptionEnabled: true, livePreviewEnabled: false,
       textProfileId: null, translationProfileId: null, contextEnabled: false, captionLines: 4,
     });
     mocks.modelStatusGet.mockResolvedValue({
@@ -278,4 +285,65 @@ describe("VoiceSettingsPanel", () => {
     expect(screen.getByRole("button", { name: "重新导入本地模型" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "导入本地模型" })).not.toBeInTheDocument();
   });
+});
+
+it("synchronizes a manual floating-window preference change while settings is open", async () => {
+  renderPanel();
+  const toggle = await screen.findByRole("checkbox", { name: /实时转写（/ });
+  expect(toggle).toBeChecked();
+  mocks.settingsGet.mockResolvedValue({ speechProfile: { kind: "paraformer" }, liveTranscriptionEnabled: false });
+  await act(async () => mocks.liveListener?.({ type: "changed" }));
+  expect(toggle).not.toBeChecked();
+});
+
+it("shows active degraded inference off while preserving the saved default on unrelated save", async () => {
+  const session = { sessionId: "recording", revision: 8, phase: "recording", liveTranscriptionEnabled: false, liveTranscriptionDegraded: true };
+  mocks.snapshotGet.mockResolvedValue(session);
+  mocks.settingsGet.mockResolvedValue({ speechProfile: { kind: "paraformer" }, liveTranscriptionEnabled: true, captionLines: 4 });
+  mocks.settingsUpsert.mockResolvedValue(undefined);
+  renderPanel();
+  const toggle = await screen.findByRole("checkbox", { name: /实时转写（/ });
+  expect(toggle).not.toBeChecked();
+  expect(screen.getByRole("status")).toHaveTextContent("录音正常，文字稍后补齐");
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await waitFor(() => expect(mocks.settingsUpsert).toHaveBeenCalledWith(expect.objectContaining({ liveTranscriptionEnabled: true })));
+  expect(mocks.liveTranscriptionSet).not.toHaveBeenCalled();
+});
+
+it("explicitly restores active inference even when the saved preference was already on", async () => {
+  mocks.snapshotGet.mockResolvedValue({ sessionId: "recording", revision: 8, phase: "recording", liveTranscriptionEnabled: false, liveTranscriptionDegraded: true });
+  mocks.settingsGet.mockResolvedValue({ speechProfile: { kind: "paraformer" }, liveTranscriptionEnabled: true, captionLines: 4 });
+  mocks.liveTranscriptionSet.mockResolvedValue({ sessionId: "recording", revision: 9, phase: "recording", liveTranscriptionEnabled: true, liveTranscriptionDegraded: false });
+  renderPanel();
+  const toggle = await screen.findByRole("checkbox", { name: /实时转写（/ });
+  fireEvent.click(toggle);
+  await waitFor(() => expect(mocks.liveTranscriptionSet).toHaveBeenCalledWith({ sessionId: "recording", expectedRevision: 8, enabled: true }));
+  await waitFor(() => expect(toggle).toBeChecked());
+});
+
+it("does not apply a rejected active toggle when recording ended during the request", async () => {
+  mocks.snapshotGet.mockResolvedValueOnce({ sessionId: "recording", revision: 8, phase: "recording", liveTranscriptionEnabled: false, liveTranscriptionDegraded: true }).mockResolvedValue(null);
+  mocks.settingsGet.mockResolvedValue({ speechProfile: { kind: "paraformer" }, liveTranscriptionEnabled: false, captionLines: 4 });
+  mocks.liveTranscriptionSet.mockRejectedValue(new Error("session ended"));
+  mocks.pushToast.mockClear();
+  renderPanel();
+  const toggle = await screen.findByRole("checkbox", { name: /实时转写（/ });
+  fireEvent.click(toggle);
+  await waitFor(() => expect(mocks.pushToast).toHaveBeenCalledWith(expect.objectContaining({ title: "实时转写切换失败" })));
+  expect(toggle).not.toBeChecked();
+  expect(toggle).toBeEnabled();
+});
+
+it("keeps the ending session authoritative and disables inference changes until audio is saved", async () => {
+  mocks.snapshotGet.mockResolvedValue({ sessionId: "pending-save", revision: 9, phase: "ending", liveTranscriptionEnabled: false, liveTranscriptionDegraded: true, pauseReason: "保存待重试" });
+  mocks.settingsGet.mockResolvedValue({ speechProfile: { kind: "paraformer" }, liveTranscriptionEnabled: true, captionLines: 4 });
+  mocks.liveTranscriptionSet.mockReset();
+  renderPanel();
+  const toggle = await screen.findByRole("checkbox", { name: /实时转写（/ });
+  expect(toggle).not.toBeChecked();
+  expect(toggle).toBeDisabled();
+  expect(screen.getByRole("status")).toHaveTextContent("音频待保存：保存待重试");
+  expect(screen.queryByText(/录音正常/)).not.toBeInTheDocument();
+  fireEvent.click(toggle);
+  expect(mocks.liveTranscriptionSet).not.toHaveBeenCalled();
 });

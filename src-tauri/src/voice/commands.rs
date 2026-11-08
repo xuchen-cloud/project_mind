@@ -227,9 +227,28 @@ pub(crate) fn voice_settings_upsert(
         .current_workspace()
         .map_err(|error| failed("settings_upsert", error))?;
     with_voice_db(&state, &runtime, "settings_upsert", |voice, db| {
-        db.voice_settings_upsert(&input)?;
+        crate::db::Database::voice_settings_validate(&input)?;
+        let previous = db.voice_settings_get()?;
+        if previous.live_transcription_enabled != input.live_transcription_enabled {
+            voice.apply_live_transcription_setting(db, &input)?;
+        } else {
+            db.voice_settings_upsert(&input)?;
+        }
         voice.set_live_preview_enabled(input.live_preview_enabled);
         Ok(())
+    })
+}
+
+#[tauri::command]
+pub(crate) fn voice_live_transcription_set(
+    state: State<'_, AppState>,
+    input: LiveTranscriptionInput,
+) -> VoiceResult<VoiceSessionSnapshot> {
+    let runtime = state
+        .current_workspace()
+        .map_err(|error| failed("live_transcription_set", error))?;
+    with_voice_db(&state, &runtime, "live_transcription_set", |voice, db| {
+        voice.set_live_transcription(db, &input)
     })
 }
 

@@ -321,7 +321,57 @@ impl AudioFrameSink {
     }
 }
 
+/// Shared circuit for the two auxiliary Activity copies. Raw queues never use it.
+#[derive(Default)]
+pub(crate) struct ActivityHealth(std::sync::atomic::AtomicU8);
+impl ActivityHealth {
+    pub(crate) fn disable(&self, reason: u8) {
+        let _ = self.0.compare_exchange(
+            0,
+            reason,
+            std::sync::atomic::Ordering::AcqRel,
+            std::sync::atomic::Ordering::Acquire,
+        );
+    }
+    pub(crate) fn warning(&self) -> Option<&'static str> {
+        match self.0.load(std::sync::atomic::Ordering::Acquire) {
+            0 => None,
+            1 => Some("自动静音暂停已关闭：语音活动检测积压，录音正常"),
+            _ => Some("自动静音暂停已关闭：语音活动检测不可用，录音正常"),
+        }
+    }
+}
+
+pub(crate) struct ActivityFrameSink {
+    sink: AudioFrameSink,
+    health: std::sync::Arc<ActivityHealth>,
+}
+impl ActivityFrameSink {
+    /// An auxiliary failure disables both observers; it cannot fail raw capture.
+    pub(crate) fn push(&self, frame: &AudioFrame) {
+        if self.health.warning().is_some() {
+            return;
+        }
+        if let Err(error) = self.sink.try_push(frame.clone()) {
+            self.health.disable(match error {
+                AudioIngressError::Backpressure(_) => 1,
+                AudioIngressError::Closed(_) => 2,
+            });
+        }
+    }
+}
+
+pub(crate) fn bounded_activity_frames(
+    capacity: usize,
+    health: std::sync::Arc<ActivityHealth>,
+) -> Result<(ActivityFrameSink, AudioFrameStream), AudioQueueError> {
+    let (sink, mut stream) = bounded_audio_frames(capacity)?;
+    stream.activity_health = Some(health.clone());
+    Ok((ActivityFrameSink { sink, health }, stream))
+}
+
 pub struct AudioFrameStream {
+    pub(crate) activity_health: Option<std::sync::Arc<ActivityHealth>>,
     receiver: tokio::sync::mpsc::Receiver<AudioFrame>,
 }
 
@@ -349,12 +399,67 @@ pub fn bounded_audio_frames(
         return Err(AudioQueueError::ZeroCapacity);
     }
     let (sender, receiver) = tokio::sync::mpsc::channel(capacity);
-    Ok((AudioFrameSink { sender }, AudioFrameStream { receiver }))
+    Ok((
+        AudioFrameSink { sender },
+        AudioFrameStream {
+            receiver,
+            activity_health: None,
+        },
+    ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn auxiliary_backlog_disables_both_observers_but_preserves_raw_frames() {
+        let health = std::sync::Arc::new(ActivityHealth::default());
+        let (mic, mut mic_frames) = bounded_activity_frames(1, health.clone()).unwrap();
+        let (sys, mut sys_frames) = bounded_activity_frames(1, health.clone()).unwrap();
+        let (raw, mut raw_frames) = bounded_audio_frames(4).unwrap();
+        let mut timeline = SourceTimeline::new(AudioSource::Microphone, 1, 0, 48_000, 1).unwrap();
+        for i in 0..3 {
+            let frame = timeline.stamp(i * 10_000_000, vec![0.1; 480]).unwrap();
+            raw.try_push(frame.clone()).unwrap();
+            mic.push(&frame);
+            sys.push(&frame);
+        }
+        assert_eq!(
+            health.warning(),
+            Some("自动静音暂停已关闭：语音活动检测积压，录音正常")
+        );
+        assert_eq!(mic_frames.try_next().unwrap().sequence, 0);
+        assert_eq!(sys_frames.try_next().unwrap().sequence, 0);
+        assert_eq!(mic_frames.try_next(), Err(AudioReceiveError::Empty));
+        assert_eq!(sys_frames.try_next(), Err(AudioReceiveError::Empty));
+        for sequence in 0..3 {
+            assert_eq!(raw_frames.try_next().unwrap().sequence, sequence);
+        }
+    }
+
+    #[test]
+    fn closed_activity_consumer_disables_its_peer_without_hiding_raw_failure() {
+        let health = std::sync::Arc::new(ActivityHealth::default());
+        let (mic, mic_frames) = bounded_activity_frames(1, health.clone()).unwrap();
+        let (sys, mut sys_frames) = bounded_activity_frames(1, health.clone()).unwrap();
+        let (raw, raw_frames) = bounded_audio_frames(1).unwrap();
+        drop(mic_frames);
+        drop(raw_frames);
+        let mut timeline = SourceTimeline::new(AudioSource::Microphone, 1, 0, 48_000, 1).unwrap();
+        let frame = timeline.stamp(0, vec![0.1; 480]).unwrap();
+        mic.push(&frame);
+        sys.push(&frame);
+        assert_eq!(
+            health.warning(),
+            Some("自动静音暂停已关闭：语音活动检测不可用，录音正常")
+        );
+        assert_eq!(sys_frames.try_next(), Err(AudioReceiveError::Empty));
+        assert!(matches!(
+            raw.try_push(frame),
+            Err(AudioIngressError::Closed(_))
+        ));
+    }
 
     #[test]
     fn source_timeline_uses_sample_positions_instead_of_callback_arrival_time() {

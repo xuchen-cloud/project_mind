@@ -14,43 +14,65 @@ use std::{
 };
 
 pub struct ActivityHandle {
+    health: Arc<super::capture::ActivityHealth>,
     silent: Arc<AtomicBool>,
     failed: Arc<AtomicBool>,
+    completed: Arc<AtomicBool>,
     join: thread::JoinHandle<Result<()>>,
 }
 
 impl ActivityHandle {
     pub fn spawn(microphone: AudioFrameStream, system: AudioFrameStream) -> Result<Self> {
+        let health = microphone.activity_health.clone().unwrap_or_default();
+        let worker_health = health.clone();
         let mut detectors = [FsmnSpeechDetector::new()?, FsmnSpeechDetector::new()?];
         let silent = Arc::new(AtomicBool::new(false));
         let failed = Arc::new(AtomicBool::new(false));
         let result_silent = silent.clone();
         let result_failed = failed.clone();
+        let completed = Arc::new(AtomicBool::new(false));
+        let result_completed = completed.clone();
         let join = thread::Builder::new()
             .name("voice-activity".into())
             .spawn(move || {
-                let runtime = tokio::runtime::Builder::new_current_thread().build()?;
+                let runtime = tokio::runtime::Builder::new_current_thread().enable_time().build()?;
                 let result = runtime.block_on(async {
                     let mut tracks = [Track::new(), Track::new()];
                     let mut activity = SpeechActivity::default();
                     let mut capture = CaptureReader::new(microphone, system);
-                    while let Some(frame) = capture.next([tracks[0].end(), tracks[1].end()]).await {
+                    loop {
+                        if worker_health.warning().is_some() { break; }
+                        let frame = tokio::select! {
+                            frame = capture.next([tracks[0].end(), tracks[1].end()]) => frame,
+                            _ = tokio::time::sleep(std::time::Duration::from_millis(20)) => continue,
+                        };
+                        let Some(frame) = frame else { break; };
                         observe_frame(&mut tracks, &mut detectors, &mut activity, frame)?;
                         result_silent.store(activity.should_pause(), Ordering::Relaxed);
                     }
                     Ok(())
                 });
                 result_failed.store(result.is_err(), Ordering::Relaxed);
+                if result.is_err() { worker_health.disable(2); }
+                result_completed.store(true, Ordering::Release);
                 result
             })?;
         Ok(Self {
+            health,
             silent,
             failed,
+            completed,
             join,
         })
     }
     pub fn should_pause(&self) -> bool {
-        self.silent.load(Ordering::Relaxed)
+        self.warning().is_none() && self.silent.load(Ordering::Relaxed)
+    }
+    pub fn warning(&self) -> Option<&'static str> {
+        if self.join.is_finished() && !self.completed.load(Ordering::Acquire) {
+            self.health.disable(2);
+        }
+        self.health.warning()
     }
     pub fn failed(&self) -> bool {
         self.failed.load(Ordering::Relaxed)
@@ -260,16 +282,18 @@ mod tests {
         let (live_mic_send, live_mic) = bounded_audio_frames(queue_capacity).unwrap();
         let (live_sys_send, live_sys) = bounded_audio_frames(queue_capacity).unwrap();
         let activity_only = std::env::var_os("PROJECT_MIND_TEST_ACTIVITY_ONLY").is_some();
+        let live_enabled = std::env::var_os("PROJECT_MIND_TEST_LIVE_OFF").is_none();
         let live = if activity_only {
             None
         } else {
             Some(
-                LiveLocalHandle::spawn(
+                LiveLocalHandle::spawn_controlled(
                     LocalAsrWorker::start(cache.path()).unwrap(),
                     live_mic,
                     live_sys,
                     0,
                     true,
+                    live_enabled,
                 )
                 .unwrap(),
             )
@@ -373,7 +397,7 @@ mod tests {
                 .unwrap();
         }
         eprintln!("REPLAY_INTEGRITY queue_capacity={queue_capacity} mic_callback={mic_callback} system_callback={system_callback} both_voiced={both_voiced} expected_callbacks={expected_callbacks} accepted_callbacks={submitted} expected_end_ms={expected_end_ms} input_sha256={input_hash} transcript_sha256={:x} boundaries={boundaries:?}", transcript_hasher.finalize());
-        eprintln!("ACTIVITY_REPLAY activity_only={activity_only} submitted={submitted} feed_wall_s={:.3} activity_finish_wall_s={:.3} total_wall_s={:.3} failed={failed} failed_at_ms={failed_at:?} activity_ingress={activity_ingress_error:?} live_ingress={live_ingress_error:?} activity_result={activity_result:?} finals={final_count} final_end_ms={final_end} live_errors={live_errors:?}", feed_wall.as_secs_f64(), activity_wall.as_secs_f64(), started.elapsed().as_secs_f64());
+        eprintln!("ACTIVITY_REPLAY activity_only={activity_only} live_enabled={live_enabled} submitted={submitted} feed_wall_s={:.3} activity_finish_wall_s={:.3} total_wall_s={:.3} failed={failed} failed_at_ms={failed_at:?} activity_ingress={activity_ingress_error:?} live_ingress={live_ingress_error:?} activity_result={activity_result:?} finals={final_count} final_end_ms={final_end} live_errors={live_errors:?}", feed_wall.as_secs_f64(), activity_wall.as_secs_f64(), started.elapsed().as_secs_f64());
         assert_eq!(
             submitted, expected_callbacks,
             "replay must deliver every input callback"
@@ -382,11 +406,14 @@ mod tests {
             !failed && failed_at.is_none(),
             "activity worker failed during replay"
         );
-        if !activity_only {
+        if !activity_only && live_enabled {
             assert!(
                 final_count > 0,
                 "voiced fixture must produce final transcript"
             );
+        }
+        if !live_enabled {
+            assert_eq!(final_count, 0, "disabled live ASR must not generate finals");
         }
         assert!(
             activity_result.is_ok(),

@@ -6,6 +6,7 @@ const HARD_LIMIT_SAMPLES: u64 = 30 * SAMPLE_RATE;
 
 /// Holds unfinished text across an audio safety split. SenseVoice often adds
 /// terminal punctuation at the end of a forced chunk even when speech continues.
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct SentenceAssembler {
     pending: String,
     start_sample: Option<u64>,
@@ -13,6 +14,18 @@ pub struct SentenceAssembler {
 }
 
 impl SentenceAssembler {
+    pub(crate) fn checkpoint_valid(&self, start: u64, end: u64) -> bool {
+        self.start_sample.is_none_or(|pending| {
+            pending >= start
+                && self.end_sample <= end
+                && self.end_sample.saturating_sub(pending) <= HARD_LIMIT_SAMPLES
+        })
+    }
+
+    pub(crate) fn pending_start(&self) -> Option<u64> {
+        self.start_sample
+    }
+
     pub fn new() -> Self {
         Self {
             pending: String::new(),

@@ -74,7 +74,7 @@ pub(crate) mod dsh_source_evidence;
 mod startup_tests;
 mod voice_recovery;
 mod voice_diarization;
-pub(crate) use voice_recovery::CloudGap;
+pub(crate) use voice_recovery::{CloudGap, RecoveryBackend};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fs,
@@ -925,6 +925,60 @@ impl Database {
         Ok(())
     }
 
+    pub fn voice_live_transcription_suppressed(&self) -> Result<bool> {
+        self.conn.query_row("SELECT EXISTS(SELECT 1 FROM app_settings WHERE key='voice_live_transcription_suppressed')", [], |row| row.get(0)).map_err(Into::into)
+    }
+
+    pub fn voice_live_transcription_suppress(&self, suppressed: bool) -> Result<()> {
+        if suppressed {
+            self.conn.execute("INSERT INTO app_settings(key,value_json,updated_at) VALUES ('voice_live_transcription_suppressed','true',?1) ON CONFLICT(key) DO NOTHING", [now_iso()])?;
+        } else {
+            self.conn.execute(
+                "DELETE FROM app_settings WHERE key='voice_live_transcription_suppressed'",
+                [],
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn voice_live_transcription_control(
+        &self,
+        session: &str,
+        revision: u64,
+        epoch: u64,
+        settings: &VoiceSettings,
+    ) -> Result<PersistedVoiceSession> {
+        let tx = self.conn.unchecked_transaction()?;
+        self.voice_settings_upsert(settings)?;
+        self.voice_live_transcription_suppress(false)?;
+        if !settings.live_transcription_enabled {
+            self.voice_cloud_open_gap(session, epoch, "实时转写已关闭，音频保留用于补转写")?;
+        }
+        if tx.execute(
+            "UPDATE recording_sessions SET revision=revision+1 WHERE id=?1 AND revision=?2",
+            params![session, i64::try_from(revision)?],
+        )? != 1
+        {
+            return Err(anyhow!("voice session revision conflict"));
+        }
+        let persisted = self
+            .voice_session_get(session)?
+            .ok_or_else(|| anyhow!("voice session not found"))?;
+        tx.commit()?;
+        Ok(persisted)
+    }
+
+    pub fn voice_session_project_id(&self, note: Option<i64>) -> Result<Option<i64>> {
+        note.map(|id| {
+            self.conn
+                .query_row("SELECT project_id FROM notes WHERE id=?1", [id], |row| {
+                    row.get(0)
+                })
+                .map_err(Into::into)
+        })
+        .transpose()
+    }
+
     pub fn voice_settings_get(&self) -> Result<VoiceSettings> {
         let stored = self
             .conn
@@ -937,6 +991,7 @@ impl Database {
         let mut settings = stored.map_or_else(
             || {
                 Ok(VoiceSettings {
+                    live_transcription_enabled: true,
                     speech_profile: None,
                     live_preview_enabled: false,
                     text_profile_id: None,
@@ -957,7 +1012,7 @@ impl Database {
         Ok(settings)
     }
 
-    pub fn voice_settings_upsert(&self, settings: &VoiceSettings) -> Result<()> {
+    pub fn voice_settings_validate(settings: &VoiceSettings) -> Result<()> {
         if !(2..=8).contains(&settings.caption_lines) {
             return Err(anyhow!("caption_lines must be between 2 and 8"));
         }
@@ -972,6 +1027,11 @@ impl Database {
             }
             _ => {}
         }
+        Ok(())
+    }
+
+    pub fn voice_settings_upsert(&self, settings: &VoiceSettings) -> Result<()> {
+        Self::voice_settings_validate(settings)?;
         let value = serde_json::to_string(settings)?;
         let timestamp = now_iso();
         self.conn.execute(
@@ -9058,6 +9118,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
     fn voice_session_persists_settings_record_and_revisioned_lifecycle() {
         let (_harness, mut database) = setup_database();
         let settings = VoiceSettings {
+                    live_transcription_enabled: true,
             speech_profile: None,
             live_preview_enabled: false,
             text_profile_id: None,

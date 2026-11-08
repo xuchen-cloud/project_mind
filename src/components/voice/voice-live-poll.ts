@@ -65,6 +65,7 @@ export function createVoiceLivePoll(options: {
     timer = setTimeout(() => { void read(); }, delay);
   };
   const accept = (packet: VoiceLivePacket) => {
+    if (packet.session && latest.session?.sessionId === packet.session.sessionId && packet.session.revision < latest.session.revision) return;
     initialized = true;
     latest = packet;
     options.onPacket(packet);

@@ -1915,6 +1915,7 @@ pub fn run() {
             voice::commands::voice_profile_test,
             voice::commands::voice_settings_get,
             voice::commands::voice_settings_upsert,
+            voice::commands::voice_live_transcription_set,
             voice::commands::voice_start,
             voice::commands::voice_pause,
             voice::commands::voice_resume,

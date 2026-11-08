@@ -31,6 +31,7 @@ export const voiceApi = {
   pause: (input: VoiceSessionInput) => desktopApi.command<VoiceSessionSnapshot>("voice_pause", { input }),
   resume: (input: VoiceSessionInput) => desktopApi.command<VoiceSessionSnapshot>("voice_resume", { input }),
   end: (input: VoiceSessionInput) => desktopApi.command<VoiceSessionSnapshot>("voice_end", { input }),
+  liveTranscriptionSet: (input: { sessionId: string; expectedRevision: number; enabled: boolean }) => desktopApi.command<VoiceSessionSnapshot>("voice_live_transcription_set", { input }),
   snapshotGet: () => desktopApi.command<VoiceSessionSnapshot | null>("voice_snapshot_get"),
   playbackGet: (input: VoiceRecordLookup) => desktopApi.command<VoicePlaybackSnapshot | null>("voice_playback_get", { input }),
   recoveryGet: (input: VoiceRecordLookup) => desktopApi.command<VoiceRecoveryGap[]>("voice_recovery_get", { input }),

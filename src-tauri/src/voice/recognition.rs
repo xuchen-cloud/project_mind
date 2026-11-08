@@ -64,6 +64,7 @@ pub enum SegmenterError {
     PositionOverflow,
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
 struct ActiveUtterance {
     start_sample: u64,
     samples: Vec<f32>,
@@ -72,6 +73,7 @@ struct ActiveUtterance {
 }
 
 /// Frame-aligned segmentation. Create a fresh instance for every capture epoch.
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct UtteranceSegmenter {
     pre_roll_samples: usize,
     tail_samples: usize,
@@ -86,6 +88,21 @@ pub struct UtteranceSegmenter {
 }
 
 impl UtteranceSegmenter {
+    pub(crate) fn checkpoint_valid(&self, start: u64, end: u64) -> bool {
+        self.max_samples == 160_000
+            && self.pre_roll.len() <= 4_000
+            && self.expected_sample == Some(end)
+            && self.active.as_ref().is_none_or(|active| {
+                active.start_sample >= start
+                    && active.samples.len() <= self.max_samples
+                    && active.start_sample + active.samples.len() as u64 == end
+            })
+    }
+
+    pub(crate) fn pending_start(&self) -> Option<u64> {
+        self.active.as_ref().map(|active| active.start_sample)
+    }
+
     pub fn new(sample_rate: u32, config: SegmenterConfig) -> Result<Self, SegmenterError> {
         let samples = |ms: u32| (u64::from(sample_rate) * u64::from(ms) / 1_000) as usize;
         let max_samples = samples(config.max_segment_ms);

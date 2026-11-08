@@ -11,7 +11,7 @@ use anyhow::{anyhow, Result};
 use std::{
     collections::VecDeque,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc, Arc,
     },
     thread,
@@ -36,6 +36,8 @@ pub enum RecognitionUpdate {
     CloudConnected { start_ms: u64 },
     CloudGap(String),
     CloudComplete,
+    LiveDegraded,
+    Covered { end_ms: u64 },
 }
 
 fn local_final(result: LocalAsrResult) -> TranscriptFinal {
@@ -48,6 +50,10 @@ fn local_final(result: LocalAsrResult) -> TranscriptFinal {
 }
 
 pub struct LiveLocalHandle {
+    send_gate: Arc<std::sync::Mutex<()>>,
+    retained: std::sync::Mutex<std::collections::VecDeque<Result<RecognitionUpdate>>>,
+    degraded: Arc<AtomicBool>,
+    control: Arc<AtomicU64>,
     results: mpsc::Receiver<Result<RecognitionUpdate>>,
     join: Option<thread::JoinHandle<Result<()>>>,
     preview_enabled: Arc<AtomicBool>,
@@ -61,9 +67,33 @@ impl LiveLocalHandle {
         epoch_offset_ms: u64,
         preview_enabled: bool,
     ) -> Result<Self> {
+        Self::spawn_controlled(
+            worker,
+            microphone,
+            system,
+            epoch_offset_ms,
+            preview_enabled,
+            true,
+        )
+    }
+
+    pub fn spawn_controlled(
+        worker: LocalAsrWorker,
+        microphone: AudioFrameStream,
+        system: AudioFrameStream,
+        epoch_offset_ms: u64,
+        preview_enabled: bool,
+        live_enabled: bool,
+    ) -> Result<Self> {
         let (send, results) = mpsc::channel();
         let preview_enabled = Arc::new(AtomicBool::new(preview_enabled));
         let worker_preview = Arc::clone(&preview_enabled);
+        let control = Arc::new(AtomicU64::new(u64::from(live_enabled)));
+        let worker_control = Arc::clone(&control);
+        let send_gate = Arc::new(std::sync::Mutex::new(()));
+        let worker_send_gate = send_gate.clone();
+        let degraded = Arc::new(AtomicBool::new(false));
+        let worker_degraded = degraded.clone();
         let join = thread::Builder::new()
             .name("voice-live-local".into())
             .spawn(move || {
@@ -73,18 +103,24 @@ impl LiveLocalHandle {
                 let result = runtime.block_on(async {
                     let mut pipeline =
                         Pipeline::new(worker, send.clone(), epoch_offset_ms, worker_preview)?;
+                    pipeline.control = worker_control;
+                    pipeline.send_gate = worker_send_gate;
+                    pipeline.degraded = worker_degraded;
                     let mut capture = CaptureReader::new(microphone, system);
                     let capture_result: Result<()> = async {
                         loop {
                             let frame = tokio::select! {
                                 frame = capture.next([pipeline.mixer.microphone.end(), pipeline.mixer.system.end()]) => frame,
                                 _ = tokio::time::sleep(std::time::Duration::from_millis(20)) => {
-                                    pipeline.poll()?;
+                                    if let Err(error) = pipeline.poll() { pipeline.degrade(error)?; }
                                     continue;
                                 }
                             };
                             match frame {
-                                Some(frame) => pipeline.feed(frame)?,
+                                Some(frame) => if let Err(error) = pipeline.feed(frame) {
+                                    pipeline.degrade(error)?;
+                                    pipeline.mixer = Mixer::new_at(pipeline.mixer.microphone.end().max(pipeline.mixer.system.end()));
+                                },
                                 None => break,
                             }
                         }
@@ -93,9 +129,7 @@ impl LiveLocalHandle {
                     match capture_result {
                         Ok(()) => pipeline.finish(),
                         Err(error) => {
-                            // Report overload promptly while retaining every
-                            // final accepted before the failed input.
-                            let _ = send.send(Err(error));
+                            pipeline.degrade(error)?;
                             pipeline.finish_accepted()
                         }
                     }
@@ -106,10 +140,88 @@ impl LiveLocalHandle {
                 result
             })?;
         Ok(Self {
+            degraded,
+            send_gate,
+            retained: std::sync::Mutex::new(std::collections::VecDeque::new()),
+            control,
             results,
             join: Some(join),
             preview_enabled,
         })
+    }
+
+    pub fn degraded(&self) -> bool {
+        self.degraded.load(Ordering::SeqCst)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pending_final_for_test(worker: LocalAsrWorker) -> Self {
+        let (send, results) = mpsc::channel();
+        let control = Arc::new(AtomicU64::new(1));
+        let worker_control = control.clone();
+        let send_gate = Arc::new(std::sync::Mutex::new(()));
+        let worker_gate = send_gate.clone();
+        let join = thread::spawn(move || {
+            let mut pipeline = Pipeline::new(worker, send, 0, Arc::new(AtomicBool::new(false)))?;
+            pipeline.control = worker_control;
+            pipeline.send_gate = worker_gate;
+            pipeline.submit(UtteranceSegment {
+                start_sample: 0,
+                samples: vec![0.2; 480],
+                forced_split: false,
+            })?;
+            pipeline.finish_accepted()
+        });
+        Self {
+            results,
+            join: Some(join),
+            control,
+            send_gate,
+            retained: std::sync::Mutex::new(VecDeque::new()),
+            degraded: Arc::new(AtomicBool::new(false)),
+            preview_enabled: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    pub fn set_live_enabled(&self, enabled: bool) {
+        let _gate = self
+            .send_gate
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        self.degraded.store(false, Ordering::SeqCst);
+        self.control
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |old| {
+                Some(((old >> 1) + 1) * 2 + u64::from(enabled))
+            })
+            .ok();
+        let mut retained = self
+            .retained
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        for result in self.results.try_iter() {
+            if matches!(result, Ok(RecognitionUpdate::Final(_)) | Err(_)) {
+                retained.push_back(result);
+            }
+        }
+    }
+
+    pub fn live_enabled(&self) -> bool {
+        self.control.load(Ordering::SeqCst) & 1 == 1
+            && self.join.as_ref().is_some_and(|join| !join.is_finished())
+    }
+
+    pub fn retire(mut self) -> Vec<Result<RecognitionUpdate>> {
+        self.set_live_enabled(false);
+        let mut results = Vec::new();
+        while let Some(result) = self.try_result() {
+            results.push(result);
+        }
+        if let Some(join) = self.join.take() {
+            thread::spawn(move || {
+                let _ = join.join();
+            });
+        }
+        results
     }
 
     pub fn set_preview_enabled(&self, enabled: bool) {
@@ -117,6 +229,14 @@ impl LiveLocalHandle {
     }
 
     pub fn try_result(&self) -> Option<Result<RecognitionUpdate>> {
+        if let Some(result) = self
+            .retained
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .pop_front()
+        {
+            return Some(result);
+        }
         self.results.try_recv().ok()
     }
 
@@ -315,6 +435,7 @@ struct Inference {
     answer: mpsc::Receiver<Result<LocalAsrResult>>,
     kind: InferenceKind,
     started: std::time::Instant,
+    generation: u64,
 }
 
 struct PreviewWork {
@@ -324,6 +445,12 @@ struct PreviewWork {
 }
 
 struct Pipeline {
+    send_gate: Arc<std::sync::Mutex<()>>,
+    degraded: Arc<AtomicBool>,
+    control: Arc<AtomicU64>,
+    generation: u64,
+    connected_pending: bool,
+    covered_ms: u64,
     mixer: Mixer,
     vad: SpeechDetector,
     segmenter: UtteranceSegmenter,
@@ -349,6 +476,12 @@ impl Pipeline {
         preview_enabled: Arc<AtomicBool>,
     ) -> Result<Self> {
         Ok(Self {
+            send_gate: Arc::new(std::sync::Mutex::new(())),
+            degraded: Arc::new(AtomicBool::new(false)),
+            control: Arc::new(AtomicU64::new(1)),
+            generation: 1,
+            connected_pending: true,
+            covered_ms: 0,
             mixer: Mixer::new(),
             vad: SpeechDetector::new()?,
             segmenter: UtteranceSegmenter::new(RATE as u32, SegmenterConfig::default())
@@ -377,6 +510,18 @@ impl Pipeline {
     }
 
     fn feed_mixed(&mut self, start_sample: u64, samples: &[f32]) -> Result<()> {
+        self.sync_control()?;
+        if self.generation & 1 == 0 {
+            return Ok(());
+        }
+        if self.connected_pending {
+            self.results
+                .send(Ok(RecognitionUpdate::CloudConnected {
+                    start_ms: self.epoch_offset_ms + start_sample * 1000 / RATE,
+                }))
+                .ok();
+            self.connected_pending = false;
+        }
         let speech = self.vad.is_speech(&samples)?;
         let segments = self
             .segmenter
@@ -388,6 +533,19 @@ impl Pipeline {
             .map_err(|error| anyhow!("local segmentation failed: {error:?}"))?;
         for segment in segments {
             self.submit(segment)?;
+        }
+        let end_ms = self.epoch_offset_ms + (start_sample + samples.len() as u64) * 1000 / RATE;
+        if !speech
+            && self.segmenter.pending_start().is_none()
+            && self.in_flight.is_none()
+            && self.pending_finals.is_empty()
+            && self.assembler.pending_start().is_none()
+            && end_ms >= self.covered_ms + 1000
+        {
+            self.results
+                .send(Ok(RecognitionUpdate::Covered { end_ms }))
+                .ok();
+            self.covered_ms = end_ms;
         }
         if self.preview_enabled.load(Ordering::Relaxed)
             && std::time::Instant::now() >= self.next_preview_at
@@ -402,11 +560,23 @@ impl Pipeline {
     }
 
     fn submit(&mut self, mut segment: UtteranceSegment) -> Result<()> {
+        self.sync_control()?;
+        if self.generation & 1 == 0 {
+            return Ok(());
+        }
         self.preview_generation += 1;
         self.pending_preview = None;
         self.poll()?;
         if self.pending_finals.len() >= MAX_PENDING_FINALS {
-            return Err(anyhow!("local transcription backlog exceeded: final segment queue is full; original source recordings are retained"));
+            self.degraded.store(true, Ordering::SeqCst);
+            self.control.fetch_and(!1, Ordering::SeqCst);
+            self.sync_control()?;
+            self.results.send(Ok(RecognitionUpdate::LiveDegraded)).ok();
+            return Ok(());
+        }
+        if self.pending_finals.len() >= 2 {
+            self.pending_preview = None;
+            self.next_preview_at = std::time::Instant::now() + std::time::Duration::from_secs(30);
         }
         self.preview_text.clear();
         self.last_preview_sample = None;
@@ -454,21 +624,60 @@ impl Pipeline {
         };
         if let Some((segment, kind)) = work {
             self.in_flight = Some(Inference {
-                answer: self.worker.submit(segment)?,
+                answer: self
+                    .worker
+                    .submit_controlled(segment, Some((self.control.clone(), self.generation)))?,
                 kind,
                 started: std::time::Instant::now(),
+                generation: self.generation,
             });
         }
         Ok(())
     }
 
+    fn sync_control(&mut self) -> Result<()> {
+        let generation = self.control.load(Ordering::SeqCst);
+        if generation != self.generation {
+            self.assembler = SentenceAssembler::new();
+            self.segmenter = UtteranceSegmenter::new(RATE as u32, SegmenterConfig::default())
+                .map_err(|error| anyhow!("invalid VAD segmenter: {error:?}"))?;
+            self.vad = SpeechDetector::new()?;
+            self.pending_finals.clear();
+            self.pending_preview = None;
+            self.preview_generation += 1;
+            self.preview_text.clear();
+            self.last_preview_sample = None;
+            self.generation = generation;
+            self.connected_pending = generation & 1 == 1;
+            self.results
+                .send(Ok(RecognitionUpdate::CloudGap(
+                    "实时转写发生切换，音频保留用于补转写".into(),
+                )))
+                .ok();
+            self.results
+                .send(Ok(RecognitionUpdate::Partial(String::new())))
+                .ok();
+        }
+        Ok(())
+    }
+
     fn poll(&mut self) -> Result<()> {
+        self.sync_control()?;
         let result = match self.in_flight.as_ref() {
             Some(work) => match work.answer.try_recv() {
                 Ok(result) => Some(result),
                 Err(mpsc::TryRecvError::Empty) => None,
                 Err(mpsc::TryRecvError::Disconnected) => {
-                    return Err(anyhow!("SenseVoice worker closed"))
+                    if self
+                        .in_flight
+                        .as_ref()
+                        .is_some_and(|work| work.generation != self.generation)
+                    {
+                        self.in_flight = None;
+                        None
+                    } else {
+                        return Err(anyhow!("SenseVoice worker closed"));
+                    }
                 }
             },
             None => None,
@@ -483,7 +692,32 @@ impl Pipeline {
         self.dispatch()
     }
 
+    fn degrade(&mut self, error: anyhow::Error) -> Result<()> {
+        self.degraded.store(true, Ordering::SeqCst);
+        self.control.fetch_and(!1, Ordering::SeqCst);
+        self.sync_control()?;
+        self.results
+            .send(Err(error))
+            .map_err(|_| anyhow!("Transcript receiver closed"))?;
+        self.results
+            .send(Ok(RecognitionUpdate::LiveDegraded))
+            .map_err(|_| anyhow!("Transcript receiver closed"))?;
+        Ok(())
+    }
+
     fn accept(&mut self, work: Inference, result: Result<LocalAsrResult>) -> Result<()> {
+        let gate = self.send_gate.clone();
+        let _gate = gate.lock().unwrap_or_else(|error| error.into_inner());
+        if work.generation != self.control.load(Ordering::SeqCst) {
+            return Ok(());
+        }
+        let result: Result<LocalAsrResult> = match result {
+            Ok(result) => Ok(result),
+            Err(error) => {
+                self.degrade(error)?;
+                return Ok(());
+            }
+        };
         match work.kind {
             InferenceKind::Final => match result {
                 Ok(result) => {
@@ -553,8 +787,10 @@ impl Pipeline {
                 padded.resize(VAD_FRAME, 0.0);
                 self.feed_mixed(tail_start + (index * VAD_FRAME) as u64, &padded)?;
             }
-            if let Some(segment) = self.segmenter.flush() {
-                self.submit(segment)?;
+            if self.control.load(Ordering::SeqCst) & 1 == 1 {
+                if let Some(segment) = self.segmenter.flush() {
+                    self.submit(segment)?;
+                }
             }
             Ok(())
         })();
@@ -568,28 +804,36 @@ impl Pipeline {
     }
 
     fn finish_accepted(mut self) -> Result<()> {
-        // EOF waits for durable finals, but discards replaceable captions.
         self.preview_generation += 1;
         self.pending_preview = None;
-        while self.in_flight.is_some() || !self.pending_finals.is_empty() {
-            self.dispatch()?;
-            if let Some(work) = self.in_flight.take() {
-                let result = work
-                    .answer
-                    .recv()
-                    .map_err(|_| anyhow!("SenseVoice worker closed while draining Transcript"))?;
-                self.accept(work, result)?;
+        let outcome = (|| -> Result<()> {
+            while self.in_flight.is_some() || !self.pending_finals.is_empty() {
+                self.sync_control()?;
+                self.dispatch()?;
+                if let Some(work) = self.in_flight.take() {
+                    match work.answer.recv() {
+                        Ok(result) => self.accept(work, result)?,
+                        Err(_) if work.generation != self.control.load(Ordering::SeqCst) => {}
+                        Err(_) => {
+                            return Err(anyhow!(
+                                "SenseVoice worker closed while draining Transcript"
+                            ))
+                        }
+                    }
+                }
             }
-        }
-        if let Some(sentence) = self.assembler.finish() {
+            if let Some(sentence) = self.assembler.finish() {
+                self.results
+                    .send(Ok(RecognitionUpdate::Final(local_final(sentence))))
+                    .map_err(|_| anyhow!("Transcript receiver closed"))?;
+            }
             self.results
-                .send(Ok(RecognitionUpdate::Final(local_final(sentence))))
+                .send(Ok(RecognitionUpdate::Partial(String::new())))
                 .map_err(|_| anyhow!("Transcript receiver closed"))?;
-        }
-        self.results
-            .send(Ok(RecognitionUpdate::Partial(String::new())))
-            .map_err(|_| anyhow!("Transcript receiver closed"))?;
-        self.worker.shutdown_and_wait()
+            Ok(())
+        })();
+        let shutdown = self.worker.shutdown_and_wait();
+        outcome.and(shutdown)
     }
 }
 
@@ -627,6 +871,94 @@ mod tests {
                     / u64::from(frame.sample_rate)
         });
         frames
+    }
+
+    #[test]
+    fn failed_final_disables_later_finals_so_acknowledgement_cannot_skip_failed_audio() {
+        let (release, wait) = mpsc::channel();
+        let (started, starts) = mpsc::channel();
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let count = calls.clone();
+        let worker = LocalAsrWorker::for_test(move |_| {
+            count.fetch_add(1, Ordering::SeqCst);
+            started.send(()).unwrap();
+            wait.recv().unwrap();
+            Err(anyhow!("real inference failure"))
+        });
+        let (send, results) = mpsc::channel();
+        let mut pipeline =
+            Pipeline::new(worker, send, 0, Arc::new(AtomicBool::new(false))).unwrap();
+        pipeline
+            .submit(UtteranceSegment {
+                start_sample: 0,
+                samples: vec![0.2; 16000],
+                forced_split: false,
+            })
+            .unwrap();
+        starts
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .unwrap();
+        pipeline
+            .submit(UtteranceSegment {
+                start_sample: 16000,
+                samples: vec![0.2; 16000],
+                forced_split: false,
+            })
+            .unwrap();
+        release.send(()).unwrap();
+        pipeline.finish_accepted().unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        let updates = results.try_iter().collect::<Vec<_>>();
+        assert!(updates.iter().any(|update| matches!(update, Err(error) if error.to_string().contains("real inference failure"))));
+        assert!(updates
+            .iter()
+            .any(|update| matches!(update, Ok(RecognitionUpdate::CloudGap(_)))));
+        assert!(updates
+            .iter()
+            .any(|update| matches!(update, Ok(RecognitionUpdate::LiveDegraded))));
+        assert!(!updates
+            .iter()
+            .any(|update| matches!(update, Ok(RecognitionUpdate::Final(_)))));
+    }
+
+    #[test]
+    fn rapid_off_on_records_gap_before_resuming_and_discards_old_work() {
+        let worker = LocalAsrWorker::for_test(|_| panic!("disabled work must not run"));
+        let (send, receive) = mpsc::channel();
+        let mut pipeline =
+            Pipeline::new(worker, send, 2000, Arc::new(AtomicBool::new(false))).unwrap();
+        pipeline.control.store(4, Ordering::SeqCst);
+        pipeline.control.store(7, Ordering::SeqCst);
+        pipeline.feed_mixed(16000, &[0.0; VAD_FRAME]).unwrap();
+        let updates = receive.try_iter().map(Result::unwrap).collect::<Vec<_>>();
+        assert!(matches!(
+            updates.first(),
+            Some(RecognitionUpdate::CloudGap(_))
+        ));
+        assert!(updates
+            .iter()
+            .any(|update| matches!(update, RecognitionUpdate::CloudConnected { start_ms: 3000 })));
+        pipeline.finish().unwrap();
+    }
+
+    #[test]
+    fn disabled_live_runs_no_final_or_preview_inference() {
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let count = calls.clone();
+        let worker = LocalAsrWorker::for_test(move |_| {
+            count.fetch_add(1, Ordering::SeqCst);
+            unreachable!()
+        });
+        let (send, _receive) = mpsc::channel();
+        let mut pipeline = Pipeline::new(worker, send, 0, Arc::new(AtomicBool::new(true))).unwrap();
+        pipeline.control.store(0, Ordering::SeqCst);
+        for index in 0..200 {
+            pipeline
+                .feed_mixed(index * VAD_FRAME as u64, &[0.8; VAD_FRAME])
+                .unwrap();
+        }
+        pipeline.finish().unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
     }
 
     #[test]
@@ -761,25 +1093,32 @@ mod tests {
     }
 
     #[test]
-    fn transcription_overload_preserves_all_accepted_finals_in_order() {
+    fn transcription_overload_disables_live_and_marks_unfinished_audio_for_recovery() {
         let (release, wait) = mpsc::channel();
-        let mut first = true;
+        let (started, starts) = mpsc::channel();
         let worker = LocalAsrWorker::for_test(move |segment| {
-            if first {
-                first = false;
-                wait.recv().unwrap();
-            }
+            started.send(()).unwrap();
+            wait.recv().unwrap();
             Ok(LocalAsrResult {
                 start_sample: segment.start_sample,
                 end_sample: segment.end_sample(),
-                text: format!("片段{}。", segment.start_sample / RATE),
+                text: "过期结果。".into(),
                 forced_split: false,
             })
         });
         let (send, results) = mpsc::channel();
-        let mut pipeline =
-            Pipeline::new(worker, send, 0, Arc::new(AtomicBool::new(false))).unwrap();
-        for index in 0..9 {
+        let mut pipeline = Pipeline::new(worker, send, 0, Arc::new(AtomicBool::new(true))).unwrap();
+        pipeline
+            .submit(UtteranceSegment {
+                start_sample: 0,
+                samples: vec![0.0; 160],
+                forced_split: false,
+            })
+            .unwrap();
+        starts
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .unwrap();
+        for index in 1..=9 {
             pipeline
                 .submit(UtteranceSegment {
                     start_sample: index * RATE,
@@ -788,40 +1127,20 @@ mod tests {
                 })
                 .unwrap();
         }
-        let error = pipeline
-            .submit(UtteranceSegment {
-                start_sample: 9 * RATE,
-                samples: vec![0.0; 160],
-                forced_split: false,
-            })
-            .unwrap_err();
-        assert!(error
-            .to_string()
-            .contains("local transcription backlog exceeded"));
+        assert!(pipeline.degraded.load(Ordering::SeqCst));
+        assert_eq!(pipeline.control.load(Ordering::SeqCst) & 1, 0);
         release.send(()).unwrap();
         pipeline.finish_accepted().unwrap();
-        let finals = results
-            .try_iter()
-            .map(Result::unwrap)
-            .filter_map(|update| match update {
-                RecognitionUpdate::Final(result) => Some(result.text),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(
-            finals,
-            [
-                "片段0。",
-                "片段1。",
-                "片段2。",
-                "片段3。",
-                "片段4。",
-                "片段5。",
-                "片段6。",
-                "片段7。",
-                "片段8。"
-            ]
-        );
+        let updates = results.try_iter().map(Result::unwrap).collect::<Vec<_>>();
+        assert!(updates
+            .iter()
+            .any(|update| matches!(update, RecognitionUpdate::CloudGap(_))));
+        assert!(updates
+            .iter()
+            .any(|update| matches!(update, RecognitionUpdate::LiveDegraded)));
+        assert!(!updates
+            .iter()
+            .any(|update| matches!(update, RecognitionUpdate::Final(_))));
     }
 
     #[test]
@@ -1034,7 +1353,13 @@ mod tests {
             1,
             "do not duplicate the original failure"
         );
-        assert!(updates.into_iter().any(|update| matches!(update, Ok(RecognitionUpdate::Final(result)) if result.end_ms > 8_000)), "accepted final speech must be drained after input failure");
+        assert!(
+            updates
+                .iter()
+                .any(|update| matches!(update, Ok(RecognitionUpdate::LiveDegraded))),
+            "input failure must disable live recognition for durable replay"
+        );
+        assert!(!updates.iter().any(|update| matches!(update, Ok(RecognitionUpdate::Final(result)) if result.end_ms > 8_000)), "late work after failure is recovered from saved audio");
     }
 
     #[test]
