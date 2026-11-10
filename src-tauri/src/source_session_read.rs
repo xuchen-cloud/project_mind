@@ -63,8 +63,11 @@ pub(crate) struct SessionHistoryFragment {
 
 pub(crate) struct SessionReadResult {
     pub page: SourceReadPage,
+    #[cfg(test)]
     pub char_start: u32,
+    #[cfg(test)]
     pub char_end: u32,
+    #[cfg(test)]
     pub total_chars: u32,
 }
 
@@ -222,11 +225,14 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
             }
             Ok(())
         })?;
-        let (page,end)=fitted?;
+        let fitted = fitted?;
         Ok(SessionReadResult {
-            page,
+            page: fitted.0,
+            #[cfg(test)]
             char_start: fragment.char_start,
-            char_end: end,
+            #[cfg(test)]
+            char_end: fitted.1,
+            #[cfg(test)]
             total_chars: fragment.total_chars,
         })
     }

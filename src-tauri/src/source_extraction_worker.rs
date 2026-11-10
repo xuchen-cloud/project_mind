@@ -43,20 +43,8 @@ fn unavailable() -> AgentError {
 static HASH_COUNTS: LazyLock<Mutex<HashMap<PathBuf, usize>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 #[cfg(test)]
-static REQUEST_COUNTS: LazyLock<Mutex<HashMap<String, usize>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
-#[cfg(test)]
 pub(crate) fn verification_count(path: &Path) -> usize {
     HASH_COUNTS.lock().unwrap().get(path).copied().unwrap_or(0)
-}
-#[cfg(test)]
-pub(crate) fn request_count(workspace: &str) -> usize {
-    REQUEST_COUNTS
-        .lock()
-        .unwrap()
-        .get(workspace)
-        .copied()
-        .unwrap_or(0)
 }
 fn hash_file(file: &Path) -> AgentResult<String> {
     #[cfg(test)]
@@ -360,14 +348,6 @@ impl SourceExtractionWorker {
             .map_err(|_| unavailable())?;
         let mut frame = serde_json::to_vec(&json!({"requestId":request_id,"format":format,"base64":base64::engine::general_purpose::STANDARD.encode(bytes)})).map_err(|_| unavailable())?;
         frame.push(b'\n');
-        #[cfg(test)]
-        {
-            *REQUEST_COUNTS
-                .lock()
-                .unwrap()
-                .entry(workspace_id.to_owned())
-                .or_default() += 1;
-        }
         let output = crate::utility_process::run_utility_process(
             &self.node,
             &self.entry,

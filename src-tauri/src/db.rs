@@ -94,6 +94,9 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
+#[cfg(test)]
+use crate::models::{ContactDeleteInput, ContactSearchInput, ContactUpsertInput, FileTagOptionDeleteInput};
+
 use anyhow::{anyhow, Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use chrono::Utc;
@@ -109,11 +112,10 @@ use crate::{
         AiExecutionSettings, AiJobEnqueueInput, AiJobResult, AiProfileTestInput,
         AiProfileTestResult, AiProviderProfileDeleteInput, AiProviderProfileRecord,
         AiProviderProfileUpsertInput, AiRecordMetadataInput, AiRecordMetadataResult,
-        AiSettingsSnapshot, ContactDeleteInput, ContactRecord, ContactSearchInput,
-        ContactUpsertInput, DocumentImportClipboardNoteImageInput,
+        AiSettingsSnapshot, DocumentImportClipboardNoteImageInput,
         DocumentImportInput, DocumentImportNoteImageInput, DocumentListVersionsInput,
         DocumentRecord, DocumentTagRecord,
-        DocumentVersionRecord, FileTagOptionDeleteInput, FileTagOptionUpsertInput, FileTagRecord,
+        DocumentVersionRecord, FileTagOptionUpsertInput, FileTagRecord,
         FileTagSettingsGetInput, FileTagSettingsSnapshot, InternalReferenceResolveInput,
         InternalReferenceResolveResult, InternalReferenceSearchInput,
         InternalReferenceSearchResult, NoteRecord, ProjectArchiveInput, ProjectCreateInput,
@@ -9757,7 +9759,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
         database.set_schema_version(19).unwrap();
         drop(database);
 
-        let mut reopened = Database::open(
+        let reopened = Database::open(
             &db_path,
             &harness.workspace_root,
             Some("test-secret".to_string()),
@@ -9900,7 +9902,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
 
     #[test]
     fn project_create_uses_windows_safe_directory_name() {
-        let (_harness, mut database) = setup_database();
+        let (_harness, database) = setup_database();
         let project = database
             .project_create(ProjectCreateInput {
                 name: "CON".to_string(),

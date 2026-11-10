@@ -1,4 +1,6 @@
 //! Native File import reuses the authoritative File/Version tables.
+#[cfg(test)]
+use crate::agent::models::Scope;
 use super::{
     agent_operations::{io_error, OperationChange},
     file_versions::{
@@ -11,7 +13,7 @@ use crate::{
     agent::{
         access::RequestContext,
         errors::{AgentError, AgentResult, ErrorCode},
-        models::{ObjectKind, ObjectRef, Scope, WorkspaceBinding},
+        models::{ObjectKind, ObjectRef, WorkspaceBinding},
     },
     models::{DocumentImportClipboardImageInput, DocumentImportInput, DocumentRecord},
     workspace_commit_fence::WorkspaceCommitFence,
@@ -345,6 +347,7 @@ impl Database {
     }
     /// Trusted candidate bytes enter the same native import journal and atomic
     /// receipt as text creation. No caller path is accepted by this boundary.
+    #[cfg(test)]
     pub(crate) fn agent_file_create_bytes_bound(
         &mut self,
         request: &RequestContext,
@@ -1686,7 +1689,7 @@ mod tests {
                 let root = tempfile::tempdir().unwrap();
                 let (metadata, paths) =
                     crate::workspace::create_workspace(root.path(), "password").unwrap();
-                let mut db = Database::open(&paths.db_path, root.path(), None).unwrap();
+                let db = Database::open(&paths.db_path, root.path(), None).unwrap();
                 let project = db
                     .project_create(ProjectCreateInput {
                         name: "Import crash".into(),
@@ -1851,7 +1854,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let (metadata, paths) =
             crate::workspace::create_workspace(root.path(), "password").unwrap();
-        let mut db = Database::open(&paths.db_path, root.path(), None).unwrap();
+        let db = Database::open(&paths.db_path, root.path(), None).unwrap();
         let project = db
             .project_create(ProjectCreateInput {
                 name: "Import collision".into(),

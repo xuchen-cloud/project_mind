@@ -152,7 +152,7 @@ mod tests {
     };
     fn setup() -> (tempfile::TempDir, Database, Scope) {
         let root = tempfile::tempdir().unwrap();
-        let mut db =
+        let db =
             Database::open(&root.path().join("inventory.sqlite"), root.path(), None).unwrap();
         let project = db
             .project_create(ProjectCreateInput {

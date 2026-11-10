@@ -507,6 +507,7 @@ impl<'a, S: BoundSourceStore> KnowledgeService<'a, S> {
             Ok(page)
         })
     }
+    #[cfg(test)]
     pub(crate) fn search(
         &self,
         request: &RequestContext,
@@ -1362,7 +1363,7 @@ mod tests {
         let f=fixture().await;
         let mut draft=node(&f,"session-many",0);
         draft.summary="中文讨论摘要".repeat(100);
-        let statements:(Vec<SummaryStatement>)=(0..50).map(|index|SummaryStatement {
+        let statements:Vec<SummaryStatement>=(0..50).map(|index|SummaryStatement {
             text:format!("决定 {index}: {}","原始证据内容".repeat(12)),
             kind:StatementKind::UserDecision,
             message_refs:vec![MessageRef {workspace_id:"w".into(),scope:f.scope.clone(),session_id:"1".repeat(32),branch_id:"old-branch".into(),message_id:format!("{index:032x}"),ordinal:index as u64,content_hash:format!("sha256:{}","a".repeat(64))}],

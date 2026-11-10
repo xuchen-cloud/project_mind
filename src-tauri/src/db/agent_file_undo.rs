@@ -1,4 +1,6 @@
 //! File recovery retains every managed byte/version and uses native CAS receipts.
+#[cfg(test)]
+use crate::agent::models::Scope;
 use super::{
     agent_operations::{io_error, OperationChange},
     agent_record_undo::{authorize, read_entry},
@@ -10,7 +12,7 @@ use crate::{
     agent::{
         access::{RequestContext, ScopeGrant},
         errors::{AgentError, AgentResult, ErrorCode},
-        models::{ObjectKind, ObjectRef, Scope, WorkspaceBinding},
+        models::{ObjectKind, ObjectRef, WorkspaceBinding},
         operation_batches::{OperationBatchUndoState, OperationUndoBatchInput, OperationUndoGroup},
         operations::{FileUndoResult, OperationEntry, OperationUndoInput},
     },

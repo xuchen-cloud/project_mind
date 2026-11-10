@@ -226,6 +226,7 @@ impl RecordEditorCoordinator {
         credit.consumed = true;
         Ok(credit.target == target)
     }
+    #[cfg(test)]
     pub(crate) fn register(
         &self,
         binding: &WorkspaceBinding,

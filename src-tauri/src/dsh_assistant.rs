@@ -258,6 +258,7 @@ impl Identity {
         }
     }
 
+    #[cfg(test)]
     fn project(&self) -> Result<&ProjectContext, String> {
         match &self.context {
             AssistantContext::Workspace { .. } => Err("此操作需要项目范围的助手".into()),
@@ -1141,6 +1142,7 @@ async fn create_scope_session(url: &Url, client: &reqwest::Client, cookie: &mut 
     value["sessionId"].as_str().filter(|id| !id.is_empty()).map(str::to_owned).ok_or_else(||SESSION_ERROR.into())
 }
 
+#[cfg(test)]
 async fn list_sessions(
     url: &Url,
     client: &reqwest::Client,
@@ -1194,6 +1196,7 @@ fn session_directory_matches(cwd: &Path, directory: &Path) -> bool {
     }
 }
 
+#[cfg(test)]
 async fn create_session(
     url: &Url,
     client: &reqwest::Client,

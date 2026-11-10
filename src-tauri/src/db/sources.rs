@@ -1,5 +1,7 @@
 //! Authoritative source ownership and immutable/current Record snapshots.
 use super::Database;
+#[cfg(test)]
+use crate::source_service::{SourcePolicy, SourcePolicyUpdate};
 use crate::{
     agent::{
         access::{Caller, RequestContext},
@@ -8,7 +10,7 @@ use crate::{
     },
     record_documents::RecordTarget,
     source_service::{
-        SourceFingerprint, SourcePolicy, SourcePolicyUpdate, SourceReadTarget, SourceSnapshot,
+        SourceFingerprint, SourceReadTarget, SourceSnapshot,
     },
 };
 use rusqlite::{params, OptionalExtension};
@@ -101,6 +103,7 @@ impl Database {
         request.authorize_object(binding, object, &resolved, operation)?;
         Ok(resolved)
     }
+    #[cfg(test)]
     pub(crate) fn source_policy_update(
         &self,
         request: &RequestContext,
@@ -628,6 +631,7 @@ impl Database {
         }
         Ok(())
     }
+    #[cfg(test)]
     pub(crate) fn source_cache_capacity(
         &self,
         request: &RequestContext,

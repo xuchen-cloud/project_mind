@@ -52,6 +52,7 @@ pub(crate) struct SearchCandidate {
 }
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg(test)]
 pub(crate) struct SourceCacheCapacity {
     pub objects: u64,
     pub snapshots: u64,
@@ -212,6 +213,7 @@ impl<'a> SourceIndex<'a> {
     }
     /// Deletion removes every cached version. The exclusion policy remains so
     /// a later retry cannot silently resurrect an intentionally excluded source.
+    #[cfg(test)]
     pub(crate) fn remove(&self, object: &ObjectRef) -> AgentResult<()> {
         self.conn
             .execute(
@@ -227,6 +229,7 @@ impl<'a> SourceIndex<'a> {
         Ok(())
     }
     /// Stored payload only: FTS/B-tree pages are additional SQLite overhead.
+    #[cfg(test)]
     pub(crate) fn capacity(
         &self,
         request: &RequestContext,

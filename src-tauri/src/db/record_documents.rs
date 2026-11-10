@@ -899,6 +899,7 @@ impl Database {
         )?;
         Ok(())
     }
+    #[cfg(test)]
     pub(crate) fn record_patch_commit(
         &self,
         caller: &str,
@@ -1188,6 +1189,7 @@ impl Database {
             Ok((RecordCheckpointResult{head:(&updated).into(),version_id:Some(id),checkpointed:true},Some(OperationChange{object_key:input.target.object_key(workspace_id)?,scope:input.target.scope.clone(),revision:current.projection.body_hash})))
         })
     }
+    #[cfg(test)]
     pub(crate) fn record_version_restore(
         &self,
         caller: &str,
@@ -1521,6 +1523,7 @@ impl Database {
             Ok((RecordCommittedHead::from(&initial),Some(OperationChange{object_key:target.object_key(workspace_id)?,scope:target.scope.clone(),revision:projection.body_hash.clone()})))
         })
     }
+    #[cfg(test)]
     pub(crate) fn record_document_commit(
         &self,
         caller: &str,
@@ -1920,7 +1923,7 @@ mod tests {
     }
     #[test]
     fn quick_note_transfer_is_atomic_replayable_and_preserves_existing_block_ids() {
-        let (_directory, mut database, target, projection) = setup();
+        let (_directory, database, target, projection) = setup();
         let source = database.record_document_source(&target).unwrap();
         database
             .record_document_initialize(
@@ -2022,7 +2025,7 @@ mod tests {
     }
     #[test]
     fn quick_note_transfer_conflicts_leave_the_source_metadata_and_versions_untouched() {
-        let (_directory, mut database, target, projection) = setup();
+        let (_directory, database, target, projection) = setup();
         let source = database.record_document_source(&target).unwrap();
         database
             .record_document_initialize(
@@ -2116,7 +2119,7 @@ mod tests {
 
     #[test]
     fn quick_note_transfer_to_a_new_record_creates_baseline_and_action_versions_once() {
-        let (_directory, mut database, _target, _projection) = setup();
+        let (_directory, database, _target, _projection) = setup();
         database
             .workspace_quick_note_upsert(crate::models::WorkspaceQuickNoteUpsertInput {
                 markdown: "Captured".into(),

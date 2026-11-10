@@ -1,4 +1,6 @@
 //! File candidates reuse the native import/version receipts and version IDs.
+#[cfg(test)]
+use crate::agent::models::Scope;
 use super::{
     agent_operations::io_error,
     file_imports::{AgentFileCreateInput, AgentFileCreateResult},
@@ -8,7 +10,7 @@ use super::{
 use crate::agent::{
     access::RequestContext,
     errors::{AgentError, AgentResult, ErrorCode},
-    models::{ObjectKind, ObjectRef, Scope, WorkspaceBinding},
+    models::{ObjectKind, ObjectRef, WorkspaceBinding},
     output_runtime::FileOutputReceipt,
     outputs::OutputIntent,
 };

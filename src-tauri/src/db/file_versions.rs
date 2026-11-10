@@ -2132,12 +2132,15 @@ mod tests {
     use std::fs;
 
     fn hidden_test_command(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
-        let mut command = std::process::Command::new(program);
+        let command = std::process::Command::new(program);
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
+            let mut command = command;
             command.creation_flags(0x08000000);
+            return command;
         }
+        #[cfg(not(windows))]
         command
     }
     fn assert_crashed(status: std::process::ExitStatus) {

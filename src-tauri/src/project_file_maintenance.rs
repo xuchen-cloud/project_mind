@@ -1075,7 +1075,7 @@ mod tests {
         let scanned = driver.scanned_pages.clone();
         let old_signal = Arc::downgrade(&driver.projects[&Some(projects[0].id)].pending);
         let new_project = {
-            let mut current = store.current.lock().unwrap();
+            let current = store.current.lock().unwrap();
             current
                 .1
                 .project_set_archive(crate::models::ProjectArchiveInput {

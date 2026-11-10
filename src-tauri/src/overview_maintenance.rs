@@ -568,6 +568,7 @@ async fn process_batch<
                     corrections: &corrections, source_pages: &pages,
                     prior_source_summary: conversation_data.as_ref().and_then(|(_, _, prior)| prior.as_ref()),
                     prior_memory:&existing_memory,
+                    #[cfg(test)]
                     conversation: conversation_data.as_ref().map(|(_, conversation, _)| conversation),
                 }, &session_data.iter().map(|(_, conversation)| conversation.clone()).collect::<Vec<_>>());
                 match prompt {
@@ -627,6 +628,7 @@ async fn process_batch<
                 old_overview:old.as_ref(),allowed_ids:&prospective_allowed,relevant_items:&prospective_relevant,corrections:&corrections,
                 source_pages:&pages,prior_source_summary:conversation_data.as_ref().and_then(|(_,_,prior)|prior.as_ref()),
                 prior_memory:&prospective_memory,
+                #[cfg(test)]
                 conversation:conversation_data.as_ref().map(|(_,conversation,_)|conversation),
             },&session_data.iter().map(|(_,conversation)|conversation.clone()).collect::<Vec<_>>());
             match prospective {
@@ -680,6 +682,7 @@ async fn process_batch<
                 source_pages: &pages,
                 prior_source_summary: conversation_data.as_ref().and_then(|(_, _, prior)| prior.as_ref()),
                 prior_memory:&existing_memory,
+                #[cfg(test)]
                 conversation: conversation_data.as_ref().map(|(_, conversation, _)| conversation),
             },&session_data.iter().map(|(_,conversation)|conversation.clone()).collect::<Vec<_>>())?;
             let budget = budget.as_ref().ok_or_else(|| AgentError::new(ErrorCode::RuntimeIncompatible,

@@ -12,8 +12,11 @@ use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 #[derive(Debug)]
 pub(crate) struct SourceQueueProgress {
+    #[cfg(test)]
     pub cursor: i64,
+    #[cfg(test)]
     pub has_more: bool,
+    #[cfg(test)]
     pub needs_backfill: bool,
 }
 #[derive(Debug, Clone)]
@@ -26,7 +29,9 @@ pub(crate) struct SourceIndexLease {
 }
 #[derive(Debug)]
 pub(crate) struct SourceBackfillProgress {
+    #[cfg(test)]
     pub queued: usize,
+    #[cfg(test)]
     pub has_more: bool,
 }
 pub(crate) enum SourceIndexOutcome {
@@ -113,7 +118,9 @@ impl Database {
             .is_some_and(|(_, _, _, complete)| *complete && !reset)
         {
             return Ok(SourceBackfillProgress {
+                #[cfg(test)]
                 queued: 0,
+                #[cfg(test)]
                 has_more: false,
             });
         }
@@ -191,7 +198,9 @@ impl Database {
         tx.execute("INSERT INTO source_index_backfill_cursors(workspace_id,scope_key,kind,object_id,watermark,complete) VALUES (?1,?2,?3,?4,?5,?6) ON CONFLICT(workspace_id,scope_key) DO UPDATE SET kind=excluded.kind,object_id=excluded.object_id,watermark=excluded.watermark,complete=excluded.complete",params![binding.workspace_id,scope.key(),next_kind,next_id,next_watermark,!has_more]).map_err(io_error)?;
         tx.commit().map_err(io_error)?;
         Ok(SourceBackfillProgress {
+            #[cfg(test)]
             queued: objects.len(),
+            #[cfg(test)]
             has_more,
         })
     }
@@ -304,8 +313,11 @@ impl Database {
         tx.execute("INSERT INTO source_index_queue_cursors(workspace_id,scope_key,seq,needs_backfill) VALUES (?1,?2,?3,?4) ON CONFLICT(workspace_id,scope_key) DO UPDATE SET seq=excluded.seq,needs_backfill=excluded.needs_backfill",params![binding.workspace_id,scope.key(),page.cursor,needs_backfill]).map_err(io_error)?;
         tx.commit().map_err(io_error)?;
         Ok(SourceQueueProgress {
+            #[cfg(test)]
             cursor: page.cursor,
+            #[cfg(test)]
             has_more: page.has_more,
+            #[cfg(test)]
             needs_backfill,
         })
     }

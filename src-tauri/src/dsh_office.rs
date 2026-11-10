@@ -1,5 +1,7 @@
 //! Real DSH Session adapter for the same Office/File save kernel.
-use super::{Identity, ProjectContext, SessionRequest, SourceRequest};
+use super::{Identity, SessionRequest, SourceRequest};
+#[cfg(test)]
+use super::ProjectContext;
 use crate::{
     agent::{
         connections::ConnectionCreateInput,

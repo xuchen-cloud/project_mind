@@ -128,6 +128,7 @@ pub fn run_voice_minutes(
     run_voice_minutes_streaming(profile, previous, segments, &mut |_| {})
 }
 
+#[cfg(test)]
 pub fn run_voice_minutes_streaming(
     profile: &ResolvedAiProfile,
     previous: Option<&str>,

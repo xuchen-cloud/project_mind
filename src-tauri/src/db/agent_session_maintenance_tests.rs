@@ -17,7 +17,7 @@ fn setup() -> (
     String,
 ) {
     let root = tempfile::tempdir().unwrap();
-    let mut db = Database::open(&root.path().join("workspace.sqlite"), root.path(), None).unwrap();
+    let db = Database::open(&root.path().join("workspace.sqlite"), root.path(), None).unwrap();
     let project = db
         .project_create(ProjectCreateInput {
             name: "Alpha".into(),

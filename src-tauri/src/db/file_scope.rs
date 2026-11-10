@@ -3,10 +3,9 @@ use super::Database;
 use crate::agent::models::Scope;
 use anyhow::{bail, Result};
 use rusqlite::OptionalExtension;
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::fs;
 
 pub(crate) fn scope(project_id: Option<i64>) -> Scope {
     project_id.map_or(Scope::Workspace, |project_id| Scope::Project { project_id })

@@ -20,6 +20,7 @@ pub const WORKSPACE_SECURITY_MODE: &str = "workspace_local_key_encrypted";
 pub const LEGACY_WORKSPACE_SECURITY_MODE: &str = "workspace_password_encrypted";
 
 const WORKSPACE_SCHEMA_VERSION: i64 = 1;
+#[cfg(test)]
 const PASSWORD_SALT_BYTES: usize = 16;
 const PASSWORD_HASH_BYTES: usize = 32;
 const PASSWORD_CONTEXT: &str = "project-mind-alpha::workspace-password::v1";
@@ -122,6 +123,7 @@ pub fn workspace_paths(root_path: &Path) -> WorkspacePaths {
     }
 }
 
+#[cfg(test)]
 pub fn create_workspace(
     root_path: &Path,
     password: &str,
@@ -333,6 +335,7 @@ fn save_metadata(path: &Path, metadata: &WorkspaceMetadata) -> Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
 fn create_password_verifier(password: &str) -> Result<PasswordVerifier> {
     let password = password.trim();
     if password.is_empty() {

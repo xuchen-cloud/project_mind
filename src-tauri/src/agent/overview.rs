@@ -50,6 +50,7 @@ pub struct OverviewPendingItem {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg(test)]
 pub struct OverviewPendingPage {
     pub scope: Scope,
     pub target_seq: u64,

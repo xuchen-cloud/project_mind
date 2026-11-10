@@ -1,14 +1,17 @@
 //! Source identity tombstones and dependency dirtiness survive log compaction.
 //! This catalogue stores no bodies, evidence copies or parallel versions.
 use super::Database;
+#[cfg(test)]
 use crate::agent::{
     access::RequestContext,
     errors::{AgentError, AgentResult, ErrorCode},
     models::{ObjectRef, WorkspaceBinding},
 };
+#[cfg(test)]
 use rusqlite::OptionalExtension;
 
 #[derive(Debug)]
+#[cfg(test)]
 pub(crate) struct SourceRegistryEntry {
     pub object: ObjectRef,
     pub seq: i64,
@@ -18,16 +21,19 @@ pub(crate) struct SourceRegistryEntry {
 }
 
 #[derive(Debug)]
+#[cfg(test)]
 pub(crate) struct SourceDependencyInvalidation {
     pub seq: i64,
     pub reason: String,
 }
 
+#[cfg(test)]
 fn io_error(_: rusqlite::Error) -> AgentError {
     AgentError::new(ErrorCode::IoFailed, "Cannot read source registry")
 }
 
 impl Database {
+    #[cfg(test)]
     fn source_dependency_owner(
         &self,
         request: &RequestContext,
@@ -63,6 +69,7 @@ impl Database {
 
     /// AI-04/05/08 own the real consumer IDs and graph registration. Return only
     /// dirtiness, not a potentially ungranted cross-scope evidence reference.
+    #[cfg(test)]
     pub(crate) fn source_dependency_invalidation(
         &self,
         request: &RequestContext,
@@ -88,6 +95,7 @@ impl Database {
 
     /// Invoke inside the real owner's publication/CAS transaction. A stale
     /// refresh cannot acknowledge a later source event; no knowledge is minted here.
+    #[cfg(test)]
     pub(crate) fn source_dependency_acknowledge(
         &self,
         request: &RequestContext,
@@ -138,6 +146,7 @@ impl Database {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(crate) fn source_registry_entry(
         &self,
         request: &RequestContext,

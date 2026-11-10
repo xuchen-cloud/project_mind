@@ -1,7 +1,9 @@
 //! Project directory Files retain their real location. Only immutable bytes are
 //! stored in the existing document_versions / source_file_version_hashes tables.
+#[cfg(test)]
+use crate::agent::models::Scope;
 use super::{file_versions, Database};
-use crate::agent::models::{ObjectKind, ObjectRef, Scope};
+use crate::agent::models::{ObjectKind, ObjectRef};
 use anyhow::{anyhow, Result};
 use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};

@@ -241,6 +241,7 @@ impl Database {
     fn overview_pending_status_read(&self, scope: &Scope) -> AgentResult<OverviewPendingStatus> {
         self.conn.query_row("SELECT (SELECT count(*) FROM agent_overview_pending WHERE scope_key=?1), needs_rebuild FROM agent_overview_pending_state WHERE scope_key=?1",[scope.key()],|r|Ok(OverviewPendingStatus{pending_count:r.get::<_,i64>(0)? as u64,needs_rebuild:r.get(1)?})).map_err(io_error)
     }
+    #[cfg(test)]
     pub(crate) fn agent_overview_pending_page(
         &self,
         scope: &Scope,
@@ -331,6 +332,7 @@ impl Database {
         }
         self.conn.query_row("SELECT policy_revision,correction_revision FROM agent_overview_versions WHERE scope_key=?1 AND revision=?2",params![scope.key(),revision as i64],|r|Ok((r.get::<_,i64>(0)? as u64,r.get::<_,i64>(1)? as u64))).optional().map_err(io_error)?.ok_or_else(||AgentError::new(ErrorCode::NotFound,"Overview version not found"))
     }
+    #[cfg(test)]
     pub(crate) fn agent_overview_versions(
         &self,
         scope: &Scope,
@@ -686,7 +688,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
     };
     fn setup() -> (tempfile::TempDir, Database, Scope) {
         let root = tempfile::tempdir().unwrap();
-        let mut db =
+        let db =
             Database::open(&root.path().join("overview.sqlite"), root.path(), None).unwrap();
         let project = db
             .project_create(ProjectCreateInput {

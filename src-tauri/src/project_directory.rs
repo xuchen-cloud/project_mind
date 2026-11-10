@@ -1,4 +1,6 @@
 //! Read-only access to the current DB project's physical directory.
+#[cfg(test)]
+use crate::agent::models::Scope;
 use crate::{
     agent::models::WorkspaceBinding,
     source_file_snapshot::{open_regular, FileStamp},
@@ -1044,7 +1046,7 @@ mod tests {
     }
 }
 
-use crate::agent::models::{ObjectRef, Scope};
+use crate::agent::models::ObjectRef;
 use crate::db::project_directory_files::{
     DirectoryFile, DirectoryScan, FileBytesInput, FileBytesResult, FileServiceError,
 };
