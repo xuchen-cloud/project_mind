@@ -18,6 +18,7 @@ import { fileWorkingApi, type FileWorkingOpen, type FileWorkingSaved, type FileW
 import { officePreviewCache } from '../../src/lib/office-preview-cache';
 import { NativeRaceObserver, runPendingFileRace } from './native-races';
 import { runNativeHistoryAcceptance } from './native-history';
+import { waitForNativeVisibility } from './native-visibility';
 import type { AgentSourceRef } from '../../src/lib/agent-types';
 import type { AgentWorkspaceBinding } from '../../src/lib/agent-types';
 import type { ProjectFileView } from '../../src/components/document/ProjectFileContent';
@@ -36,7 +37,7 @@ type Format = 'docx' | 'pptx' | 'xlsx' | 'md';
 type Sample = 'simple' | 'complex' | 'large';
 interface Config {
   workspaceRoot: string; reportUrl: string; format: Format; sample: Sample;
-  run: number; width?: number; setup?: boolean; acceptance?: boolean; cycles?: number; controls?: boolean; races?: boolean;
+  run: number; width?: number; setup?: boolean; acceptance?: boolean; cycles?: number; controls?: boolean; races?: boolean; visible?: boolean;
 }
 type DisplayMode = 'preview' | 'edit' | 'rich' | 'source';
 interface DebugOperations {
@@ -71,6 +72,7 @@ let activeMeasurement: { name: string; fileId: string; fileName: string; source:
 let waitStage = 'shell';
 let lastSheetCheck: Record<string, unknown> = {};
 let lastTimeout: Record<string, unknown> | undefined;
+let visiblePreflight: Awaited<ReturnType<typeof waitForNativeVisibility>> | undefined;
 const shellReady = performance.now();
 const scope = 'native ProjectFileContent shell (not full application startup)';
 function runErrors(): string[] {
@@ -82,7 +84,7 @@ function runErrors(): string[] {
 function reportStatus(): 'error' | 'over_budget' | 'passed' {
   return runErrors().length ? 'error' : measurements.some(item => item.status === 'over_budget') ? 'over_budget' : 'passed';
 }
-const reportBase = () => ({ scope, config, visibility: document.visibilityState, lastTimeout, shell_ready: { startTime: shellReady, navigation: performance.getEntriesByType('navigation').map(entry => entry.toJSON()) }, commands, errors: runErrors(), measurements, commits });
+const reportBase = () => ({ scope, config, visibility: document.visibilityState, visiblePreflight, lastTimeout, shell_ready: { startTime: shellReady, navigation: performance.getEntriesByType('navigation').map(entry => entry.toJSON()) }, commands, errors: runErrors(), measurements, commits });
 console.info('office-performance:shell_ready', JSON.stringify(reportBase().shell_ready));
 performance.setResourceTimingBufferSize(10000);
 
@@ -1371,6 +1373,11 @@ async function run() {
     return;
   }
   if (!['docx', 'pptx', 'xlsx', 'md'].includes(config.format) || !['simple', 'complex', 'large'].includes(config.sample)) throw Error('Unsupported format/sample');
+  if (config.visible) {
+    waitStage = 'visible preflight';
+    if (controlStatus) controlStatus.textContent = '等待验收窗口可见…';
+    visiblePreflight = await waitForNativeVisibility(document);
+  }
   await deadline(projectMindApi.workspaceOpen({ rootPath: config.workspaceRoot }), 15000, 'workspace open');
   // The native projects_list path accesses the open DB directly; propagate its real errors.
   const project = (await deadline(projectMindApi.projectsList(), 15000, 'projects list')).find(item => item.name === 'Performance');
