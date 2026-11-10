@@ -809,7 +809,8 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
             .submission_lock(&request.binding, &input.target)
             .await?;
         self.access(request, &input.target, "record.write", |db| {
-            Self::authorize_references(request, db, &commit.projection.document, "record.write")?;
+            let authorization = db.record_save_reference_authorization_document(&input.target, &commit.projection.document)?;
+            Self::authorize_references(request, db, &authorization, "record.write")?;
             db.record_document_commit_intent(
                 &request.caller.key(),
                 &request.request_id,

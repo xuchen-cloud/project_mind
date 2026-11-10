@@ -226,7 +226,7 @@ impl Database {
     ) -> AgentResult<Option<ObjectRef>> {
         use crate::agent::models::ObjectKind;
         object.key()?;
-        if object.kind == ObjectKind::Record {
+        if matches!(object.kind, ObjectKind::Record | ObjectKind::Transcript) {
             return match super::record_owner_moves::resolve_object(&self.conn, object) {
                 Ok(actual) => Ok(Some(ObjectRef { workspace_id: workspace_id.into(), ..actual })),
                 Err(error) if error.code == ErrorCode::NotFound => Ok(None),

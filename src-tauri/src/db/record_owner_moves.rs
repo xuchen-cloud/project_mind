@@ -111,6 +111,9 @@ pub(super) fn resolve_location(
     })
 }
 pub(super) fn resolve_object(conn: &Connection, object: &ObjectRef) -> AgentResult<ObjectRef> {
+    if object.kind == ObjectKind::Transcript {
+        return resolve_transcript(conn, object);
+    }
     if object.kind != ObjectKind::Record {
         return Ok(object.clone());
     }
@@ -133,6 +136,52 @@ pub(super) fn resolve_object(conn: &Connection, object: &ObjectRef) -> AgentResu
         ..object.clone()
     })
 }
+/// Transcript IDs stay attached to VoiceRecord while its owning Record relocates.
+/// Only scopes recorded for that logical Record qualify as historical locators.
+fn resolve_transcript(conn: &Connection, object: &ObjectRef) -> AgentResult<ObjectRef> {
+    let id = object
+        .id
+        .parse::<i64>()
+        .ok()
+        .filter(|id| *id > 0 && id.to_string() == object.id)
+        .ok_or_else(|| invalid("Invalid Transcript identity"))?;
+    let (project_id, project_note, workspace_note): (Option<i64>, Option<i64>, Option<i64>) = conn.query_row(
+        "SELECT n.project_id,n.id,w.id FROM voice_records v LEFT JOIN notes n ON n.id=v.project_note_id LEFT JOIN workspace_notes w ON w.id=v.workspace_note_id AND w.note_kind='workspace_note' WHERE v.id=?1 AND (n.id IS NOT NULL OR w.id IS NOT NULL)",
+        [id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional().map_err(io_error)?.ok_or_else(missing)?;
+    let target = RecordTarget {
+        scope: project_id.map_or(Scope::Workspace, |project_id| Scope::Project { project_id }),
+        record_id: project_note.or(workspace_note).ok_or_else(missing)?,
+    };
+    if object.scope != target.scope {
+        let known = installed(conn)? && conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM record_location_aliases a JOIN record_logical_identities i USING(logical_id) WHERE i.current_key=?1 AND a.location_key=?2||':'||a.record_id)",
+            params![target.key()?,object.scope.key()], |r|r.get::<_,bool>(0)).map_err(io_error)?;
+        if !known {
+            return Err(AgentError::new(
+                ErrorCode::ScopeDenied,
+                "Transcript locator does not match its owner history",
+            ));
+        }
+    }
+    Ok(ObjectRef {
+        scope: target.scope,
+        ..object.clone()
+    })
+}
+
+pub(super) fn record_alias_from_scope(
+    conn: &Connection,
+    kind: &str,
+    id: i64,
+    scope: &Scope,
+) -> AgentResult<bool> {
+    if !installed(conn)? {
+        return Ok(false);
+    }
+    conn.query_row("SELECT EXISTS(SELECT 1 FROM record_location_aliases token JOIN record_location_aliases owner USING(logical_id) WHERE token.reference_kind=?1 AND token.record_id=?2 AND owner.location_key=?3||':'||owner.record_id)",
+        params![kind,id,scope.key()],|r|r.get(0)).map_err(io_error)
+}
+
 pub(super) fn resolve_legacy(
     conn: &Connection,
     kind: &str,
@@ -508,6 +557,13 @@ impl Database {
    if self.table_exists("source_access_policies").map_err(|_|invalid("Cannot inspect source policies"))? {
     tx.execute("UPDATE source_access_policies SET object_key=?1 WHERE object_key=?2",params![new_key,old_key]).map_err(io_error)?;
     tx.execute("DELETE FROM source_index_snapshots WHERE object_key=?1",[&old_key]).map_err(io_error)?;
+    let voice_id:Option<i64> = tx.query_row("SELECT id FROM voice_records WHERE project_note_id IS ?1 AND workspace_note_id IS ?2",params![project(&target.scope).map(|_|target.record_id),if matches!(target.scope,Scope::Workspace){Some(target.record_id)}else{None}],|r|r.get(0)).optional().map_err(io_error)?;
+    if let Some(id)=voice_id {
+     let old_transcript=ObjectRef{workspace_id:binding.workspace_id.clone(),scope:input.source.scope.clone(),kind:ObjectKind::Transcript,id:id.to_string()}.key()?;
+     let new_transcript=ObjectRef{workspace_id:binding.workspace_id.clone(),scope:target.scope.clone(),kind:ObjectKind::Transcript,id:id.to_string()}.key()?;
+     tx.execute("UPDATE source_access_policies SET object_key=?1 WHERE object_key=?2",params![new_transcript,old_transcript]).map_err(io_error)?;
+     tx.execute("DELETE FROM source_index_snapshots WHERE object_key IN (?1,?2)",params![old_transcript,new_transcript]).map_err(io_error)?;
+    }
    }
    tx.execute("UPDATE agent_object_withdrawals SET object_key=?1 WHERE object_key=?2",params![new_key,old_key]).map_err(io_error)?;
    tx.execute(&format!("DELETE FROM {source_table} WHERE id=?1"),[input.source.record_id]).map_err(io_error)?;

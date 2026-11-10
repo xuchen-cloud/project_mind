@@ -17,6 +17,7 @@ struct Reference {
     id: i64,
     block_id: Option<String>,
     source_ref: Option<SourceRef>,
+    occurrence: usize,
 }
 fn references(document: &Value) -> AgentResult<Vec<Reference>> {
     fn visit(
@@ -83,6 +84,7 @@ fn references(document: &Value) -> AgentResult<Vec<Reference>> {
                 id,
                 block_id: block.map(str::to_string),
                 source_ref,
+                occurrence: 0,
             });
         }
         if let Some(children) = node.get("content").and_then(Value::as_array) {
@@ -94,9 +96,19 @@ fn references(document: &Value) -> AgentResult<Vec<Reference>> {
     }
     let mut output = Vec::new();
     visit(document, None, &mut output, 0, &mut 0)?;
+    let mut counts = HashMap::new();
+    for reference in &mut output {
+        if matches!(reference.kind, "note" | "workspace_record") {
+            let count = counts
+                .entry((reference.kind, reference.id, reference.block_id.clone()))
+                .or_insert(0);
+            reference.occurrence = *count;
+            *count += 1;
+        }
+    }
     Ok(output)
 }
-type ReferenceIdentity = (&'static str, i64, Option<String>);
+type ReferenceIdentity = (&'static str, i64, Option<String>, Option<String>, usize);
 fn identity(reference: &Reference) -> ReferenceIdentity {
     (
         reference.kind,
@@ -105,6 +117,12 @@ fn identity(reference: &Reference) -> ReferenceIdentity {
             .source_ref
             .as_ref()
             .map(|source| serde_json::to_string(source).expect("SourceRef serializes")),
+        if matches!(reference.kind, "note" | "workspace_record") {
+            reference.block_id.clone()
+        } else {
+            None
+        },
+        reference.occurrence,
     )
 }
 pub(super) fn reference_identities(document: &Value) -> AgentResult<HashSet<ReferenceIdentity>> {
@@ -127,8 +145,13 @@ struct Resolved {
 }
 fn resolve(conn: &Connection, kind: &str, id: i64) -> AgentResult<Option<Resolved>> {
     if matches!(kind, "note" | "workspace_record") {
-        return Ok(super::record_owner_moves::resolve_legacy(conn, kind, id)?
-            .map(|target| Resolved { id: target.record_id, scope: Some(target.scope), kind: Some(ObjectKind::Record) }));
+        return Ok(
+            super::record_owner_moves::resolve_legacy(conn, kind, id)?.map(|target| Resolved {
+                id: target.record_id,
+                scope: Some(target.scope),
+                kind: Some(ObjectKind::Record),
+            }),
+        );
     }
     let (sql, object_kind) = match kind {
         // Historical note:<id> tokens always denote Project Records. They must
@@ -213,6 +236,88 @@ impl super::Database {
         });
         Ok(objects)
     }
+    /// Existing migrated links may remain without granting access to their new
+    /// owners. Authorize every other reference; persisted CAS validation repeats
+    /// the exact block/occurrence check against the current committed document.
+    pub(crate) fn record_save_reference_authorization_document(
+        &self,
+        target: &RecordTarget,
+        document: &Value,
+    ) -> AgentResult<Value> {
+        let current = self.record_document_head(target)?.ok_or_else(|| {
+            AgentError::new(
+                ErrorCode::SourceNotReady,
+                "Record document is not initialized",
+            )
+        })?;
+        let retained = reference_identities(&current.projection.document)?;
+        let mut allowed = HashSet::new();
+        for reference in references(document)? {
+            if matches!(reference.kind, "note" | "workspace_record")
+                && retained.contains(&identity(&reference))
+                && super::record_owner_moves::record_alias_from_scope(
+                    &self.conn,
+                    reference.kind,
+                    reference.id,
+                    &target.scope,
+                )?
+                && resolve(&self.conn, reference.kind, reference.id)?
+                    .is_some_and(|actual| actual.scope.as_ref() != Some(&target.scope))
+            {
+                allowed.insert(identity(&reference));
+            }
+        }
+        fn strip(
+            node: &mut Value,
+            inherited: Option<String>,
+            counts: &mut HashMap<(&'static str, i64, Option<String>), usize>,
+            allowed: &HashSet<ReferenceIdentity>,
+        ) -> AgentResult<bool> {
+            let block = node
+                .pointer("/attrs/blockId")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .or(inherited);
+            if node.get("type").and_then(Value::as_str) == Some("internalReference") {
+                let kind = match node.pointer("/attrs/refKind").and_then(Value::as_str) {
+                    Some("note") | None => Some("note"),
+                    Some("workspace_record") => Some("workspace_record"),
+                    _ => None,
+                };
+                if let Some(kind) = kind {
+                    let id = node
+                        .pointer("/attrs/refId")
+                        .and_then(positive_object_id)
+                        .ok_or_else(|| invalid("Invalid Record reference identity"))?
+                        as i64;
+                    let count = counts.entry((kind, id, block.clone())).or_insert(0);
+                    let reference = Reference {
+                        kind,
+                        id,
+                        block_id: block.clone(),
+                        source_ref: None,
+                        occurrence: *count,
+                    };
+                    *count += 1;
+                    if allowed.contains(&identity(&reference)) {
+                        return Ok(true);
+                    }
+                }
+            }
+            if let Some(children) = node.get_mut("content").and_then(Value::as_array_mut) {
+                let original = std::mem::take(children);
+                for mut child in original {
+                    if !strip(&mut child, block.clone(), counts, allowed)? {
+                        children.push(child);
+                    }
+                }
+            }
+            Ok(false)
+        }
+        let mut authorization = document.clone();
+        strip(&mut authorization, None, &mut HashMap::new(), &allowed)?;
+        Ok(authorization)
+    }
     pub(crate) fn record_reference_scopes(&self, document: &Value) -> AgentResult<Vec<Scope>> {
         let mut scopes = Vec::new();
         for reference in references(document)? {
@@ -269,7 +374,17 @@ pub(super) fn validate_references(
             return Err(denied());
         };
         if let Some(target_scope) = &target.scope {
-            if (matches!(scope, Scope::Project { .. }) && target_scope != scope)
+            let retained_moved_record = matches!(reference.kind, "note" | "workspace_record")
+                && retained.contains(&identity)
+                && super::record_owner_moves::record_alias_from_scope(
+                    conn,
+                    reference.kind,
+                    reference.id,
+                    scope,
+                )?;
+            if (matches!(scope, Scope::Project { .. })
+                && target_scope != scope
+                && !retained_moved_record)
                 || (reference.kind == "tag" && target_scope != scope)
             {
                 return Err(denied());
@@ -345,13 +460,20 @@ pub(super) fn write_reference_edges(
 mod tests;
 
 /// Move rejects every invalid current reference, without retained-history exemptions.
-pub(super) fn validate_move_references(conn: &Connection, scope: &Scope, document: &Value, workspace_id: &str) -> AgentResult<()> {
+pub(super) fn validate_move_references(
+    conn: &Connection,
+    scope: &Scope,
+    document: &Value,
+    workspace_id: &str,
+) -> AgentResult<()> {
     let mut errors = Vec::new();
     for reference in references(document)? {
         let node = match reference.kind {
             "tag" => json!({"type":"tagMention","attrs":{"tagId":reference.id}}),
             "contact" => json!({"type":"contactMention","attrs":{"contactId":reference.id}}),
-            kind => json!({"type":"internalReference","attrs":{"refKind":kind,"refId":reference.id,"sourceRef":reference.source_ref}}),
+            kind => {
+                json!({"type":"internalReference","attrs":{"refKind":kind,"refId":reference.id,"sourceRef":reference.source_ref}})
+            }
         };
         if let Err(error) = validate_references(conn, scope, &node, &HashSet::new(), workspace_id) {
             if !matches!(error.code, ErrorCode::ScopeDenied | ErrorCode::NotFound) {
@@ -361,8 +483,11 @@ pub(super) fn validate_move_references(conn: &Connection, scope: &Scope, documen
         }
     }
     if !errors.is_empty() {
-        return Err(AgentError::new(ErrorCode::ScopeDenied, "请先处理这些无法在目标位置引用的内容，再移动记录")
-            .with_details(json!({"references":errors})));
+        return Err(AgentError::new(
+            ErrorCode::ScopeDenied,
+            "请先处理这些无法在目标位置引用的内容，再移动记录",
+        )
+        .with_details(json!({"references":errors})));
     }
     Ok(())
 }

@@ -990,3 +990,6 @@ async fn g13_resource_subdirectory_and_single_file_guard_retains_foreign_record_
         b"retained"
     );
 }
+
+#[path = "record_owner_moves_review_tests.rs"]
+mod review;
