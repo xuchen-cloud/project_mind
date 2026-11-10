@@ -17,6 +17,8 @@ import { RecordSaveCoordinatorProvider } from "../../lib/record-save-runtime";
 import { queryKeys } from "../../lib/queryKeys";
 import { RecordFocusResidentPages } from "../record/RecordFocusResidentPages";
 import { ProjectNoteFocusPage } from "./ProjectNoteFocusPage";
+import { ProjectContentMoveContext } from "../../lib/project-content-move-context";
+import { recordDocumentApi } from "../../services/recordDocumentApi";
 
 vi.mock("../voice/VoiceRecordPanel", () => ({
   VoiceRecordPanel: ({ onMinutesCommitted }: { onMinutesCommitted?: () => void }) =>
@@ -459,6 +461,21 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
       currentNote = record;
       return { metadata: { title: record.title,tagIds: record.tags.map((tag) => tag.id),revision: "metadata-ai",updatedAt: "now" },tags: record.tags };
     });
+  });
+
+  it("does not save or checkpoint the old Project target again when unmounted after a confirmed move", async () => {
+    const moved = { committed: false };
+    const persist = vi.fn(async () => ({ updatedAt: "saved", headRevision: 2 }));
+    const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: { persist } });
+    const view = render(<ProjectContentMoveContext.Provider value={moved}><RecordSaveCoordinatorProvider coordinator={coordinator}><ProjectNoteFocusPage /></RecordSaveCoordinatorProvider></ProjectContentMoveContext.Provider>);
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
+    vi.mocked(recordDocumentApi.checkpoint).mockClear(); persist.mockClear();
+    moved.committed = true;
+    view.unmount();
+    await act(async () => { await Promise.resolve(); });
+    expect(recordDocumentApi.checkpoint).not.toHaveBeenCalled();
+    expect(persist).not.toHaveBeenCalled();
+    expect(coordinator.getStatus().pendingCount).toBe(0);
   });
 
   it("refreshes a committed voice title and its canonical metadata without saving it again", async () => {

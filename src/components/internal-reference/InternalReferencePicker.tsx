@@ -13,6 +13,7 @@ import { getInternalReferenceKindLabel } from "../../lib/internalReferences";
 import { HomeSidebarList } from "../home/HomeSidebarList";
 import { projectMindApi } from "../../services/projectMindApi";
 import { cn } from "../../ui/lib/cn";
+import { subscribeInternalReferenceInvalidation } from "../../lib/internal-reference-events";
 
 interface UseInternalReferenceSearchOptions {
   open: boolean;
@@ -38,33 +39,48 @@ export function useInternalReferenceSearch({
     }
 
     let cancelled = false;
-    const timer = window.setTimeout(async () => {
-      setLoading(true);
-      try {
-        const nextResults = await projectMindApi.internalReferenceSearch({
-          query,
-          projectId: context.projectId ?? null,
-          scope: context.scope,
-          limit,
-        });
+    let request = 0;
+    let timer: number;
+    const scheduleSearch = () => {
+      const currentRequest = ++request;
+      window.clearTimeout(timer);
+      timer = window.setTimeout(async () => {
+        setLoading(true);
+        try {
+          const nextResults = await projectMindApi.internalReferenceSearch({
+            query,
+            projectId: context.projectId ?? null,
+            scope: context.scope,
+            limit,
+          });
 
-        if (!cancelled) {
-          setResults(nextResults);
+          if (!cancelled && currentRequest === request) {
+            setResults(nextResults);
+          }
+        } catch {
+          if (!cancelled && currentRequest === request) {
+            setResults([]);
+          }
+        } finally {
+          if (!cancelled && currentRequest === request) {
+            setLoading(false);
+          }
         }
-      } catch {
-        if (!cancelled) {
-          setResults([]);
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    }, 120);
+      }, 120);
+    };
+    const unsubscribe = subscribeInternalReferenceInvalidation((scope) => {
+      if (scope && context.scope === "project"
+        && (scope.kind !== "project" || scope.projectId !== context.projectId)) return;
+      setResults([]);
+      setLoading(true);
+      scheduleSearch();
+    });
+    scheduleSearch();
 
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
+      unsubscribe();
     };
   }, [context?.projectId, context?.scope, limit, open, query]);
 

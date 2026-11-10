@@ -10,6 +10,8 @@ import { createUiStoreState, useUiStore } from "../../state/ui-store";
 import { ProjectSidebar } from "./ProjectSidebar";
 
 const nativeVersionMocks = vi.hoisted(() => ({binding:vi.fn(async()=>({workspaceId:"w",generation:"g"})),list:vi.fn()}));
+const ownerMoveMocks = vi.hoisted(() => ({ move: vi.fn(), projects: vi.fn() }));
+vi.mock("../../services/contentOwnerMoveApi", () => ({ moveContentOwner: ownerMoveMocks.move }));
 vi.mock("../../services/recordDocumentApi",()=>({recordDocumentApi:{bindingGet:nativeVersionMocks.binding}}));
 vi.mock("../../services/fileDocumentApi",()=>({fileDocumentApi:{versionsList:nativeVersionMocks.list}}));
 const documentMutationMocks = vi.hoisted(() => ({
@@ -46,6 +48,7 @@ vi.mock("../../services/desktopApi", () => ({
 
 vi.mock("../../services/projectMindApi", () => ({
   projectMindApi: {
+    projectsList: ownerMoveMocks.projects,
     projectTagSettingsGet: projectMindApiMocks.projectTagSettingsGet,
     documentListVersions: projectMindApiMocks.documentListVersions,
     documentImport: projectMindApiMocks.documentImport,
@@ -65,6 +68,22 @@ function renderWithProviders(ui: React.ReactElement) {
 }
 
 describe("ProjectSidebar", () => {
+  it.each(["list", "tree"])("moves the same File through the shared %s menu controls", async presentation => {
+    ownerMoveMocks.projects.mockResolvedValue([{ id: 8, name: "目标项目" }]);
+    ownerMoveMocks.move.mockReset().mockResolvedValue(undefined);
+    const document = buildDocument({ id: 41 });
+    renderWithProviders(<ProjectSidebar filesOnly project={{ id: 1, name: "Alpha", rootPath: "/project" }}
+      documents={[document]} onOpenProject={vi.fn()} fileContent={presentation === "tree" ? controls =>
+        <button onContextMenu={event => { event.preventDefault(); controls.openContextMenu(document, event.clientX, event.clientY); }}>树文件</button> : undefined} />);
+    fireEvent.contextMenu(screen.getByRole("button", { name: presentation === "tree" ? "树文件" : /^brief.pdf/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "移动到…" }));
+    fireEvent.click(await screen.findByRole("radio", { name: /目标项目/ }));
+    fireEvent.click(screen.getByRole("button", { name: "移动" }));
+    await waitFor(() => expect(ownerMoveMocks.move).toHaveBeenCalledWith({ workspaceRoot: "/tmp/workspace", binding: { workspaceId: "w", generation: "g" },
+      sourceProjectId: 1, destinationProjectId: 8, object: { kind: "file", id: 41 } }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "移动文件" })).not.toBeInTheDocument());
+    expect(desktopApiMocks.openFile).not.toHaveBeenCalled();
+  });
   it("uses the same File rail for Workspace ownership without a placeholder Project", async () => {
     const document = buildDocument({ id: 29, projectId: null, name: "workspace.md", baseName: "workspace.md", managedPath: "/tmp/workspace/files/workspace.md" });
     renderWithProviders(<ProjectSidebar filesOnly fileScope={{ workspaceRoot: "/tmp/workspace", projectId: null, name: "工作区", rootPath: "/tmp/workspace/files" }} documents={[document]} onOpenProject={() => undefined} />);

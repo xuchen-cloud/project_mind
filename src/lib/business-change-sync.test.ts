@@ -3,6 +3,7 @@ import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { createBusinessChangeSync } from "./business-change-sync";
 import { queryKeys } from "./queryKeys";
 import type { AgentChangePage } from "./agent-types";
+import { subscribeInternalReferenceInvalidation } from "./internal-reference-events";
 
 const binding = { workspaceId: "w1", generation: "open-1" };
 const tick = () => new Promise<void>(resolve => setTimeout(resolve, 0));
@@ -10,6 +11,67 @@ const change = (seq: number, project: number | null, kind = "record", id = "7") 
   seq, objectKey: `w1/${project === null ? "workspace" : `project:${project}`}/${kind}/${id}`,
   scope: project === null ? { kind: "workspace" as const } : { kind: "project" as const, projectId: project },
   operation: `${kind}.update`, revision: "new", createdAt: "2026-10-01T00:00:00Z",
+});
+
+it("expires reference candidates on an authoritative history reset, without trusting a reset hint", async () => {
+  const client = new QueryClient();
+  const invalidated = vi.fn();
+  const unsubscribe = subscribeInternalReferenceInvalidation(invalidated);
+  const read = vi.fn().mockResolvedValueOnce({ entries: [], cursor: 1, hasMore: false, resetRequired: false })
+    .mockResolvedValueOnce({ entries: [], cursor: 20, hasMore: false, resetRequired: true });
+  const sync = createBusinessChangeSync({ binding, queryClient: client, readChanges: read });
+  try {
+    await sync.notify({ binding, seq: 1, changedRefs: [
+      { workspaceId: "w1", scope: { kind: "project", projectId: 9 }, kind: "file", id: "9" },
+    ], resetRequired: true });
+    expect(invalidated).not.toHaveBeenCalled();
+    await sync.catchUp();
+    expect(invalidated.mock.calls).toEqual([[null]]);
+  } finally { unsubscribe(); sync.stop(); client.clear(); }
+});
+
+it("publishes only validated log scopes for both owners of moved Records and Files", async () => {
+  const client = new QueryClient();
+  const invalidated = vi.fn();
+  const unsubscribe = subscribeInternalReferenceInvalidation(invalidated);
+  const sync = createBusinessChangeSync({ binding, queryClient: client, readChanges: async () => ({
+    entries: [change(1, 1), change(2, null, "record", "12"), change(3, 2, "file", "11"), change(4, 3, "file", "11")],
+    cursor: 4, hasMore: false, resetRequired: false,
+  }) });
+  try {
+    await sync.notify({ binding, seq: 4, changedRefs: [
+      { workspaceId: "w1", scope: { kind: "project", projectId: 99 }, kind: "file", id: "11" },
+    ], resetRequired: false });
+    expect(invalidated.mock.calls).toEqual([
+      [{ kind: "project", projectId: 1 }], [{ kind: "workspace" }],
+      [{ kind: "project", projectId: 2 }], [{ kind: "project", projectId: 3 }],
+    ]);
+  } finally { unsubscribe(); sync.stop(); client.clear(); }
+});
+
+it("does not publish invalid reference identities or a late page after stop", async () => {
+  const client = new QueryClient();
+  const invalidated = vi.fn();
+  const unsubscribe = subscribeInternalReferenceInvalidation(invalidated);
+  let resolve!: (page: AgentChangePage) => void;
+  const pending = new Promise<AgentChangePage>(done => { resolve = done; });
+  const read = vi.fn().mockResolvedValueOnce({
+    entries: [
+      { ...change(1, 1), objectKey: "w2/project:1/record/7" },
+      { ...change(2, 1), objectKey: "w1/project:2/file/7" },
+      { ...change(3, 1), objectKey: "w1/project:1/record/7/extra" },
+    ], cursor: 3, hasMore: false, resetRequired: false,
+  }).mockReturnValueOnce(pending);
+  const sync = createBusinessChangeSync({ binding, queryClient: client, readChanges: read });
+  try {
+    await sync.catchUp();
+    expect(invalidated).not.toHaveBeenCalled();
+    const flight = sync.catchUp();
+    sync.stop();
+    resolve({ entries: [change(4, 1)], cursor: 4, hasMore: false, resetRequired: true });
+    await flight;
+    expect(invalidated).not.toHaveBeenCalled();
+  } finally { unsubscribe(); sync.stop(); client.clear(); }
 });
 
 it("marks a Warm project dirty without querying it and preserves unrelated caches", async () => {

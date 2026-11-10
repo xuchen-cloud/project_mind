@@ -1,7 +1,8 @@
 import {useFeedbackStore} from "../../state/feedback-store";
 import { fileOwnerScope, sameFileOwner } from "../../lib/file-types";
 import { EditorLoading } from "./EditorLoading";
-import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { ProjectContentMoveContext } from "../../lib/project-content-move-context";
 import { Code2, Eye, RefreshCw } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../../lib/queryKeys";
@@ -62,6 +63,7 @@ export function ProjectFileContent(props: ProjectFileContentProps) {
   return <FileContent key={`${props.workspaceRoot}:${props.projectId}:${props.fileId}`} {...props} />;
 }
 function FileContent({ workspaceRoot, projectId, fileId, fileName, versionNumber, line, page, sourceLocator, initialView, initialSourceMode, visible, focused, onViewChange, onSourceReady, toolbarActions, identityRecovery, registerCloseGuard }: ProjectFileContentProps) {
+  const contentMove = useContext(ProjectContentMoveContext);
   const queryClient = useQueryClient();
   const [OfficeFileContent, setOfficeFileContent] = useState<typeof import('../office/OfficeFileContent').OfficeFileContent>();
   const [officeHostError, setOfficeHostError] = useState<string>();
@@ -77,6 +79,7 @@ function FileContent({ workspaceRoot, projectId, fileId, fileName, versionNumber
     const current=openedWorking.current;
     if(!current)return;
     openedWorking.current=undefined;
+    if(contentMove?.nativeSessionsClosed)return;
     await fileWorkingApi.close(current.binding,{object:current.opened.object,sessionId:current.opened.sessionId});
   }
   useEffect(()=>()=>{void releaseWorking().catch(failure=>useFeedbackStore.getState().pushToast({tone:'error',title:'无法释放文件编辑会话',detail:message(failure)}));},[]);

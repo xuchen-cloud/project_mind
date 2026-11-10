@@ -8,6 +8,11 @@ import { useListPinsStore } from "../../state/list-pins-store";
 import { useFeedbackStore } from "../../state/feedback-store";
 import { WorkspaceOverviewSidebar } from "./WorkspaceOverviewSidebar";
 
+const moveApi = vi.hoisted(() => ({ move: vi.fn(), projects: vi.fn() }));
+vi.mock("../../services/contentOwnerMoveApi", () => ({ moveContentOwner: moveApi.move }));
+vi.mock("../../services/recordDocumentApi", () => ({ recordDocumentApi: { bindingGet: vi.fn(async () => ({ workspaceId: "w", generation: "g" })) } }));
+vi.mock("../../services/projectMindApi", () => ({ projectMindApi: { projectsList: moveApi.projects } }));
+
 function render(element: ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return baseRender(element, {
@@ -73,6 +78,21 @@ function recordList() {
 
 describe("WorkspaceOverviewSidebar", () => {
   beforeEach(() => useUiStore.setState(createUiStoreState()));
+
+  it("moves a Workspace Record through the shared real destination dialog", async () => {
+    moveApi.projects.mockResolvedValue([{ id: 2, name: "目标项目" }]);
+    moveApi.move.mockResolvedValue(undefined);
+    render(<WorkspaceOverviewSidebar {...sidebarProps({ records })} />);
+    fireEvent.click(screen.getByRole("tab", { name: "记录" }));
+    fireEvent.contextMenu(recordList().getByRole("button", { name: /Needle 标题/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "移动到…" }));
+    fireEvent.click(await screen.findByRole("radio", { name: /目标项目/ }));
+    expect(screen.getByRole("radio", { name: /工作区根级/ })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "移动" }));
+    await waitFor(() => expect(moveApi.move).toHaveBeenCalledWith({ workspaceRoot: "/tmp/workspace", binding: { workspaceId: "w", generation: "g" },
+      sourceProjectId: null, destinationProjectId: 2, object: { kind: "record", id: 11 } }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "移动记录" })).not.toBeInTheDocument());
+  });
 
   it("prefetches project intent without navigating, including while renaming", () => {
     const onPrefetchProject = vi.fn();
