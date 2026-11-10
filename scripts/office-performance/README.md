@@ -168,3 +168,12 @@ Every scenario group retains all raw milliseconds, aligned source references, me
 Source matrices supply historical binary SHA, machine and cache qualification. Each selected raw JSON is rehashed and checked against its matrix; logs, matrices and fixture manifest also carry SHA-256. Paths are relative to `$OFFICE_PERF_EVIDENCE` or repository paths. Fixture provenance includes the v2 manifest and verified current fixture/workspace hashes; native reports did not record historical input-byte hashes, so present workspace bytes are not represented as proof of historical bytes. The matrices describe fresh visible native processes with incognito WebViews and retained OS caches, not a cold machine/cache experiment.
 
 This artifact establishes recorded performance readiness and budget outcomes only. It does **not** mark optional edit/autosave/race/history/Workspace acceptance as passed. Over-budget samples are retained without trimming, and the non-formal outlier is not erased. The coordinating report owns interpretation and subsequent evidence additions.
+
+Visible native runs now wait for `document.visibilityState === 'visible'` before
+opening the Workspace or starting document timing. `visiblePreflight` records that
+foreground wait separately. It is excluded from document-open durations because
+this harness measures ProjectFileContent, not application startup. Keep the window
+visible during the run: later hidden/RAF failures still invalidate the sample. No
+RAF substitute or hidden-render bypass is used. Bare binaries on macOS may be absent
+from application inventories; a locally packaged measurement app can be raised for
+inspection without changing its embedded binary or isolated app-data.
