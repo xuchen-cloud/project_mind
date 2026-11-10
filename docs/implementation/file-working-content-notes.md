@@ -42,6 +42,7 @@ No Tauri application or window was started. Targeted verification is recorded in
 Host-backed working operations acquire leases before lifecycle admission:
 recovery scan → Project/owner lease → File lease → Workspace commit fence →
 SQLite transaction. Recovery scans enter admission separately for each File;
+import/metadata/delete/relocate/version scanners also admit after their leases;
 no caller may retain a fence permit while waiting for leases or starting a
 workspace-wide recovery scan. The independent Host connection carries its
 Workspace fence, so session creation, activity, close, journal recovery, save
@@ -49,6 +50,10 @@ and archive all check admission at their own mutation boundary. An invalidated
 Workspace rejects operations waiting for a File lease before they mutate it.
 Source checkpoints on the selected Host remain serialized by its existing
 selection/database boundary.
+
+File creation withdrawal/restoration use the same lease-before-admission boundary.
+An owner root cannot be renamed or removed while one of its Files retains a
+working journal; this check runs under the exclusive owner lease.
 
 An external conflict in a working replacement is local to that File. Startup
 and global scans preserve its journal, owned artifacts and recovery BLOB and

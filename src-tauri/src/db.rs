@@ -2518,6 +2518,8 @@ impl Database {
         if current_dir == next_dir {
             return Ok(None);
         }
+        self.file_working_require_owner_recovered(Some(current.id))
+            .map_err(|error| anyhow!(error.message))?;
         self.file_project_root_available(&next_dir)?;
 
         if next_dir.exists() {
@@ -2752,6 +2754,8 @@ impl Database {
     pub fn project_delete(&mut self, input: ProjectDeleteInput) -> Result<ProjectRecord> {
         self.file_version_recover_pending()?;
         let _file_project_lock = self.file_project_lock(input.project_id, true)?;
+        self.file_working_require_owner_recovered(Some(input.project_id))
+            .map_err(|error| anyhow!(error.message))?;
         let current = self.project_record(input.project_id)?;
         let active: bool = self.conn.query_row("SELECT EXISTS(SELECT 1 FROM recording_sessions s JOIN voice_records v ON v.id=s.voice_record_id JOIN notes n ON n.id=v.project_note_id WHERE n.project_id=?1 AND s.lifecycle != 'ended')", [input.project_id], |row| row.get(0))?;
         if active { return Err(anyhow!("请先结束语音记录，再删除 Project")); }

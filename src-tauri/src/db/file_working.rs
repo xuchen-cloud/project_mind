@@ -96,7 +96,9 @@ impl Database {
     }
     // Call only after acquiring every required lease. Never retain this permit
     // across a global recovery scan or another operation that may wait for File.
-    fn working_commit_permit(&self) -> AgentResult<Option<std::sync::RwLockReadGuard<'_, bool>>> {
+    pub(super) fn file_commit_permit(
+        &self,
+    ) -> AgentResult<Option<std::sync::RwLockReadGuard<'_, bool>>> {
         self.file_commit_fence
             .as_deref()
             .map(|fence| fence.enter())
@@ -275,7 +277,7 @@ impl Database {
         let _durable = Durable::new(&self.conn)?;
         let document = self.working_authorize(request, binding, object)?;
         let _locks = self.file_recovery_write_locks(document.id).map_err(io)?;
-        let _permit = self.working_commit_permit()?;
+        let _permit = self.file_commit_permit()?;
         self.working_recover_locked(object)?;
         let state = self.working_initialize_locked(object)?;
         self.working_status(object, &state)
@@ -289,7 +291,7 @@ impl Database {
         let _durable = Durable::new(&self.conn)?;
         let document = self.working_authorize(request, binding, object)?;
         let _locks = self.file_recovery_write_locks(document.id).map_err(io)?;
-        let _permit = self.working_commit_permit()?;
+        let _permit = self.file_commit_permit()?;
         self.working_recover_locked(object)?;
         let state = self.working_initialize_locked(object)?;
         let metadata = fs::metadata(&document.managed_path).map_err(io)?;
@@ -378,7 +380,7 @@ impl Database {
         binding: &WorkspaceBinding,
         input: &crate::file_working::WorkingSession,
     ) -> AgentResult<()> {
-        let _permit = self.working_commit_permit()?;
+        let _permit = self.file_commit_permit()?;
         self.file_working_session_name(request, binding, input)?;
         self.conn
             .execute(
@@ -544,7 +546,7 @@ impl Database {
         let object = &session.object;
         let document = self.working_authorize(request, binding, object)?;
         let _locks = self.file_recovery_write_locks(document.id).map_err(io)?;
-        let _permit = self.working_commit_permit()?;
+        let _permit = self.file_commit_permit()?;
         self.working_recover_locked(object)?;
         // A replay remains available after close, but never bypasses ownership.
         if let Some(saved) = self.agent_operation_replay(
@@ -682,7 +684,7 @@ impl Database {
             .file_project_lock(document.project_id, false)
             .map_err(io)?;
         let _file = self.file_version_lock(document.id).map_err(io)?;
-        let _permit = self.working_commit_permit()?;
+        let _permit = self.file_commit_permit()?;
         self.working_recover_locked(&input.object)?;
         self.file_working_session_name(request, binding, input)?;
         let mut state = self
@@ -757,7 +759,7 @@ impl Database {
         let document =
             self.working_archive_authorize(request, binding, object, source_checkpoint)?;
         let _locks = self.file_recovery_write_locks(document.id).map_err(io)?;
-        let _permit = self.working_commit_permit()?;
+        let _permit = self.file_commit_permit()?;
         self.working_recover_locked(object)?;
         let mut state = self.working_initialize_locked(object)?;
         if !state.pending
@@ -874,7 +876,7 @@ impl Database {
             let _project = self.file_project_lock(project, false)?;
             let _file = self.file_version_lock(id)?;
             let _permit = self
-                .working_commit_permit()
+                .file_commit_permit()
                 .map_err(|e| anyhow::anyhow!(e.message))?;
             match self.working_recover_locked(&journal.object) {
                 Ok(()) => (),
@@ -893,6 +895,20 @@ impl Database {
                 }
                 Err(e) => return Err(anyhow::anyhow!(e.message)),
             }
+        }
+        Ok(())
+    }
+    /// Call under the exclusive owner lease before moving/removing its root.
+    pub(super) fn file_working_require_owner_recovered(
+        &self,
+        project: Option<i64>,
+    ) -> AgentResult<()> {
+        let unresolved: bool = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM file_working_contents w JOIN documents d ON d.id=w.document_id WHERE d.project_id IS ?1 AND w.journal IS NOT NULL)",
+            [project], |row| row.get(0),
+        ).map_err(io)?;
+        if unresolved {
+            return Err(error(ErrorCode::FileChangedUnregistered, "Resolve File working replacement conflicts before moving or removing their owner root"));
         }
         Ok(())
     }
@@ -990,7 +1006,7 @@ impl Database {
     ) -> AgentResult<Option<WorkingStatus>> {
         let document = self.working_authorize(request, binding, object)?;
         let _locks = self.file_recovery_write_locks(document.id).map_err(io)?;
-        let _permit = self.working_commit_permit()?;
+        let _permit = self.file_commit_permit()?;
         self.working_recover_locked(object)?;
         self.agent_operation_replay(
             &request.caller.key(),

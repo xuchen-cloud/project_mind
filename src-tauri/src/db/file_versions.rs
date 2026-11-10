@@ -873,6 +873,7 @@ impl Database {
                 .map(|id| self.file_project_lock(id, false))
                 .transpose()?;
             let _lock = self.file_version_lock(document_id)?;
+            let _permit = self.file_commit_permit().map_err(CommitFailure)?;
             if !directory.exists() {
                 continue;
             }

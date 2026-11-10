@@ -1034,3 +1034,82 @@ fn native_close_waits_for_actual_working_save_already_in_commit() {
     assert_eq!(replay.unwrap().revision, saved.revision);
     assert_eq!(fence.enter().unwrap_err().code, ErrorCode::WorkspaceChanged);
 }
+
+#[test]
+fn native_global_recovery_cannot_clean_other_journals_after_workspace_close() {
+    // Incomplete preparation directories are enough to drive real cleanup in
+    // every filesystem journal scanner, without inventing a foreign descriptor.
+    for directory in [
+        "file-version-journal",
+        "file-import-journal",
+        "file-metadata-journal",
+        "file-delete-journal",
+        "file-relocate-journal",
+    ] {
+        let mut f = fixture();
+        let name = if directory == "file-import-journal" {
+            match f.object.scope {
+                Scope::Project { project_id } => project_id,
+                _ => unreachable!(),
+            }
+            .to_string()
+        } else {
+            f.object.id.clone()
+        };
+        let pending = f
+            .root
+            .join(".project-mind")
+            .join(directory)
+            .join(format!("{name}-{}", files::token()));
+        fs::create_dir_all(&pending).unwrap();
+        let fence = std::sync::Arc::new(crate::workspace_commit_fence::WorkspaceCommitFence::new());
+        f.db.bind_file_commit_fence(fence.clone());
+        fence.invalidate();
+        assert!(
+            f.db.file_version_recover_pending().is_err(),
+            "{directory} must check lifecycle admission"
+        );
+        assert!(pending.exists(), "{directory} mutated after invalidation");
+    }
+}
+
+#[test]
+fn native_project_root_changes_cannot_orphan_an_isolated_working_journal() {
+    let mut f = fixture();
+    let _ = session(&f);
+    let _ = inject_working_journal(&f);
+    fs::write(&f.path, b"external content").unwrap();
+    let project_id = match f.object.scope {
+        Scope::Project { project_id } => project_id,
+        _ => unreachable!(),
+    };
+    let original_root = f.db.project_record(project_id).unwrap().root_path;
+    let update = |name| crate::models::ProjectUpdateInput {
+        project_id,
+        name,
+        summary: "kept QuickNote".into(),
+        summary_markdown: None,
+        summary_html: None,
+        summary_code_language: None,
+        status: None,
+    };
+    assert!(f.db.project_update(update(Some("Renamed".into()))).is_err());
+    assert_eq!(
+        f.db.project_record(project_id).unwrap().root_path,
+        original_root
+    );
+    assert!(Path::new(&original_root).exists());
+    assert!(f
+        .db
+        .project_delete(crate::models::ProjectDeleteInput { project_id })
+        .is_err());
+    // A retained File conflict does not disable ordinary Project use.
+    f.db.project_update(update(None)).unwrap();
+    drop(f.db);
+    f.db = Database::open(&f.db_path, &f.root, None).unwrap();
+    assert_eq!(
+        f.db.project_record(project_id).unwrap().root_path,
+        original_root
+    );
+    assert_eq!(fs::read(&f.path).unwrap(), b"external content");
+}
