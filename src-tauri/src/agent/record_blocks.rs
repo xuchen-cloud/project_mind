@@ -565,6 +565,21 @@ mod tests {
             ErrorCode::WorkspaceChanged
         );
         f.request.binding = f.binding.clone();
+        for kind in [ObjectKind::Record, ObjectKind::Transcript, ObjectKind::File] {
+            let mut missing = f.input.record.clone();
+            missing.kind = kind;
+            missing.id = "999999999".into();
+            f.request.binding.generation = "old".into();
+            assert_eq!(f.db.source_read_object(&f.request, &f.binding, &missing).unwrap_err().code,
+                ErrorCode::WorkspaceChanged);
+            f.request.binding = f.binding.clone();
+            missing.scope = super::super::models::Scope::Project { project_id: 1 };
+            assert_eq!(f.db.source_read_object(&f.request, &f.binding, &missing).unwrap_err().code,
+                ErrorCode::ScopeDenied);
+            missing.scope = super::super::models::Scope::Workspace;
+            assert_eq!(f.db.source_read_object(&f.request, &f.binding, &missing).unwrap_err().code,
+                ErrorCode::NotFound);
+        }
         f.input.record.scope = super::super::models::Scope::Project { project_id: 1 };
         assert_eq!(
             get_record_blocks(&f.db, &f.request, &f.binding, &f.input)
