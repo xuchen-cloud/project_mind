@@ -4,6 +4,7 @@ use crate::{
         access::Caller,
         conversation::{RunPreparation, RunSettlement},
         output_runtime::StageRecordInput,
+        operation_batches::OperationUndoBatchOutcome,
         outputs::OutputIntent,
         runtime::RunState,
     },
