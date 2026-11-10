@@ -76,9 +76,9 @@ pub(crate) fn with_db<S: BoundSourceStore + BoundFileCommitStore, T>(
         crate::file_version_service::validate_binding(&request.binding, binding)
     })?;
     let host = store.gui_commit_host(&request.binding)?;
+    drop(host.fence().enter()?);
     let db = host.database()?;
     let (result, changes) = {
-        let _permit = host.fence().enter()?;
         crate::committed_changes::capture_committed(
             host.binding(),
             &db,

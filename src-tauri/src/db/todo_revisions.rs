@@ -384,6 +384,7 @@ mod tests {
             workspace_root: Default::default(),
             secret_password: None,
             native_workspace_id: None,
+            file_commit_fence: None,
         }
     }
     fn seed(db: &Database) {

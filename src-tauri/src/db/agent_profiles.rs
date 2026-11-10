@@ -217,6 +217,7 @@ mod tests {
             workspace_root: std::path::PathBuf::new(),
             secret_password: Some("fixture-password".into()),
             native_workspace_id: None,
+            file_commit_fence: None,
         }
     }
 

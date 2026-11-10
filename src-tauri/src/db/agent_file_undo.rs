@@ -1009,6 +1009,8 @@ impl Database {
         self.file_version_recovery_target_hidden(request, binding, &created.object, permission)?;
         let id = file_id(&created.object)?;
         let _locks = self.file_recovery_write_locks(id).map_err(|_| conflict())?;
+        self.file_working_require_recovered(id)?;
+        let _permit = self.file_commit_permit()?;
         self.agent_atomic_operation(&request.caller.key(),&request.request_id,operation,&(input,expected),|tx|{
  let created=entry(tx,request,binding,&input.creation_operation_id,permission)?;original_authority(tx,request,binding,&created)?;
  let target=self.file_version_recovery_target_hidden(request,binding,&created.object,permission)?;

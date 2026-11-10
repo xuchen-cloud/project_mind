@@ -828,6 +828,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
             workspace_root: Default::default(),
             secret_password: None,
             native_workspace_id: None,
+            file_commit_fence: None,
         };
         let repository = WorkspaceContextRepository {
             db: &db,
