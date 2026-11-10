@@ -1110,7 +1110,8 @@ async function navigateAndZoom(): Promise<Record<string, unknown>> {
     await until(() => workbook.getActiveSheet().getSheetId() === target.getSheetId() && workbook.getActiveRange()?.getRange().startRow === 2, 'real worksheet navigation', performance.now());
     const model = displayedFile && models.get(displayedFile.object);
     if (model?.format !== 'xlsx') throw Error('Native model unavailable for navigated sheet paint');
-    await until(() => !!sheetState(model, target.getSheetId()), 'navigated native sheet content and canvas witness', performance.now());
+    // Scrolling can move the first-viewport witness offscreen. Initial ready()
+    // retains that gate; navigation requires the selected cell's positional proof.
     await until(() => !!sheetNavigationPaint(model), 'selected native cell composited in navigated viewport', performance.now());
   } else {
     if (config.format === 'pptx') {

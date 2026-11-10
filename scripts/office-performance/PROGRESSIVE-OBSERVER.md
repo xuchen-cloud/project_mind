@@ -186,3 +186,105 @@ apply to the unchanged implementation integrated as `3ed5185` + `0cdf9ab`.
 The Office owner received these reviewed commits for its next source-matched
 native rebuild and DOCX/XLSX run. That run, timing budgets and platform acceptance
 remain separate; this observer review supplies no new native performance result.
+
+## Round4 XLSX navigation follow-up (base 96239b5)
+
+Issue #307/G12; Office #303 native acceptance dependency. Deliver only the removal
+of the obsolete first-viewport prerequisite after worksheet navigation. Keep
+`sheetNavigationPaint`, initial `ready()` / `sheetState`, source correlation,
+pixel/content thresholds and all product code unchanged. Verify the actual
+navigation orchestration with offscreen A1 / visible B3, missing B3 composition,
+and strict initial readiness, then run all native boundary tests and entry tsc.
+No GUI/cargo, other worktree edits, subagent, publication or native result claim.
+
+### Exact reported failure
+
+Read-only evidence is the nested report (the initially supplied path omitted
+the `xlsx/` directory):
+
+`/Users/xuchen/.codex/worktrees/a263/project_mind/output/playwright/office-native-round4/xlsx/xlsx-large-1.json`
+
+Report SHA-256:
+`1f6debfbc8f145f77e68a70bdb38405687e0e56b3ebecef99fd8b95132fac7b0`.
+Round4 `build.json` records source head
+`8a09a09568f306e9194f59ae9e41f3b480134a43`, plus its explicit docs/test dirty list,
+and binary SHA-256
+`2644f22f6773a0b8922a877dd8eb3c0a293e114817f37ad7520af3095efe608e`.
+Qualification: macOS arm64 embedded-debug with optimized frontend, **not release**.
+
+`acceptance_navigation_zoom_and_mode` failed after **45006 ms**. Its captured
+error diagnostic identifies stage `navigated native sheet content and canvas
+witness`, with reason `renderer canvas has not painted native text witness`
+and A1 text `未编辑工作表：请保留中文`. The selected range is B3 on sheet-2 `说明`.
+The operation selected B3, scrolled to row 2 / column 1 without frozen panes and
+zoomed, but then awaited the first viewport's A1 paint before reaching the
+existing selected-cell positional proof. This is the blocking observer gate;
+it is not proof that the native selected-cell validation has passed.
+
+The report has **6/7 functional acceptance records passed**: reset navigation,
+mutation/autosave, close/native readback, explicit archive, reopen/verify and
+history/stale CAS. Its `cold_open` is **1701 ms**, explicitly `over_budget`.
+Office's status reports DOCX and PPTX at 7/7 functional acceptance, with their
+cold opens also above 1000 ms. Neither this fix nor the boundary tests closes
+release/p95, performance or the unavailable Windows acceptance requirement.
+
+### Change and regression boundaries
+
+The only entry logic change deletes `await until(() => !!sheetState(model,
+target.getSheetId()), ...)` in `navigateAndZoom`. The existing following
+`sheetNavigationPaint(model)` gate still verifies the selected source cell,
+facade value/formula, number format, zoom/scroll/freeze-adjusted screen position,
+canvas ownership and complete cache-to-main composition. Initial first-screen
+checks remain byte-for-byte unchanged, including final stable-paint rechecks.
+
+`native-canvas-proof.test.mjs` now extracts the actual `navigateAndZoom`, `until`,
+`sheetState` and `ready` functions alongside its existing actual composition
+helpers. The fixture supplies facade state and deterministic clock/drawing
+boundaries; it does not replace these validation functions with passing mocks.
+The positive case selects and scrolls B3, changes zoom to 110%, and proves native
+30 formatted as `30.00` at the computed B3 screen box, with A1 absent. The negative
+case has B3 text only in the cache and must fail at the selected-cell composition
+gate. The initial-ready case has valid B3 composition but still fails on the
+missing A1 first-viewport witness. Existing wrong-text/wrong-position, cleared
+canvas, wrong facade/source/owner and clipping cases continue to apply.
+
+Canvas calls are boundary doubles, not browser rasterization or Mac WebView
+evidence. Timer advancement avoids waiting 45 seconds without changing the
+entry's timeout budget. Fonts/layout settling is a boundary double in the
+navigation case; no new native rendering or persistence claim is made.
+
+Commands from `/tmp/project-mind-review-observer-progressive`, using the same
+shared lock and Node 24.21.0 as the earlier package:
+
+```sh
+LOCK=/Users/xuchen/.codex/task-handoffs/project-mind-review-20261110/with-build-lock.py
+NODE=/tmp/project-mind-review-combined/packages/agent-host/runtime/darwin-arm64/node
+python3 "$LOCK" "$NODE" --test --test-name-pattern='actual navigateAndZoom|actual initial ready' scripts/office-performance/native-canvas-proof.test.mjs
+python3 "$LOCK" "$NODE" --test scripts/office-performance/native-*.test.mjs
+python3 "$LOCK" "$NODE" node_modules/typescript/bin/tsc --project scripts/office-performance/tsconfig.json --noEmit
+git diff --check
+```
+
+RED: **1 passed / 2 failed**. The positive navigation and precise missing-B3
+failure-stage assertions both hit the obsolete A1 gate; the strict initial-ready
+negative passed. GREEN: the same focused command passed **3/3**. Complete native
+suite: **107 passed, 0 failed, 0 skipped** (1322.342166 ms). Observer entry/application
+tsc passed without diagnostics; `git diff --check` passed. Full test/typecheck logs
+are retained locally in `scripts/office-performance/output/navigation-round4/`.
+No dependencies were installed or rebuilt; existing local/shared artifacts were
+reused under the lock.
+
+Standards self-review: **0 remaining findings**. Only the observer entry, its
+existing canvas-proof regression file and this record changed. Actual gates are
+extracted rather than duplicated. Spec self-review: **0 remaining findings** in
+the delta; source comparison confirms `sheetState` / `ready` and
+`sheetNavigationPaint` are unchanged. The runtime delta removes one postnavigation
+wait and adds its rationale; no product code, thresholds, native IO, response
+objects, visibility behavior or original first-screen checks changed.
+
+Main must review/integrate the fixed commit, then arrange Office's rebuilt
+measurement entry and affected **XLSX-only Mac rerun**. This package does not send
+other-chat messages or repeat main's File flow acceptance. Preserve round4 as
+failed navigation evidence and keep native navigation/mode acceptance open until
+the rerun passes. Performance/release/p95 and Windows platform acceptance remain
+open independently; no GUI/cargo, native run, push, merge or Issue closure here.
