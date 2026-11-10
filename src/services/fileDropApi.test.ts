@@ -1,10 +1,47 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import { createFileDropBatch } from "./fileDropApi";
+import { publishFileReplacedReceipt } from "../lib/content-owner-move-events";
+import { prepareContentOwnerMove, registerProjectContentCloseGuard, releaseContentOwnerMove } from "../lib/project-content-lifecycle";
+vi.mock("../lib/content-owner-move-events", () => ({ publishFileReplacedReceipt: vi.fn() }));
 const ipc = vi.hoisted(() => vi.fn());
 const agent = vi.hoisted(() => vi.fn());
 vi.mock("./desktopApi", () => ({ desktopApi: { fileCommand: ipc, command: agent } }));
 const binding = { workspaceId: "workspace", generation: "generation" };
-beforeEach(() => { ipc.mockReset(); agent.mockReset().mockImplementation(async (_command, args) => ({ apiVersion: 1, requestId: args.input.requestId, ok: true, data: null })); });
+beforeEach(() => { vi.mocked(publishFileReplacedReceipt).mockReset(); ipc.mockReset(); agent.mockReset().mockImplementation(async (_command, args) => ({ apiVersion: 1, requestId: args.input.requestId, ok: true, data: null })); });
+it.each([false, true])("confirms the same local replacement terminal from its successful receipt when no native event arrives (noChange=%s)", async noChange => {
+  ipc.mockImplementation(async command => command === "file_drop_prepare" ? { intentId: "intent" }
+    : { documentId: 4, versionNumber: 3, contentHash: "h3", noChange, oldSessionsClosed: !noChange, cleanupWarning: null });
+  const batch = createFileDropBatch(binding, [{ sourcePath: "/source.md", target: { kind: "update", documentId: 4, projectId: 7, managedPath: "/managed.md", expectedVersionNumber: 2 } }]);
+  await batch.run();
+  expect(publishFileReplacedReceipt).toHaveBeenCalledExactlyOnceWith({ binding, operationId: ipc.mock.calls[0][1].requestId,
+    object: { workspaceId: binding.workspaceId, scope: { kind: "project", projectId: 7 }, kind: "file", id: "4" },
+    versionNumber: 3, contentHash: "h3", noChange, oldSessionsClosed: !noChange });
+  await batch.run();
+  expect(publishFileReplacedReceipt).toHaveBeenCalledOnce();
+});
+it.each(["native", "transport", "identity"] as const)("keeps the draft and releases only a confirmed failure when release events are lost (%s failure)", async failureKind => {
+  const uncertain = failureKind !== "native";
+  const object = { workspaceId: binding.workspaceId, scope: { kind: "project" as const, projectId: 7 }, kind: "file" as const, id: "4" };
+  let locked = false, operationId = "";
+  const closeMoved = vi.fn();
+  const stop = registerProjectContentCloseGuard({ workspaceRoot: "/workspace", projectId: 7, binding, prepare: async () => {}, closeMoved,
+    lockObject: () => { locked = true; return () => { locked = false; }; } });
+  agent.mockImplementation(async (command, args) => {
+    if (command === "file_editors_flush") {
+      operationId = args.input.requestId;
+      await prepareContentOwnerMove(binding, object, operationId, async () => {});
+      if (failureKind === "identity") return { apiVersion: 1, requestId: "wrong-response", ok: true, data: null };
+    }
+    return { apiVersion: 1, requestId: args.input.requestId, ok: true, data: null };
+  });
+  ipc.mockRejectedValue(failureKind === "transport" ? new Error("response lost") : { code: "REVISION_CONFLICT", message: "changed" });
+  try {
+    const [outcome] = await createFileDropBatch(binding, [{ sourcePath: "/source.md", target: { kind: "update", documentId: 4, projectId: 7, managedPath: "/managed.md", expectedVersionNumber: 2 } }]).run();
+    expect(outcome).toMatchObject({ status: "error", uncertain });
+    expect(locked).toBe(uncertain);
+    expect(closeMoved).not.toHaveBeenCalled(); expect(publishFileReplacedReceipt).not.toHaveBeenCalled();
+  } finally { releaseContentOwnerMove({ binding, operationId, source: object }); stop(); }
+});
 it("keeps each source's committed result and cleanup warning when another destination fails", async () => {
   const denied = { code: "SCOPE_DENIED", message: "denied", details: { owner: 7 } };
   ipc.mockImplementation(async (command, args) => {
@@ -26,6 +63,35 @@ it("keeps each source's committed result and cleanup warning when another destin
   expect(prepare).toEqual({ binding, requestId: expect.any(String), sourcePath: "/good.pdf", target: { kind: "new", owner: null, name: "good.pdf" } });
   expect(ipc.mock.calls[1]).toEqual(["file_drop_commit", { binding, requestId: prepare.requestId, intentId: "intent-a" }]);
   expect(ipc.mock.calls.filter(([command]) => command === "file_drop_commit")).toHaveLength(1);
+});
+it("releases a captured instance after an uncertain commit is later confirmed rejected and native release was already acknowledged", async () => {
+  const object = { workspaceId: binding.workspaceId, scope: { kind: "project" as const, projectId: 7 }, kind: "file" as const, id: "4" };
+  let locked = false, operationId = "", commits = 0;
+  const closeMoved = vi.fn();
+  const stop = registerProjectContentCloseGuard({ workspaceRoot: "/workspace", projectId: 7, binding, prepare: async () => {}, closeMoved,
+    lockObject: () => { locked = true; return () => { locked = false; }; } });
+  agent.mockImplementation(async (command, args) => {
+    if (command === "file_editors_flush") {
+      operationId = args.input.requestId;
+      await prepareContentOwnerMove(binding, object, operationId, async () => {});
+    }
+    return { apiVersion: 1, requestId: args.input.requestId, ok: true, data: null };
+  });
+  ipc.mockImplementation(async command => {
+    if (command === "file_drop_prepare") return { intentId: "pinned" };
+    if (++commits === 1) throw new Error("commit response lost");
+    throw { code: "REVISION_CONFLICT", message: "commit rejected" };
+  });
+  const batch = createFileDropBatch(binding, [{ sourcePath: "/source.md", target: { kind: "update", documentId: 4, projectId: 7, managedPath: "/managed.md", expectedVersionNumber: 2 } }]);
+  try {
+    expect(await batch.run()).toMatchObject([{ status: "error", uncertain: true }]);
+    expect(locked).toBe(true);
+    agent.mockClear();
+    expect(await batch.run()).toMatchObject([{ status: "error", uncertain: false }]);
+    expect(locked).toBe(false);
+    expect(agent).not.toHaveBeenCalled();
+    expect(closeMoved).not.toHaveBeenCalled(); expect(publishFileReplacedReceipt).not.toHaveBeenCalled();
+  } finally { releaseContentOwnerMove({ binding, operationId, source: object }); stop(); }
 });
 it.each(["prepare", "commit"])("confirms a lost %s response using the same frozen request/intent and never resubmits a success", async lostStage => {
   let lost = true;

@@ -10,6 +10,7 @@ interface FlushRequest {
 
 export async function registerFileEditor(options: {
   binding: AgentWorkspaceBinding; object: AgentObjectRef; editorId: string; flush: () => Promise<void>;
+  onMoveRequested?: (operationId: string) => void;
 }) {
   let disposed = false;
   const stop = await desktopApi.listenEvent<FlushRequest>("file:editor-flush-request", payload => {
@@ -20,7 +21,10 @@ export async function registerFileEditor(options: {
     void (async () => {
       let outcome: FileEditorFlushOutcome;
       try {
-        await prepareContentOwnerMove(options.binding, options.object, payload.operationId, options.flush);
+        await prepareContentOwnerMove(options.binding, options.object, payload.operationId, async () => {
+          options.onMoveRequested?.(payload.operationId);
+          await options.flush();
+        });
         outcome = disposed ? "busy" : "saved";
       } catch (failure) {
         outcome = failure && typeof failure === "object" && "code" in failure && failure.code === "EDITOR_BUSY" ? "busy" : "failed";

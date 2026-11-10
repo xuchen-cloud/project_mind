@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { AgentError, AgentSourceRef } from "../../lib/agent-types";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { fileDocumentApi } from "../../services/fileDocumentApi";
 import { recordDocumentApi } from "../../services/recordDocumentApi";
 import { projectFileApi } from "../../services/projectFileApi";
@@ -16,8 +16,9 @@ import { officePreviewCache } from "../../lib/office-preview-cache";
 import { desktopApi } from "../../services/desktopApi";
 import { agentApi, AgentApiError } from "../../services/agentApi";
 import { ProjectContentLayoutView } from "../project/ProjectContentLayoutView";
-import { registerProjectContentCloseGuard, releaseContentOwnerMove, withProjectContentMove } from "../../lib/project-content-lifecycle";
+import { hasPendingContentOwnerMove, registerProjectContentCloseGuard, releaseContentOwnerMove, withProjectContentMove } from "../../lib/project-content-lifecycle";
 import { fileEditorApi } from "../../services/fileEditorApi";
+import { publishFileReplacedReceipt } from "../../lib/content-owner-move-events";
 vi.mock("../../services/fileEditorApi", () => ({fileEditorApi:{register:vi.fn(),unregister:vi.fn(),reply:vi.fn()}}));
 vi.mock("../../services/fileWorkingApi",()=>({fileWorkingApi:{open:vi.fn(),saveOffice:vi.fn(),activity:vi.fn(),tick:vi.fn(),close:vi.fn()}}));
 vi.mock("../../services/officeFileApi", () => ({ officeFileApi: { inspect: vi.fn(), save: vi.fn() } }));
@@ -43,6 +44,8 @@ vi.mock("../../services/htmlPreviewApi", () => ({ htmlPreviewApi: { create: vi.f
 const binding = { workspaceId: "w", generation: "g" };
 const object = { workspaceId: "w", scope: { kind: "project" as const, projectId: 2 }, kind: "file" as const, id: "7" };
 const input = { workspaceRoot: "/workspace", projectId: 2, fileId: 7, visible: true, focused: true };
+let stopCapturePane: (() => void) | undefined;
+afterEach(() => { stopCapturePane?.(); stopCapturePane = undefined; });
 const version = (n: number) => ({ id: String(n), versionNumber: n, name: "sample.txt", createdAt: "2026-10-11", contentHash: `hash${n}`, isCurrent: n === 2 });
 function source(n: number, text = `version${n}`, name = "sample.txt", format: "text" | "markdown" | "html" = "text") {
   return { object, versionNumber: n, contentHash: `hash${n}`, title: name, byteLength: new TextEncoder().encode(text).byteLength, format, text, startChar: 0, endChar: [...text].length, totalChars: [...text].length, nextCursor: null, complete: true };
@@ -100,7 +103,7 @@ it.each([true, false])('opens a legacy File after explicit recovery with a regis
   } /></QueryClientProvider>);
   await screen.findByText("旧版导入文件尚未记录文件身份，请确认当前位置后打开。", { selector: '[role="alert"]' });
   expect(projectFileApi.readBytes).not.toHaveBeenCalled();
-  expect(client.getQueryCache().find({ queryKey: ["documentVersions", 7] })).toBeUndefined();
+  expect(client.getQueryData(["documentVersions", 7])).toBeUndefined();
   if (!registered) fireEvent.click(await screen.findByRole("checkbox", { name: /旧版本仍保留为未经核验/ }));
   const submit = await screen.findByRole("button", { name: registered ? "确认同一文件的新位置" : "确认并登记当前文件" });
   await waitFor(() => expect(submit).toBeEnabled());
@@ -140,7 +143,15 @@ it.each([true, false])('releases the old File session only when the confirmed mo
   else expect(fileWorkingApi.close).toHaveBeenCalledWith(binding, { object, sessionId: "session" });
   expect(fileWorkingApi.saveOffice).not.toHaveBeenCalled();
 });
-async function requestFileFlush(override: Partial<{object: typeof object; binding: typeof binding}> = {}) {
+async function requestFileFlush(override: Partial<{object: typeof object; binding: typeof binding; operationId: string}> = {}) {
+  // Standalone FileContent fixtures also need the owning pane's real barrier.
+  // Full layout fixtures register first and retain their actual inert lock.
+  stopCapturePane ??= registerProjectContentCloseGuard({ workspaceRoot: '/standalone-file-pane', projectId: 2, binding, prepare: async () => {},
+    lockObject: () => {
+      const page=document.querySelector<HTMLElement>('.project-file-content');
+      if (page) page.inert=true;
+      return () => { if (page) page.inert=false; };
+    } });
   await waitFor(() => expect(fileEditorApi.register).toHaveBeenCalled());
   const registration = vi.mocked(fileEditorApi.register).mock.calls.at(-1)!;
   const listener = vi.mocked(desktopApi.listenEvent).mock.calls.filter(([event]) => event === 'file:editor-flush-request').at(-1)![1];
@@ -149,7 +160,7 @@ async function requestFileFlush(override: Partial<{object: typeof object; bindin
   return request;
 }
 async function sendFileReplaced(operationId: string, overrides = {}) {
-  const listener=vi.mocked(desktopApi.listenEvent).mock.calls.find(([event])=>event==='content:file-replaced')?.[1];
+  const listener=vi.mocked(desktopApi.listenEvent).mock.calls.filter(([event])=>event==='content:file-replaced').at(-1)?.[1];
   expect(listener).toBeTypeOf('function');
   await act(async()=>listener!({binding,operationId,object,versionNumber:3,contentHash:'replacement-hash',noChange:false,oldSessionsClosed:true,...overrides}));
 }
@@ -195,6 +206,93 @@ it('reloads a replaced File in the same Tab, releases only after retiring its ol
   rendered.unmount();
   expect(fileWorkingApi.close).toHaveBeenCalledExactlyOnceWith(binding,{object,sessionId:'new-session'});
 });
+it('completes a captured replacement from its local receipt and ignores that receipt in a later instance with a new draft', async () => {
+  const rendered=await replacementOfficeTab();
+  const request=await requestFileFlush();
+  await waitFor(()=>expect(fileEditorApi.reply).toHaveBeenCalledWith(binding,expect.objectContaining({outcome:'saved'})));
+  const receipt={binding,operationId:request.operationId,object,versionNumber:3,contentHash:'replacement-hash',noChange:false,oldSessionsClosed:true};
+  vi.mocked(projectFileApi.resolve).mockResolvedValue({object,name:'sample.docx',relativePath:'sample.docx',versionNumber:3,contentHash:'replacement-hash',state:'ready',reason:null});
+  vi.mocked(fileDocumentApi.versionsList).mockResolvedValue({object,currentVersionNumber:3,currentContentHash:'replacement-hash',versions:[{...version(3),name:'sample.docx',contentHash:'replacement-hash'}],nextCursor:null});
+  vi.mocked(fileWorkingApi.open).mockResolvedValue({...workingStatus(),sessionId:'replacement-session',revision:4,contentHash:'replacement-hash',archivedVersionNumber:3,name:'sample.docx',base64:'UEs=',format:'docx',model:{format:'docx',nodes:[{id:'p0',text:'回执确认的新正文'}]}} as never);
+  act(()=>publishFileReplacedReceipt(receipt));
+  await screen.findByDisplayValue('回执确认的新正文');
+  expect(rendered.onReleased).toHaveBeenCalledOnce();expect(rendered.onClose).not.toHaveBeenCalled();
+  vi.mocked(fileWorkingApi.open).mockClear();
+  await sendFileReplaced(request.operationId);
+  expect(fileWorkingApi.open).not.toHaveBeenCalled();
+  rendered.unmount();
+  const later=await editedOffice();
+  const laterEditor=later.editor;
+  vi.mocked(fileWorkingApi.open).mockClear();vi.mocked(fileWorkingApi.close).mockClear();vi.mocked(fileWorkingApi.saveOffice).mockClear();vi.mocked(fileDocumentApi.versionsList).mockClear();
+  act(()=>publishFileReplacedReceipt(receipt));
+  await sendFileReplaced(request.operationId);
+  expect(screen.getByLabelText('Office 正文')).toBe(laterEditor);
+  expect(laterEditor).toHaveValue('未保存草稿');
+  expect(fileWorkingApi.open).not.toHaveBeenCalled();expect(fileWorkingApi.close).not.toHaveBeenCalled();expect(fileWorkingApi.saveOffice).not.toHaveBeenCalled();expect(fileDocumentApi.versionsList).not.toHaveBeenCalled();
+  later.unmount();
+});
+it.each(['local','native'] as const)('retires every captured same-File instance before unlocking a synchronous %s replacement', async delivery => {
+  await assertSharedReplacement(delivery);
+});
+it.each([
+  ['local',0],['local',1],['native',0],['native',1],
+] as const)('waits for both captured instances to finish a %s replacement when instance %s finishes first', async (delivery, first) => {
+  await assertSharedReplacement(delivery, first);
+});
+async function assertSharedReplacement(delivery: 'local' | 'native', first?: 0 | 1) {
+  vi.mocked(projectFileApi.resolve).mockResolvedValue({object,name:'sample.docx',relativePath:'sample.docx',versionNumber:2,contentHash:'hash2',state:'ready',reason:null});
+  vi.mocked(fileDocumentApi.versionsList).mockResolvedValue({object,currentVersionNumber:2,currentContentHash:'hash2',versions:[{...version(2),name:'sample.docx'}],nextCursor:null});
+  vi.mocked(officeFileApi.inspect).mockResolvedValue({model:{format:'docx',nodes:[{id:'p0',text:'原文'}]}} as never);
+  let sessions=0;
+  vi.mocked(fileWorkingApi.open).mockImplementation(async()=>({...workingStatus(),sessionId:`session-${++sessions}`,name:'sample.docx',base64:'UEs=',format:'docx',model:{format:'docx',nodes:[{id:'p0',text:`会话${sessions}`} ]}} as never));
+  vi.mocked(fileWorkingApi.saveOffice).mockResolvedValue({...workingStatus(),revision:3,contentHash:'saved'});
+  const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
+  const rendered=render(<QueryClientProvider client={client}>{[0,1].map(index=><div key={index} role="group" aria-label={`实例${index}`}><ProjectFileContent {...input}/></div>)}</QueryClientProvider>);
+  const oldEditors: HTMLElement[]=[];
+  let stop: (()=>void) | undefined;
+  const unlockedWithOldRenderer: boolean[]=[];
+  const unlock=vi.fn(()=>{unlockedWithOldRenderer.push(oldEditors.some(editor=>editor.isConnected));rendered.container.inert=false;});
+  try {
+    for (const index of [0,1]) {
+      const instance=within(screen.getByRole('group',{name:`实例${index}`}));
+      const edit=await instance.findByRole('button',{name:'编辑',exact:true});
+      await waitFor(()=>expect(edit).toBeEnabled());fireEvent.click(edit);
+      const editor=await instance.findByRole('textbox',{name:'Office 正文'});
+      fireEvent.change(editor,{target:{value:`实例${index}草稿`}});oldEditors.push(editor);
+    }
+    await waitFor(()=>expect(fileEditorApi.register).toHaveBeenCalledTimes(2));
+    stop=registerProjectContentCloseGuard({workspaceRoot:input.workspaceRoot,projectId:2,binding,prepare:async()=>{},lockObject:()=>{rendered.container.inert=true;return unlock;}});
+    const operationId=crypto.randomUUID(), identity={binding,source:object,operationId};
+    const flushListeners=vi.mocked(desktopApi.listenEvent).mock.calls.filter(([topic])=>topic==='file:editor-flush-request').map(([,listener])=>listener);
+    act(()=>{for (const [registeredBinding,registeredObject,editorId] of vi.mocked(fileEditorApi.register).mock.calls) {
+      for (const listener of flushListeners) listener({binding:registeredBinding,object:registeredObject,editorId,flushId:editorId,operationId});
+    }});
+    await waitFor(()=>expect(fileEditorApi.reply).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(fileEditorApi.reply).mock.calls.every(([,reply])=>reply.outcome==='saved')).toBe(true);
+    expect(fileWorkingApi.saveOffice).toHaveBeenCalledTimes(2);
+    expect(hasPendingContentOwnerMove(identity)).toBe(true);
+    const finishClose=new Map<string,()=>void>();
+    if (first!==undefined) vi.mocked(fileWorkingApi.close).mockImplementation((_binding,{sessionId})=>new Promise(resolve=>finishClose.set(sessionId,resolve)));
+    const event={binding,operationId,object,versionNumber:3,contentHash:'replacement-hash',noChange:false,oldSessionsClosed:first===undefined};
+    act(()=>{
+      if (delivery==='local') publishFileReplacedReceipt(event);
+      else for (const [,listener] of vi.mocked(desktopApi.listenEvent).mock.calls.filter(([topic])=>topic==='content:file-replaced')) listener(event);
+    });
+    expect(oldEditors.every(editor=>!editor.isConnected)).toBe(true);
+    if (first!==undefined) {
+      expect(finishClose.size).toBe(2);
+      await act(async()=>finishClose.get(`session-${first+1}`)!());
+      expect(unlock).not.toHaveBeenCalled();
+      expect(hasPendingContentOwnerMove(identity)).toBe(true);
+      expect(rendered.container.inert).toBe(true);
+      await act(async()=>finishClose.get(`session-${2-first}`)!());
+    }
+    await waitFor(()=>expect(unlock).toHaveBeenCalledOnce());
+    expect(unlockedWithOldRenderer).toEqual([false]);
+    expect(hasPendingContentOwnerMove(identity)).toBe(false);
+    expect(rendered.container.inert).toBe(false);
+  } finally {rendered.unmount();stop?.();}
+}
 it('keeps the original File renderer and draft when a prepared replacement is released without committing', async () => {
   const rendered=await replacementOfficeTab();
   const request=await requestFileFlush();
@@ -211,6 +309,36 @@ it('keeps the original File renderer and draft when a prepared replacement is re
   rendered.unmount();
   expect(fileWorkingApi.close).toHaveBeenCalledExactlyOnceWith(binding,{object,sessionId:'old-session'});
 });
+it('ignores a released operation receipt even when this instance remembers participating in its capture', async () => {
+  const rendered=await replacementOfficeTab();
+  const request=await requestFileFlush();
+  await waitFor(()=>expect(fileEditorApi.reply).toHaveBeenCalledWith(binding,expect.objectContaining({outcome:'saved'})));
+  act(()=>releaseContentOwnerMove({binding,operationId:request.operationId,source:object}));
+  fireEvent.change(rendered.oldEditor,{target:{value:'释放后继续编辑的新草稿'}});
+  vi.mocked(fileWorkingApi.open).mockClear();vi.mocked(fileWorkingApi.close).mockClear();vi.mocked(fileWorkingApi.saveOffice).mockClear();
+  act(()=>publishFileReplacedReceipt({binding,operationId:request.operationId,object,versionNumber:3,contentHash:'old-receipt',noChange:false,oldSessionsClosed:true}));
+  await sendFileReplaced(request.operationId);
+  expect(screen.getByLabelText('Office 正文')).toBe(rendered.oldEditor);
+  expect(rendered.oldEditor).toHaveValue('释放后继续编辑的新草稿');
+  expect(fileWorkingApi.open).not.toHaveBeenCalled();expect(fileWorkingApi.close).not.toHaveBeenCalled();expect(fileWorkingApi.saveOffice).not.toHaveBeenCalled();
+  rendered.unmount();
+});
+it('registers a fresh participant when a receipt-first retry captures the same operation after its previous barrier was released', async () => {
+  const rendered=await replacementOfficeTab();
+  const request=await requestFileFlush();
+  await waitFor(()=>expect(fileEditorApi.reply).toHaveBeenCalledWith(binding,expect.objectContaining({outcome:'saved'})));
+  const identity={binding,operationId:request.operationId,source:object};
+  act(()=>releaseContentOwnerMove(identity));
+  vi.mocked(fileEditorApi.reply).mockClear();
+  await requestFileFlush({operationId:request.operationId});
+  await waitFor(()=>expect(fileEditorApi.reply).toHaveBeenCalledWith(binding,expect.objectContaining({outcome:'saved'})));
+  expect(hasPendingContentOwnerMove(identity)).toBe(true);
+  act(()=>publishFileReplacedReceipt({binding,operationId:request.operationId,object,versionNumber:3,contentHash:'replacement-hash',noChange:false,oldSessionsClosed:true}));
+  await waitFor(()=>expect(hasPendingContentOwnerMove(identity)).toBe(false));
+  expect(rendered.oldEditor).not.toBeInTheDocument();
+  expect(rendered.onReleased).toHaveBeenCalledTimes(2);
+  rendered.unmount();
+});
 it.each([
   {noChange:false,oldSessionsClosed:false}, {noChange:false,oldSessionsClosed:true},
   {noChange:true,oldSessionsClosed:true},
@@ -219,6 +347,10 @@ it.each([
   vi.mocked(fileWorkingApi.open).mockResolvedValue({...workingStatus(),sessionId:'new-session',name:'sample.docx',base64:'UEs=',format:'docx',model:{format:'docx',nodes:[{id:'p0',text:'终局后的正文'}]}} as never);
   vi.mocked(fileWorkingApi.close).mockClear();vi.mocked(fileWorkingApi.saveOffice).mockClear();
   const operationId=crypto.randomUUID();
+  vi.mocked(fileWorkingApi.saveOffice).mockResolvedValue({...workingStatus(),revision:3,contentHash:'saved'});
+  await requestFileFlush({operationId});
+  await waitFor(()=>expect(fileEditorApi.reply).toHaveBeenCalledWith(binding,expect.objectContaining({outcome:'saved'})));
+  vi.mocked(fileWorkingApi.saveOffice).mockClear();
   await sendFileReplaced(operationId,flags);
   const newEditor=await screen.findByDisplayValue('终局后的正文');
   expect(newEditor).not.toBe(rendered.editor);
@@ -262,7 +394,11 @@ it('retains the noChange editor/session, acknowledges its native archive, and ig
 it('retires a hidden current renderer immediately and loads replacement working content only after showing it', async () => {
   const rendered=await editedOffice();rendered.hide();
   vi.mocked(fileWorkingApi.open).mockClear();vi.mocked(fileWorkingApi.saveOffice).mockClear();vi.mocked(fileWorkingApi.close).mockClear();
-  await sendFileReplaced(crypto.randomUUID());
+  vi.mocked(fileWorkingApi.saveOffice).mockResolvedValue({...workingStatus(),revision:3,contentHash:'saved'});
+  const request=await requestFileFlush();
+  await waitFor(()=>expect(fileEditorApi.reply).toHaveBeenCalledWith(binding,expect.objectContaining({outcome:'saved'})));
+  vi.mocked(fileWorkingApi.saveOffice).mockClear();
+  await sendFileReplaced(request.operationId);
   expect(rendered.editor).not.toBeInTheDocument();
   expect(screen.queryByLabelText('Office 正文')).toBeNull();
   expect(fileWorkingApi.open).not.toHaveBeenCalled();expect(fileWorkingApi.saveOffice).not.toHaveBeenCalled();expect(fileWorkingApi.close).not.toHaveBeenCalled();
@@ -275,6 +411,9 @@ it('retires a hidden current renderer immediately and loads replacement working 
 it('allows a same-File native flush after a hidden replacement without reviving or saving its retired editor', async () => {
   const rendered=await editedOffice();rendered.hide();
   const operationId=crypto.randomUUID();
+  vi.mocked(fileWorkingApi.saveOffice).mockResolvedValue({...workingStatus(),revision:3,contentHash:'saved'});
+  await requestFileFlush({operationId});
+  await waitFor(()=>expect(fileEditorApi.reply).toHaveBeenCalledWith(binding,expect.objectContaining({outcome:'saved'})));
   await sendFileReplaced(operationId);
   expect(rendered.editor).not.toBeInTheDocument();
   vi.mocked(fileEditorApi.reply).mockClear();vi.mocked(fileWorkingApi.saveOffice).mockClear();vi.mocked(fileWorkingApi.close).mockClear();vi.mocked(fileWorkingApi.open).mockClear();
@@ -288,6 +427,9 @@ it('allows a same-File native flush after a hidden replacement without reviving 
 });
 it.each(['kind','owner','generation','workspace','id'] as const)('ignores replacement terminal events with a foreign %s', async foreign => {
   const rendered=await editedOffice();
+  vi.mocked(fileWorkingApi.saveOffice).mockResolvedValue({...workingStatus(),revision:3,contentHash:'saved'});
+  const request=await requestFileFlush();
+  await waitFor(()=>expect(fileEditorApi.reply).toHaveBeenCalledWith(binding,expect.objectContaining({outcome:'saved'})));
   const otherObject={...object,scope:{...object.scope}};
   const otherBinding={...binding};
   const event: Record<string,unknown>={object:otherObject,binding:otherBinding};
@@ -297,7 +439,7 @@ it.each(['kind','owner','generation','workspace','id'] as const)('ignores replac
   if(foreign==='workspace')otherBinding.workspaceId='another';
   if(foreign==='id')otherObject.id='99';
   vi.mocked(fileWorkingApi.open).mockClear();vi.mocked(fileWorkingApi.close).mockClear();vi.mocked(fileWorkingApi.saveOffice).mockClear();
-  await sendFileReplaced(crypto.randomUUID(),event);
+  await sendFileReplaced(request.operationId,event);
   expect(rendered.editor).toBeInTheDocument();expect(rendered.editor).toHaveValue('未保存草稿');
   expect(fileWorkingApi.open).not.toHaveBeenCalled();expect(fileWorkingApi.close).not.toHaveBeenCalled();expect(fileWorkingApi.saveOffice).not.toHaveBeenCalled();
 });
@@ -311,7 +453,9 @@ it('keeps the selected immutable history renderer after replacement and only ref
   const sourceReadCount=vi.mocked(officeFileApi.inspect).mock.calls.length;
   vi.mocked(fileWorkingApi.close).mockClear();vi.mocked(fileWorkingApi.saveOffice).mockClear();vi.mocked(fileWorkingApi.open).mockClear();
   vi.mocked(fileDocumentApi.versionsList).mockResolvedValue({object,currentVersionNumber:3,currentContentHash:'replacement-hash',versions:[{...version(3),name:'sample.docx',contentHash:'replacement-hash'},{...version(1),name:'sample.docx',displayName:'保留历史',isImportant:true,metadataRevision:1}],nextCursor:null});
-  await sendFileReplaced(crypto.randomUUID());
+  const request=await requestFileFlush();
+  await waitFor(()=>expect(fileEditorApi.reply).toHaveBeenCalledWith(binding,expect.objectContaining({outcome:'saved'})));
+  await sendFileReplaced(request.operationId);
   expect(screen.getByLabelText('Office 正文')).toBe(historical);
   expect(officeFileApi.inspect).toHaveBeenCalledTimes(sourceReadCount);
   expect(fileWorkingApi.open).not.toHaveBeenCalled();expect(fileWorkingApi.saveOffice).not.toHaveBeenCalled();expect(fileWorkingApi.close).not.toHaveBeenCalled();
@@ -415,8 +559,33 @@ it.each(['root','owner','id','binding'] as const)('disposes the old File registr
 it('shows a diagnostic when File move registration fails', async () => {
   vi.mocked(fileEditorApi.register).mockRejectedValueOnce(new Error('native registry unavailable'));
   view();
-  expect(await screen.findByRole('alert')).toHaveTextContent('无法注册文件移动保存屏障：native registry unavailable');
+  expect(await screen.findByRole('alert')).toHaveTextContent('暂时无法启用文件编辑：native registry unavailable');
   expect(fileEditorApi.unregister).not.toHaveBeenCalled();
+});
+it('blocks body input until registration succeeds and retries registration without reloading the existing renderer', async () => {
+  let register!: (value:null)=>void;
+  vi.mocked(fileEditorApi.register).mockReturnValueOnce(new Promise(resolve=>{register=resolve;}));
+  const rendered=view();
+  const content=await screen.findByText('version2');
+  const body=content.closest('.project-file-content__body')!;
+  expect(body).toHaveAttribute('inert');
+  await act(async()=>register(null));
+  await waitFor(()=>expect(body).not.toHaveAttribute('inert'));
+  rendered.unmount();
+
+  vi.mocked(fileEditorApi.register).mockRejectedValueOnce(new Error('native seal rejects late registration'));
+  const retry=view();
+  const retained=await screen.findByText('version2');
+  const blocked=retained.closest('.project-file-content__body')!;
+  expect(await screen.findByRole('alert')).toHaveTextContent('正文暂不可编辑，草稿已保留');
+  expect(blocked).toHaveAttribute('inert');
+  vi.mocked(projectFileApi.readBytes).mockClear();
+  fireEvent.click(screen.getByRole('button',{name:'重试启用编辑'}));
+  await waitFor(()=>expect(blocked).not.toHaveAttribute('inert'));
+  expect(screen.getByText('version2')).toBe(retained);
+  expect(projectFileApi.readBytes).not.toHaveBeenCalled();
+  expect(screen.queryByRole('alert')).toBeNull();
+  retry.unmount();
 });
 it('allows the real hidden Office close guard after confirming a deleted managed File', async () => {
   const failure = new AgentApiError({ code: 'NOT_FOUND', message: 'File is no longer present', retryable: false });
@@ -723,8 +892,6 @@ it('retains reading position across hiding and restores it without taking focus'
 });
 it('reloads committed invalidation in latest mode and keeps a historical view fixed', async () => {
   const rendered = view(); await screen.findByText('version2');
-  // Native UI invalidations share documentVersions; seed its cache entry.
-  rendered.client.setQueryData(['documentVersions', 7], {});
   vi.mocked(projectFileApi.readBytes).mockClear();
   vi.mocked(projectFileApi.resolve).mockResolvedValue({object,name:'sample.txt',relativePath:'sample.txt',versionNumber:3,contentHash:'hash3',state:'ready',reason:null});
   vi.mocked(fileDocumentApi.versionsList).mockResolvedValue({object,currentVersionNumber:3,currentContentHash:'hash3',versions:[version(3),version(2),version(1)],nextCursor:null});
@@ -744,20 +911,21 @@ it.each(['current','hidden','history'] as const)('refreshes invalidated File met
     vi.mocked(fileWorkingApi.saveOffice).mockResolvedValue({...workingStatus(),revision:3,contentHash:'saved'});
     await chooseVersion(1);await waitFor(()=>expect(officeFileApi.inspect).toHaveBeenCalled());
   }
-  const editor=screen.getByLabelText('Office 正文');
+  const editor=await screen.findByLabelText('Office 正文');
   if(mode==='hidden')rendered.hide();
-  rendered.client.setQueryData(['documentVersions',7],{});
-  const versions=[2,1].map(n=>({...version(n),name:'sample.docx',displayName:`新名称${n}`,isImportant:true,metadataRevision:8,metadataTarget:{binding,object}}));
-  vi.mocked(fileDocumentApi.versionsList).mockResolvedValue({object,currentVersionNumber:2,currentContentHash:'hash2',versions,nextCursor:null});
   vi.mocked(fileDocumentApi.versionsList).mockClear();vi.mocked(fileWorkingApi.saveOffice).mockClear();vi.mocked(fileWorkingApi.close).mockClear();vi.mocked(fileWorkingApi.open).mockClear();vi.mocked(officeFileApi.inspect).mockClear();
-  await act(async()=>rendered.client.invalidateQueries({queryKey:['documentVersions',7]}));
-  await waitFor(()=>expect(fileDocumentApi.versionsList).toHaveBeenCalled());
+  for (const revision of [7,8]) {
+    const versions=[2,1].map(n=>({...version(n),name:'sample.docx',displayName:`新名称${n}-${revision}`,isImportant:revision===8,metadataRevision:revision,metadataTarget:{binding,object}}));
+    vi.mocked(fileDocumentApi.versionsList).mockResolvedValue({object,currentVersionNumber:2,currentContentHash:'hash2',versions,nextCursor:null});
+    await act(async()=>rendered.client.invalidateQueries({queryKey:['documentVersions',7]}));
+    await waitFor(()=>expect(fileDocumentApi.versionsList).toHaveBeenCalledTimes(revision-6));
+  }
   if(mode==='hidden')rendered.rerender(rendered.wrap(input));
   expect(screen.getByLabelText('Office 正文')).toBe(editor);
   if(mode!=='history')expect(editor).toHaveValue('未保存草稿');
   fireEvent.click(screen.getByRole('button',{name:'文件查看版本'}));
   const selected=mode==='history'?1:2;
-  const row=await screen.findByRole('menuitemradio',{name:`v${selected}（新名称${selected}），重要版本`});
+  const row=await screen.findByRole('menuitemradio',{name:`v${selected}（新名称${selected}-8），重要版本`});
   expect(row.querySelector('svg')).toHaveAttribute('fill','currentColor');
   if(mode==='history')expect(row).toHaveAttribute('aria-checked','true');
   else expect(screen.getByRole('menuitemradio',{name:'当前内容'})).toHaveAttribute('aria-checked','true');
@@ -775,12 +943,38 @@ it.each(['current','hidden','history'] as const)('refreshes invalidated File met
   }
   rendered.unmount();
 });
+it.each([undefined,1])('acknowledges an already loaded hidden readonly File without saving or reopening it (version %s)', async versionNumber => {
+  const rendered=view({...input,versionNumber} as typeof input);
+  await screen.findByText(`version${versionNumber??2}`);
+  rendered.rerender(rendered.wrap({...input,versionNumber,visible:false} as typeof input));
+  expect(screen.queryByText(`version${versionNumber??2}`)).not.toBeInTheDocument();
+  vi.mocked(projectFileApi.readBytes).mockClear();
+  await requestFileFlush();
+  await waitFor(()=>expect(fileEditorApi.reply).toHaveBeenCalledWith(binding,expect.objectContaining({outcome:'saved'})));
+  expect(projectFileApi.readBytes).not.toHaveBeenCalled();
+  expect(fileWorkingApi.open).not.toHaveBeenCalled();expect(fileWorkingApi.saveOffice).not.toHaveBeenCalled();expect(fileWorkingApi.close).not.toHaveBeenCalled();
+  rendered.unmount();
+});
+it('does not acknowledge an initially loading readonly File after it is hidden', async () => {
+  let finish!: (value: Awaited<ReturnType<typeof fileDocumentApi.versionsList>>) => void;
+  vi.mocked(fileDocumentApi.versionsList).mockReturnValueOnce(new Promise(resolve=>{finish=resolve;}));
+  const rendered=view();
+  await waitFor(()=>expect(fileEditorApi.register).toHaveBeenCalled());
+  rendered.rerender(rendered.wrap({...input,visible:false}));
+  await requestFileFlush();
+  await waitFor(()=>expect(fileEditorApi.reply).toHaveBeenCalledWith(binding,expect.objectContaining({outcome:'busy'})));
+  await act(async()=>finish({object,currentVersionNumber:2,currentContentHash:'hash2',versions:[version(2)],nextCursor:null}));
+  vi.mocked(fileEditorApi.reply).mockClear();
+  await requestFileFlush();
+  await waitFor(()=>expect(fileEditorApi.reply).toHaveBeenCalledWith(binding,expect.objectContaining({outcome:'busy'})));
+  expect(projectFileApi.readBytes).not.toHaveBeenCalled();
+  rendered.unmount();
+});
 it.each(['renderer','owner','binding'] as const)('ignores a late File metadata result after its %s changes', async change => {
   const rendered=view();await screen.findByText('version2');
-  rendered.client.setQueryData(['documentVersions',7],{});
   let finish!: (value: Awaited<ReturnType<typeof fileDocumentApi.versionsList>>)=>void;
   vi.mocked(fileDocumentApi.versionsList).mockReturnValueOnce(new Promise(resolve=>{finish=resolve;}));
-  await act(async()=>rendered.client.invalidateQueries({queryKey:['documentVersions',7]}));
+  act(()=>{void rendered.client.invalidateQueries({queryKey:['documentVersions',7]});});
   await waitFor(()=>expect(finish).toBeTypeOf('function'));
   const nextObject=change==='owner'?{...object,scope:{kind:'project' as const,projectId:3}}:object;
   const nextBinding=change==='binding'?{...binding,generation:'new-generation'}:binding;
@@ -795,6 +989,22 @@ it.each(['renderer','owner','binding'] as const)('ignores a late File metadata r
   fireEvent.click(screen.getByRole('button',{name:'文件查看版本'}));
   expect(screen.getByRole('menuitemradio',{name:'v1（正确名称）'})).toHaveAttribute('aria-checked','true');
   expect(screen.queryByRole('menuitemradio',{name:/迟到旧名称/})).not.toBeInTheDocument();
+  rendered.unmount();
+});
+it('ignores a superseded metadata fetch when a second invalidation completes first', async () => {
+  const rendered=await editedOffice();
+  let finish!: (value: Awaited<ReturnType<typeof fileDocumentApi.versionsList>>) => void;
+  vi.mocked(fileDocumentApi.versionsList).mockReturnValueOnce(new Promise(resolve=>{finish=resolve;}));
+  act(()=>{void rendered.client.invalidateQueries({queryKey:['documentVersions',7]});});
+  await waitFor(()=>expect(finish).toBeTypeOf('function'));
+  const page=(displayName:string,metadataRevision:number)=>({object,currentVersionNumber:2,currentContentHash:'hash2',versions:[{...version(2),displayName,isImportant:true,metadataRevision,metadataTarget:{binding,object}}],nextCursor:null});
+  vi.mocked(fileDocumentApi.versionsList).mockResolvedValue(page('最新标记',9));
+  await act(async()=>rendered.client.invalidateQueries({queryKey:['documentVersions',7]}));
+  await act(async()=>finish(page('迟到标记',8)));
+  fireEvent.click(screen.getByRole('button',{name:'文件查看版本'}));
+  expect(await screen.findByRole('menuitemradio',{name:'v2（最新标记），重要版本'})).toBeInTheDocument();
+  expect(screen.queryByRole('menuitemradio',{name:/迟到标记/})).toBeNull();
+  expect(rendered.editor).toHaveValue('未保存草稿');
   rendered.unmount();
 });
 const pngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j3ioAAAAASUVORK5CYII=';

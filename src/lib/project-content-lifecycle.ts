@@ -23,7 +23,7 @@ export interface ContentOwnerMoveRelease {
   operationId: string;
   source: AgentObjectRef;
 }
-const barriers = new Map<string, { guard?: ProjectCloseGuard; release: () => void }>();
+const barriers = new Map<string, { guard?: ProjectCloseGuard; release: () => void; participants: Set<symbol>; terminalConfirmed: boolean }>();
 const completed = new WeakMap<ProjectCloseGuard, Map<string, Promise<void>>>();
 type ObjectMove = { holders: number; unlock?: () => void; completion?: Promise<void>; completedView?: string };
 const moves = new WeakMap<ProjectCloseGuard, Map<string, ObjectMove>>();
@@ -89,8 +89,7 @@ export function prepareContentOwnerMove<T>(binding: AgentWorkspaceBinding, sourc
   if (!barrier) {
     const guard = matchingGuard(binding, source);
     if (guard?.moveEventsReady?.() === false) return Promise.reject(new Error("移动通知尚未就绪，请稍后重试"));
-    if (!guard) return Promise.resolve().then(flush);
-    barrier = { guard, release: holdObject(guard, object, true) };
+    barrier = { guard, release: holdObject(guard, object, true), participants: new Set(), terminalConfirmed: false };
     barriers.set(id, barrier);
   }
   const captured = barrier;
@@ -99,6 +98,31 @@ export function prepareContentOwnerMove<T>(binding: AgentWorkspaceBinding, sourc
     if (barriers.get(id) === captured) { barriers.delete(id); captured.release(); }
     throw failure;
   });
+}
+
+export function hasPendingContentOwnerMove(identity: ContentOwnerMoveRelease): boolean {
+  return barriers.has(operationKey(identity));
+}
+
+/** Captured instances retire independently before a confirmed replacement unlocks. */
+export function registerContentOwnerMoveParticipant(identity: ContentOwnerMoveRelease): { complete(): void; dispose(): void } {
+  const id = operationKey(identity);
+  const captured = barriers.get(id);
+  const token = Symbol();
+  captured?.participants.add(token);
+  let settled = false;
+  const finish = (terminalConfirmed: boolean) => {
+    if (settled) return;
+    settled = true;
+    if (!captured || barriers.get(id) !== captured) return;
+    captured.participants.delete(token);
+    if (terminalConfirmed) captured.terminalConfirmed = true;
+    if (captured.terminalConfirmed && captured.participants.size === 0) {
+      barriers.delete(id);
+      captured.release();
+    }
+  };
+  return { complete: () => finish(true), dispose: () => finish(false) };
 }
 
 export function releaseContentOwnerMove(event: ContentOwnerMoveRelease) {
@@ -111,12 +135,19 @@ export function releaseContentOwnerMove(event: ContentOwnerMoveRelease) {
 export async function completeContentOwnerMove(event: ContentOwnerMoved) {
   const guard = matchingGuard(event.binding, event.source);
   if (!guard || (event.source.kind !== "record" && event.source.kind !== "file")) return;
-  const id = operationKey(event);
+  const barrier = barriers.get(operationKey(event));
+  if (!barrier || barrier.guard !== guard) return;
+  return completeMoved(guard, event, event.oldSessionsClosed);
+}
+
+function completeMoved(guard: ProjectCloseGuard | undefined, identity: ContentOwnerMoveRelease, nativeSessionsClosed: boolean) {
+  if (!guard) { releaseContentOwnerMove(identity); return Promise.resolve(); }
+  const id = operationKey(identity);
   let receipts = completed.get(guard);
   if (!receipts) { receipts = new Map(); completed.set(guard, receipts); }
   if (receipts.has(id)) return receipts.get(id);
-  const object = movingObject(event.source);
-  const closing = closeMoved(guard, object, event.oldSessionsClosed).finally(() => releaseContentOwnerMove(event));
+  const object = movingObject(identity.source);
+  const closing = closeMoved(guard, object, nativeSessionsClosed).finally(() => releaseContentOwnerMove(identity));
   receipts.set(id, closing);
   return closing;
 }
@@ -137,14 +168,15 @@ export async function prepareProjectContentClose(workspaceRoot: string, projectI
 }
 
 /** The move callback reads its native CAS baseline after this object's editor saves. */
-export async function withProjectContentMove<T>(workspaceRoot: string, projectId: number | null, object: MovingContentObject, move: () => Promise<T>, options: { nativeSessionsClosed?: boolean } = {}): Promise<T> {
+export async function withProjectContentMove<T>(workspaceRoot: string, projectId: number | null, object: MovingContentObject, move: () => Promise<T>, options: { nativeSessionsClosed?: boolean; moveIdentity?: ContentOwnerMoveRelease } = {}): Promise<T> {
   const guard = projects.get(key(workspaceRoot, projectId));
   if (guard?.moveEventsReady?.() === false) throw new Error("移动通知尚未就绪，请稍后重试");
   const unlock = holdObject(guard, object);
   try {
     await guard?.prepare(object);
     const result = await move();
-    await closeMoved(guard, object, options.nativeSessionsClosed === true);
+    if (options.moveIdentity) await completeMoved(guard, options.moveIdentity, options.nativeSessionsClosed === true);
+    else await closeMoved(guard, object, options.nativeSessionsClosed === true);
     return result;
   } finally { unlock?.(); }
 }
