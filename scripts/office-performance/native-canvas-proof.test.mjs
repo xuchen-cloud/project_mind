@@ -15,7 +15,8 @@ const entry = new URL(process.env.OFFICE_CANVAS_PROOF_ENTRY ?? './native-page.ts
 const source = readFileSync(entry, 'utf8');
 const ast = ts.createSourceFile(entry.pathname, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 const names = new Set(['sheetCanvases', 'canvasSequence', 'overlap', 'containsBox', 'transformedBox',
-  'observeSheetCanvas', 'sheetComposition', 'sheetNavigationPaint', 'watchContinuity', 'withoutMode', 'visible', 'canvasPaint', 'errorMessage']);
+  'observeSheetCanvas', 'sheetComposition', 'sheetNavigationPaint', 'watchContinuity', 'withoutMode', 'visible', 'canvasPaint', 'errorMessage',
+  'navigateAndZoom', 'sheetState', 'ready', 'until']);
 const selected = [];
 const scope = ast.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'installNativePage')?.body ?? ast;
 for (const statement of scope.statements) {
@@ -34,7 +35,7 @@ const compiled = ts.transpileModule(selected.join('\n'), {
 function harness() {
   const context = vm.createContext({ performance, console, formatNumber, models: new NativeOfficeObserver() });
   vm.runInContext(compiled, context, { filename: `${entry.pathname}:actual-tracing-helpers` });
-  const api = vm.runInContext('({ observeSheetCanvas, sheetComposition, sheetNavigationPaint, watchContinuity, canvasPaint, errorMessage })', context);
+  const api = vm.runInContext('({ observeSheetCanvas, sheetComposition, sheetNavigationPaint, watchContinuity, canvasPaint, errorMessage, navigateAndZoom, sheetState, ready })', context);
   function realm() {
     const owner = { painted: [], pixelChecks: [], witness: 'WITNESS' };
     let pixelError;
@@ -116,6 +117,96 @@ function navigatedFixture() {
   const paint = (text = '30', x = 40, y = 35) => { r.cache.context.fillText(text, x, y); r.copy(); };
   return { h, r, live, model, selected, paint, check: () => h.sheetNavigationPaint(model), setActual: value => { actual = value; } };
 }
+
+// Execute the entry's orchestration and content/paint gates, not replacements
+// for those gates. The facade and clock are deterministic boundary doubles.
+function navigationOperationFixture() {
+  const f = navigatedFixture(), calls = [], firstWitness = '未编辑工作表：请保留中文';
+  let clock = 0, zoom = 1;
+  const first = { getSheetId: () => 'sheet-1' }, target = f.live.sheet;
+  let active = first;
+  const scroll = { sheetViewStartRow: 0, sheetViewStartColumn: 0, offsetX: 0, offsetY: 0 };
+  f.selected.sheetId = 'sheet-1'; f.selected.startRow = 0; f.selected.startColumn = 0;
+  f.model.activeSheetId = 'sheet-2';
+  f.model.styles = [{numberFormat: '0.00'}];
+  f.model.ranges['sheet-2'].cells.unshift({row: 0, column: 0, value: firstWitness});
+  const range = target.getRange;
+  target.getRange = (row, column) => {
+    if (row === 'B3') return {row: 2, column: 1};
+    const facade = range(row, column);
+    return {...facade,
+      getCellData: () => row === 0 && column === 0 ? {v: firstWitness} : facade.getCellData(),
+      getValue: () => row === 0 && column === 0 ? firstWitness : facade.getCellData().v};
+  };
+  target.getSheetName = () => '说明';
+  target.setActiveRange = ({row, column}) => {
+    calls.push(['select', row, column]);
+    Object.assign(f.selected, {sheetId: 'sheet-2', startRow: row, startColumn: column});
+  };
+  target.scrollToCell = (row, column, offset) => {
+    calls.push(['scroll', row, column, offset]);
+    Object.assign(scroll, {sheetViewStartRow: row, sheetViewStartColumn: column});
+  };
+  target.getZoom = () => zoom;
+  target.zoom = value => {calls.push(['zoom', value]); zoom = value;};
+  const workbook = f.live.workbook;
+  Object.assign(workbook, {getSheets: () => [first, target], getActiveSheet: () => active,
+    setActiveSheet: sheet => {calls.push(['sheet', sheet.getSheetId()]); active = sheet;},
+    getScrollStateBySheetId: () => scroll});
+  const owner = f.r.owner, window = {};
+  owner.witness = firstWitness;
+  owner.runtime = {univerAPI: {getActiveWorkbook: () => workbook, getCurrentLifecycleStage: () => 3}};
+  owner.calculation = {pending: 0, applied: 1};
+  owner.context = {openingWorkbook: false, lazyWorkbookRef: {current: {
+    flags: {preloadRunning: false, preloadComplete: false}, formulaMode: false,
+    closure: {status: 'active'}, loadedRanges: new Set(['first', 'target']), formulaText: new Map(),
+  }}};
+  const file = {object: {id: 'fixture'}};
+  Object.assign(f.h.context, {performance: {now: () => clock}, activeMeasurement: undefined, waitStage: '', lastSheetCheck: {},
+    pause: async () => {clock += 45000;}, deadline: promise => promise,
+    assertNoErrors() {}, timeoutError: label => Error(`timed out: ${label}`),
+    settle: async label => {calls.push(['settle', label]);}, sourceRefs: new Map(),
+    rootElement: {querySelector: () => ({contentWindow: window, contentDocument: f.r.document})}, sheets: new Map([[window, owner]]),
+    liveSheet: () => ({observation: owner, workbook, sheet: active}),
+    viewState: () => ({sheetId: active.getSheetId(), row: f.selected.startRow, column: f.selected.startColumn, zoom})});
+  return {...f, calls, file, target, workbook, firstWitness};
+}
+
+test('actual navigateAndZoom accepts composited B3 after scrolling A1 offscreen', async () => {
+  const f = navigationOperationFixture();
+  f.paint('30.00');
+  const result = await f.h.navigateAndZoom();
+  assert.equal(result.before.sheetId, 'sheet-1');
+  assert.equal(result.after.sheetId, 'sheet-2');
+  assert.equal(result.after.zoom, 1.1);
+  assert.deepEqual(f.calls, [['sheet', 'sheet-2'], ['select', 2, 1], ['scroll', 2, 1, 0], ['zoom', 1.1], ['settle', 'navigation/zoom']]);
+  const proof = f.check();
+  assert.equal(proof.expected, 30); assert.equal(proof.actual, 30);
+  assert.equal(proof.numberFormat, '0.00'); assert.equal(proof.witness, '30.00');
+  assert.equal(proof.cellBox.x, 33); assert.equal(proof.cellBox.y, 22);
+  assert.ok(proof.proof.chain.length > 0);
+  assert.equal(f.r.owner.painted.includes(f.firstWitness), false);
+  assert.equal(f.r.owner.witness, f.firstWitness, 'navigation must not replace the initial witness');
+});
+
+test('actual navigateAndZoom rejects B3 text without main-canvas composition', async () => {
+  const f = navigationOperationFixture();
+  f.r.cache.context.fillText('30.00', 40, 35);
+  await assert.rejects(f.h.navigateAndZoom(), /selected native cell composited in navigated viewport/);
+  assert.equal(f.check(), undefined);
+  assert.equal(f.calls.some(([name]) => name === 'settle'), false);
+});
+
+test('actual initial ready still rejects a missing first-viewport witness despite correct B3 paint', async () => {
+  const f = navigationOperationFixture();
+  f.workbook.setActiveSheet(f.target); f.target.setActiveRange(f.target.getRange('B3'));
+  f.target.scrollToCell(2, 1, 0); f.target.zoom(1.1); f.paint('30.00');
+  assert.ok(f.check(), 'selected-cell composition is valid');
+  assert.equal(f.h.sheetState(f.model), undefined);
+  await assert.rejects(f.h.ready(f.file, false, false, 0), /source-specific visible content and navigation/);
+  assert.equal(f.h.context.lastSheetCheck.reason, 'renderer canvas has not painted native text witness');
+  assert.equal(f.h.context.lastSheetCheck.witness, f.firstWitness);
+});
 
 test('navigation continuity proves current B3 text at 110% after scroll, without weakening initial witness', () => {
   const f = navigatedFixture();
