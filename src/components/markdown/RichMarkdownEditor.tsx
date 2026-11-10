@@ -20,6 +20,7 @@ import { mergeRenderedSource } from '../../../packages/markdown-editor/src/sourc
 import { tiptapFindTarget } from '../../../packages/markdown-editor/src/genoffice/editor/findTarget';
 import type { FindTarget } from '../../../packages/markdown-editor/src/adapters/ui';
 import { watchEdges } from './scrollEdges';
+import { TextCaret } from '../rich-editor/extensions/TextCaret';
 import { closeMathEditor } from '../../../packages/markdown-editor/src/genoffice/editor/mathEdit';
 
 export function RichMarkdownEditor({value,documentKey,readOnly,resources,zoom,spellcheck,onChange,onReady,onSelection,onPending,onError,onImage}:{
@@ -36,9 +37,9 @@ export function RichMarkdownEditor({value,documentKey,readOnly,resources,zoom,sp
   const source=useRef(value);const key=useRef(documentKey);const loaded=useRef(false);
   const baseline=useRef<{envelope:ReturnType<typeof parseDocText>;map:ReturnType<typeof buildSourceMap>;snapshot:ReturnType<typeof captureMarkdownSource>}|null>(null);
   const [slash,setSlash]=useState<SlashMenuState|null>(null);const menu=useRef<SlashMenuHandle>(null);
-  const extensions=useMemo(()=>buildExtensions({slashController:{onOpen:setSlash,onUpdate:setSlash,onClose:()=>setSlash(null),onKeyDown:event=>menu.current?.handleKey(event)??false},slashItems:()=>buildSlashItems({insertImage:()=>latest.current.onImage()})}).filter(extension=>extension.name!=='blockDragHandle').map(extension=>extension.name==='image'?LocalImage.configure({resolve:src=>latest.current.resources[src]??(safeImage(src)?src:''),onError:message=>latest.current.onError(message),onPending:value=>pending('image',value)}):extension),[]);
+  const extensions=useMemo(()=>[...buildExtensions({slashController:{onOpen:setSlash,onUpdate:setSlash,onClose:()=>setSlash(null),onKeyDown:event=>menu.current?.handleKey(event)??false},slashItems:()=>buildSlashItems({insertImage:()=>latest.current.onImage()})}).filter(extension=>extension.name!=='blockDragHandle').map(extension=>extension.name==='image'?LocalImage.configure({resolve:src=>latest.current.resources[src]??(safeImage(src)?src:''),onError:message=>latest.current.onError(message),onPending:value=>pending('image',value)}):extension),TextCaret],[]);
   const editor=useEditor({immediatelyRender:false,extensions,content:'',editable:!readOnly,
-    editorProps:{attributes:{role:'textbox','aria-label':'Markdown 块编辑','aria-multiline':'true',spellcheck:String(spellcheck)},
+    editorProps:{attributes:{class:'rich-editor__surface',role:'textbox','aria-label':'Markdown 块编辑','aria-multiline':'true',spellcheck:String(spellcheck)},
       handleDOMEvents:{compositionstart:()=>{pending('composition',true);return false;},compositionend:()=>{setTimeout(()=>pending('composition',false),0);return false;}}},
     onUpdate:({editor})=>{
       if(!loaded.current||!baseline.current)return;
