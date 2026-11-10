@@ -922,7 +922,6 @@ impl Database {
         let (project, id) = file_id(object)?;
         let _project_lock = self.file_project_lock(project, false)?;
         let _file_lock = self.file_version_lock(id)?;
-        if self.file_working_matches_live(object)? { return self.directory_projection(object); }
         let (document, root) = self.directory_target(object)?;
         let path = PathBuf::from(&document.managed_path);
         let relative = path
@@ -941,6 +940,10 @@ impl Database {
                 &error.to_string(),
             );
         }
+        // A missing original (including a removed ancestor) is a navigation
+        // state. Do not read its physical identity before reporting missing:
+        // persisted working bytes and immutable versions remain available.
+        if self.file_working_matches_live(object)? { return self.directory_projection(object); }
         if let Err(error) = business_path(&root, &relative) {
             return self.directory_state(object, "unavailable", &error.to_string());
         }

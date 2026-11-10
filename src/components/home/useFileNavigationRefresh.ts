@@ -27,11 +27,13 @@ export function useFileNavigationRefresh({ projectId, rootPath, workspaceRoot, e
   const [boundWorkspace, setBoundWorkspace] = useState<typeof observedBinding.current>();
   const acceptBinding = (value: AgentWorkspaceBinding) => {
     const previous = observedBinding.current;
-    if (previous?.scope === scope && previous.value.workspaceId === value.workspaceId && previous.value.generation === value.generation) return;
-    const next = { scope, value };
+    const next = previous?.scope === scope && previous.value.workspaceId === value.workspaceId && previous.value.generation === value.generation
+      ? previous : { scope, value };
     observedBinding.current = next;
     setBoundWorkspace(next);
-    setPresence({ scope, binding: JSON.stringify([value.workspaceId, value.generation]), paths: new Map() });
+    const bindingKey = JSON.stringify([value.workspaceId, value.generation]);
+    setPresence(previous => previous.scope === scope && previous.binding === bindingKey
+      ? previous : { scope, binding: bindingKey, paths: new Map() });
   };
   useLayoutEffect(() => {
     observedBinding.current = undefined;
@@ -158,7 +160,9 @@ export function useFileNavigationRefresh({ projectId, rootPath, workspaceRoot, e
       const previous = observedBinding.current;
       const binding = await recordDocumentApi.bindingGet(workspaceRoot);
       if (current()) {
-        if (observedBinding.current === previous) acceptBinding(binding);
+        // Listener setup establishes event ownership only. It must not bypass
+        // the discovery panel's pending/error state or activate hidden reads.
+        if (observedBinding.current === previous) observedBinding.current = { scope, value: binding };
         for (const hint of early) changed(hint);
       }
     })().catch(reason => { if (current()) setError(getErrorMessage(reason, "无法监听文件变化")); });

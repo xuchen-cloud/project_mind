@@ -200,9 +200,9 @@ it("retires a confirmation when the binding changes at the same Workspace path",
 it("rejects a stale folder selection before preparing against a reopened binding", async () => {
   const view = await setup();
   view.rerender(view.wrap("/workspace", "g"));
-  await act(async () => {});
+  const row = await screen.findByRole("button", { name: "folder" });
   api.binding.mockResolvedValue({ ...binding, generation: "reopened" });
-  fireEvent.contextMenu(screen.getByRole("button", { name: "folder" }));
+  fireEvent.contextMenu(row);
   fireEvent.click(within(await screen.findByRole("menu")).getByRole("menuitem", { name: "移入回收站" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("工作区已切换");
   expect(api.prepare).not.toHaveBeenCalled();

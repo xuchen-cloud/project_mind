@@ -68,8 +68,8 @@ export function HomeProjectFiles({ filter, activeRelativePath, ...props }: Files
   const label = tree ? "平铺展示" : "文件树展示";
   return <div ref={element} className="home-rail__files">
     {error ? <p className="project-directory__message" role="alert">{error}</p> : null}
-    {enabled ? <VisibleDirectoryDemand key={scopeKey} binding={binding} projectId={owner.projectId} rootPath={owner.rootPath} workspaceRoot={workspaceRoot} tree={tree} /> : null}
-    <ProjectSidebar key={scopeKey} {...props} documents={visibleDocuments}
+    {enabled ? <VisibleDirectoryDemand key={`discovery:${scopeKey}`} binding={binding} projectId={owner.projectId} rootPath={owner.rootPath} workspaceRoot={workspaceRoot} tree={tree} /> : null}
+    <ProjectSidebar key={`sidebar:${scopeKey}`} {...props} documents={visibleDocuments}
     fileFilter={tree ? { query: "", tagId: null } : filter}
     fileHeaderActions={<><button type="button" aria-label={label} title={label} onClick={() => setTree(value => !value)}>{tree ? <List size={16} /> : <ListTree size={16} />}</button><button type="button" aria-label="刷新文件列表" title="刷新文件列表" disabled={refreshing} aria-busy={refreshing} onClick={() => void refresh()}><RefreshCw size={16} /></button></>}
     fileContent={tree ? controls => <ProjectDirectoryBrowser binding={binding} fileMenu={controls} documents={visibleDocuments} activeRelativePath={activeRelativePath} key={owner.rootPath} rootPath={owner.rootPath} workspaceRoot={workspaceRoot} projectId={owner.projectId} /> : undefined}
