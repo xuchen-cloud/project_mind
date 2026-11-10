@@ -1,4 +1,4 @@
-import type { AgentObjectRef, AgentScope } from "./agent-types";
+import type { AgentObjectRef, AgentScope, AgentWorkspaceBinding } from "./agent-types";
 
 /** Registered system handler; artwork is supplied by the host OS. */
 export interface NativeFileApplication {
@@ -48,6 +48,29 @@ export interface FileVersionMetadata {
   createdAt: string;
   contentHash: string | null;
   isCurrent: boolean;
+  displayName: string | null;
+  isImportant: boolean;
+  metadataRevision: number;
+  /** GUI read adapter context; never serialized into a native version projection. */
+  metadataTarget?: FileVersionMetadataTarget;
+}
+export interface FileVersionMetadataTarget {
+  binding: AgentWorkspaceBinding;
+  object: AgentObjectRef;
+}
+export interface FileVersionMetadataUpdate {
+  object: AgentObjectRef;
+  versionId: string;
+  expectedMetadataRevision: number;
+  displayName: string | null;
+  isImportant: boolean;
+}
+export interface FileVersionMetadataUpdateResult {
+  object: AgentObjectRef;
+  versionId: string;
+  displayName: string | null;
+  isImportant: boolean;
+  metadataRevision: number;
 }
 export interface FileVersionPage {
   object: AgentObjectRef;
