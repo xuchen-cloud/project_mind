@@ -211,3 +211,56 @@ The source retry additionally skipped the four already-passed tests listed in
 Self-checks covered Standards (scope, explicit errors, leases/fence, no blanket grants,
 no source checkout changes) and Spec (identity/history, receipts, source cleanup safety,
 object-only sessions). Integration still owns independent final review/platform gates.
+
+
+### Independent File DB review follow-up (base 078ba7e / integration 2fea91a)
+
+The review found three gaps not covered by the original 72 tests: an external hardlink
+could mutate the old live inode retained as a first version; a committed replacement
+journal could be stranded by an owner move; replacement renames still crossed volumes
+when the owner moved but history remained at the source location.
+
+The first three new real DB/file regressions failed behaviorally in
+`/tmp/g13g14-files-reviewfix-red.log`: old history bytes changed through a hardlink,
+rename returned injected EXDEV, and read-only move baseline incorrectly accepted a
+committed Drop residue after real SIGKILL.
+
+The corrected private replacement journal adds optional `live_staging` and
+`frozen_original` fields; SQL schema, public DTOs, receipts and IPC names are unchanged.
+New staging and rollback backup use hidden exclusive paths in the **live parent**,
+so placement/rollback renames remain on that volume. A legacy live-alias version is
+copied into its existing history directory using create-new + fsync + readback hash
+and distinct physical identity. Only this independent snapshot becomes immutable
+history in the version/receipt transaction. The rollback inode is never adopted as
+history. Recovery verifies path/identity/hash, removes only owned unreferenced copies,
+and preserves referenced snapshots and unknown replacements. Existing journals without
+these optional fields retain their original path-validation/recovery layout.
+
+Move baseline reads `project_directory_restores` if that table exists and returns
+`SOURCE_NOT_READY` for pending evidence, with no recovery or writes. Move's CAS uses
+that same check under owner→File→fence, so a raw move cannot bypass it. Recovery runs
+at the original owner through the existing native directory resolver before another
+baseline/move; no global recovery was added inside a fence.
+
+Acceptance adds a four-stage actual SIGKILL Drop test after cross-owner movement, with
+EXDEV injection at rename boundaries in both child commit and parent recovery. It
+checks independent old bytes/hashes, rollback or committed recovery, receipt replay,
+one source Trash call, and cleared journals. The injection models different history
+and live devices over real temporary files; it is **not evidence of an actual second
+mounted volume**. macOS system Trash GUI and Windows remain untested in this worker.
+Final delta counts/commit are recorded in the delivery notes after the targeted run.
+
+Review delta verification completed: **39 tests passed** — `db::file_drop::` 21,
+`db::file_owner_move::` 13, `directory_file_restore_` 5. Three ignored child helpers
+are invoked by parent crash tests. The four new regressions include real native
+hardlink writes, read-only residue rejection, EXDEV rename injection, and four real
+SIGKILL stages with recovery/replay/source cleanup checks. The original three review
+regressions were red before implementation; all are green in the final run.
+
+Command used the same shared build-lock/env prefix above with
+`python3 /tmp/g13g14-files-reviewfix-verify.py`; that script runs `cargo test
+--manifest-path src-tauri/Cargo.toml --lib FILTER -- --test-threads=1 --nocapture`
+for exactly the three filters listed. Evidence:
+`/tmp/g13g14-files-reviewfix-red.log` and `/tmp/g13g14-files-reviewfix-green.log`.
+`git diff --check` passed. No GUI, delegation, frontend, IPC adapter or SQL schema
+changes were made in this review delta.
