@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ComponentProps } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { List, ListTree } from "lucide-react";
+import { List, ListTree, RefreshCw } from "lucide-react";
 import type { FileBrowserScope } from "../../lib/file-types";
 import { ProjectSidebar } from "../layout/ProjectSidebar";
 import { ProjectDirectoryBrowser, useDirectoryVisibility, useProjectDirectoryListing } from "./ProjectDirectoryBrowser";
@@ -9,6 +9,7 @@ import type { AgentWorkspaceBinding } from "../../lib/agent-types";
 import type { WorkspaceStatusSnapshot } from "../../lib/types";
 import { queryKeys } from "../../lib/queryKeys";
 import { getErrorMessage } from "../../lib/errors";
+import { useFileNavigationRefresh } from "./useFileNavigationRefresh";
 import "./project-directory.css";
 
 type FilesProps = Pick<ComponentProps<typeof ProjectSidebar>, "documents" | "activeFileId"> & {
@@ -28,8 +29,9 @@ function DirectoryDemandListing({ binding, ...scope }: DiscoveryScope & { bindin
 }
 
 /** Mounted only for a visible file panel; metadata remains independently usable. */
-function VisibleDirectoryDemand(scope: DiscoveryScope) {
-  const [binding, setBinding] = useState<AgentWorkspaceBinding>();
+function VisibleDirectoryDemand({ binding: navigationBinding, ...scope }: DiscoveryScope & { binding?: AgentWorkspaceBinding }) {
+  const [initialBinding, setBinding] = useState<AgentWorkspaceBinding>();
+  const binding = navigationBinding ?? initialBinding;
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
   const bindingRequired = !!scope.workspaceRoot && "__TAURI_INTERNALS__" in window;
@@ -60,13 +62,17 @@ export function HomeProjectFiles({ filter, activeRelativePath, ...props }: Files
   const element = useRef<HTMLDivElement>(null);
   const scopeKey = JSON.stringify([workspaceRoot, owner.rootPath, owner.projectId]);
   const { enabled } = useDirectoryVisibility(element, scopeKey);
+  const { refresh, refreshing, error, visibleDocuments, binding } = useFileNavigationRefresh({
+    projectId: owner.projectId, rootPath: owner.rootPath, workspaceRoot, enabled, documents: props.documents ?? [],
+  });
   const label = tree ? "平铺展示" : "文件树展示";
   return <div ref={element} className="home-rail__files">
-    {enabled ? <VisibleDirectoryDemand key={scopeKey} projectId={owner.projectId} rootPath={owner.rootPath} workspaceRoot={workspaceRoot} tree={tree} /> : null}
-    <ProjectSidebar key={JSON.stringify([owner.rootPath, owner.projectId])} {...props}
+    {error ? <p className="project-directory__message" role="alert">{error}</p> : null}
+    {enabled ? <VisibleDirectoryDemand key={scopeKey} binding={binding} projectId={owner.projectId} rootPath={owner.rootPath} workspaceRoot={workspaceRoot} tree={tree} /> : null}
+    <ProjectSidebar key={scopeKey} {...props} documents={visibleDocuments}
     fileFilter={tree ? { query: "", tagId: null } : filter}
-    fileHeaderActions={<button type="button" aria-label={label} title={label} onClick={() => setTree(value => !value)}>{tree ? <List size={16} /> : <ListTree size={16} />}</button>}
-    fileContent={tree ? controls => <ProjectDirectoryBrowser fileMenu={controls} documents={props.documents} activeRelativePath={activeRelativePath} key={owner.rootPath} rootPath={owner.rootPath} workspaceRoot={scope?.workspaceRoot} projectId={owner.projectId} /> : undefined}
+    fileHeaderActions={<><button type="button" aria-label={label} title={label} onClick={() => setTree(value => !value)}>{tree ? <List size={16} /> : <ListTree size={16} />}</button><button type="button" aria-label="刷新文件列表" title="刷新文件列表" disabled={refreshing} aria-busy={refreshing} onClick={() => void refresh()}><RefreshCw size={16} /></button></>}
+    fileContent={tree ? controls => <ProjectDirectoryBrowser binding={binding} fileMenu={controls} documents={visibleDocuments} activeRelativePath={activeRelativePath} key={owner.rootPath} rootPath={owner.rootPath} workspaceRoot={workspaceRoot} projectId={owner.projectId} /> : undefined}
     filesOnly resident onOpenProject={() => undefined} />
   </div>;
 }

@@ -15,6 +15,7 @@ import type { AgentWorkspaceBinding } from "../../lib/agent-types";
 import { HomeSidebarList } from "./HomeSidebarList";
 import { ListPinIndicator } from "../../ui/components";
 import { FileIcon } from "../document/FileIcon";
+import { useDirectoryActions } from "./useDirectoryActions";
 import "./project-directory.css";
 
 /** Shared demand boundaries for physical file views, including resident panels. */
@@ -57,7 +58,21 @@ export function useProjectDirectoryListing({ projectId, workspaceRoot, binding, 
     ? { promise: existing.state.fetchStatus !== "idle" ? existing.promise : undefined } : undefined);
   const directory = useQuery({
     queryKey,
-    queryFn: () => projectDirectoryApi.list(projectId, relativePath),
+    queryFn: async () => {
+      // The list command uses the window's current Workspace. Its result may
+      // only enter this binding's cache if the binding still matches around I/O.
+      const verifyBinding = async () => {
+        if (!binding || !workspaceRoot) return;
+        const actual = await recordDocumentApi.bindingGet(workspaceRoot);
+        if (binding.workspaceId !== actual.workspaceId || binding.generation !== actual.generation) {
+          throw new Error("工作区已切换，请重试读取目录。");
+        }
+      };
+      await verifyBinding();
+      const entries = await projectDirectoryApi.list(projectId, relativePath);
+      await verifyBinding();
+      return entries;
+    },
     retry: false,
     enabled,
     staleTime: Infinity,
@@ -84,10 +99,12 @@ export function useProjectDirectoryListing({ projectId, workspaceRoot, binding, 
   return directory;
 }
 
-function DirectoryBranch({ projectId, workspaceRoot, binding, rootPath, relativePath, depth, enabled, activeRelativePath, onFileContextMenu, renderRenameInput, documents }: {
+function DirectoryBranch({ projectId, workspaceRoot, binding, rootPath, relativePath, depth, enabled, activeRelativePath, onFileContextMenu, onDirectoryContextMenu, renderRenameInput, renderDirectoryRenameInput, documents }: {
   projectId: number | null; workspaceRoot?: string; binding?: AgentWorkspaceBinding; rootPath: string; relativePath: string; depth: number; enabled: boolean; activeRelativePath?: string | null;
   onFileContextMenu: (path: string, x: number, y: number) => void;
+  onDirectoryContextMenu: (path: string, x: number, y: number) => void;
   renderRenameInput?: (path: string) => ReactNode;
+  renderDirectoryRenameInput: (path: string) => ReactNode;
   documents: ProjectSidebarDocumentItem[];
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
@@ -110,24 +127,23 @@ function DirectoryBranch({ projectId, workspaceRoot, binding, rootPath, relative
     {directory.data?.length === 0 ? <p className="project-directory__message" style={indentation}>此目录为空</p> : null}
     {directory.data?.map(entry => {
       const starred = entry.kind === "file" && documents.some(document => document.isStarred && projectFilePathMatches(document.managedPath, rootPath, entry.relativePath));
-      const renameInput = entry.kind === "file" ? renderRenameInput?.(entry.relativePath) : null;
+      const renameInput = entry.kind === "file" ? renderRenameInput?.(entry.relativePath) : renderDirectoryRenameInput(entry.relativePath);
       return <div key={entry.relativePath}>
       {renameInput ? <div className="project-directory__entry" style={indentation}>
-        <FileIcon name={entry.name} size={12} />{renameInput}{starred ? <ListPinIndicator label="标星" /> : null}
+        {entry.kind === "directory" ? <ChevronRight size={12} aria-hidden="true" /> : <FileIcon name={entry.name} size={12} />}{renameInput}{starred ? <ListPinIndicator label="标星" /> : null}
       </div> : <button type="button" className={`project-directory__entry ${entry.kind === "file" && entry.relativePath === activeRelativePath ? "is-active" : ""}`} style={indentation}
         aria-label={entry.name}
         aria-current={entry.kind === "file" && entry.relativePath === activeRelativePath ? "true" : undefined}
         aria-expanded={entry.kind === "directory" ? expanded.has(entry.relativePath) : undefined}
         onContextMenu={event => {
-          if (entry.kind !== "file") return;
           event.preventDefault();
-          onFileContextMenu(entry.relativePath, event.clientX, event.clientY);
+          (entry.kind === "file" ? onFileContextMenu : onDirectoryContextMenu)(entry.relativePath, event.clientX, event.clientY);
         }}
         onKeyDown={event => {
-          if (entry.kind !== "file" || !(event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))) return;
+          if (!(event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))) return;
           event.preventDefault();
           const rect = event.currentTarget.getBoundingClientRect();
-          onFileContextMenu(entry.relativePath, rect.left + 12, rect.bottom + 6);
+          (entry.kind === "file" ? onFileContextMenu : onDirectoryContextMenu)(entry.relativePath, rect.left + 12, rect.bottom + 6);
         }}
         onClick={() => {
           if (entry.kind === "file") { openProjectFilePreview(projectId, entry.relativePath, undefined, undefined, undefined, workspaceRoot); return; }
@@ -138,15 +154,15 @@ function DirectoryBranch({ projectId, workspaceRoot, binding, rootPath, relative
         {starred ? <ListPinIndicator label="标星" /> : null}
       </button>}
       {entry.kind === "directory" && expanded.has(entry.relativePath) ? <div className="project-directory__children" style={{ "--directory-guide-left": `${4 + depth * 12 + 6}px` } as CSSProperties}>
-        <DirectoryBranch workspaceRoot={workspaceRoot} binding={binding} rootPath={rootPath} projectId={projectId} relativePath={entry.relativePath} depth={depth + 1} enabled={enabled} activeRelativePath={activeRelativePath} onFileContextMenu={onFileContextMenu} renderRenameInput={renderRenameInput} documents={documents} />
+        <DirectoryBranch workspaceRoot={workspaceRoot} binding={binding} rootPath={rootPath} projectId={projectId} relativePath={entry.relativePath} depth={depth + 1} enabled={enabled} activeRelativePath={activeRelativePath} onFileContextMenu={onFileContextMenu} onDirectoryContextMenu={onDirectoryContextMenu} renderRenameInput={renderRenameInput} renderDirectoryRenameInput={renderDirectoryRenameInput} documents={documents} />
       </div> : null}
     </div>; })}
   </>;
 }
 
 /** One scroll viewport for the entire expanded physical file hierarchy. */
-export function ProjectDirectoryBrowser({ projectId, workspaceRoot, rootPath, activeRelativePath, documents = [], fileMenu }: {
-  projectId: number | null; workspaceRoot?: string; rootPath: string; activeRelativePath?: string | null;
+export function ProjectDirectoryBrowser({ projectId, workspaceRoot, rootPath, binding: navigationBinding, activeRelativePath, documents = [], fileMenu }: {
+  projectId: number | null; workspaceRoot?: string; rootPath: string; binding?: AgentWorkspaceBinding; activeRelativePath?: string | null;
   documents?: ProjectSidebarDocumentItem[]; fileMenu?: ProjectFileMenuControls;
 }) {
   const queryClient = useQueryClient();
@@ -154,17 +170,29 @@ export function ProjectDirectoryBrowser({ projectId, workspaceRoot, rootPath, ac
   const { enabled, isVisible } = useDirectoryVisibility(element, JSON.stringify([rootPath, projectId]));
   const [menuError, setMenuError] = useState("");
   const activeWorkspaceRoot = workspaceRoot ?? queryClient.getQueryData<WorkspaceStatusSnapshot>(queryKeys.workspaceStatus)?.currentWorkspace?.rootPath;
-  const [boundWorkspace, setBoundWorkspace] = useState<{ root: string; binding: AgentWorkspaceBinding }>();
+  const scope = JSON.stringify([activeWorkspaceRoot, rootPath, projectId]);
+  const scopeEpoch = useRef(0);
+  useLayoutEffect(() => {
+    scopeEpoch.current++;
+    return () => { scopeEpoch.current++; };
+  }, [scope]);
+  const [boundWorkspace, setBoundWorkspace] = useState<{ scope: string; binding: AgentWorkspaceBinding }>();
   const bindingRequired = !!activeWorkspaceRoot && "__TAURI_INTERNALS__" in window;
-  const directoryBinding = boundWorkspace?.root === activeWorkspaceRoot ? boundWorkspace?.binding : undefined;
+  const directoryBinding = navigationBinding ?? (boundWorkspace?.scope === scope ? boundWorkspace?.binding : undefined);
+  const currentBinding = useRef(directoryBinding);
+  currentBinding.current = directoryBinding;
+  const directoryActions = useDirectoryActions({ projectId, rootPath, workspaceRoot: activeWorkspaceRoot, binding: directoryBinding });
+  useLayoutEffect(() => { setMenuError(""); }, [scope, directoryBinding?.workspaceId, directoryBinding?.generation]);
   const refreshDirectories = useRef<(paths: string[] | null | undefined) => void>(() => {});
   // All directory change sources share one queue for this mounted scope.
   // Layout cleanup retires it before a new scope can use the same element.
   useLayoutEffect(() => {
     let disposed = false;
+    const matchesBinding = (key: readonly unknown[]) => key[5] === activeWorkspaceRoot
+      && (!directoryBinding || (key[6] === directoryBinding.workspaceId && key[7] === directoryBinding.generation));
     const invalidate = (paths: Set<string> | null) => queryClient.invalidateQueries({
       queryKey: ["project-directory", rootPath, projectId],
-      predicate: query => paths === null || paths.has(String(query.queryKey[3])),
+      predicate: query => matchesBinding(query.queryKey) && (paths === null || paths.has(String(query.queryKey[3]))),
       refetchType: isVisible() ? "active" : "none",
     }, { cancelRefetch: false });
     let dirty: Set<string> | null | undefined;
@@ -183,7 +211,7 @@ export function ProjectDirectoryBrowser({ projectId, workspaceRoot, rootPath, ac
           // native I/O settle before consuming this dirty generation.
           const pending = queryClient.getQueryCache().findAll({
             queryKey: ["project-directory", rootPath, projectId],
-            predicate: query => paths === null || paths.has(String(query.queryKey[3])),
+            predicate: query => matchesBinding(query.queryKey) && (paths === null || paths.has(String(query.queryKey[3]))),
           }).filter(query => query.state.fetchStatus !== "idle").map(query => query.promise);
           await Promise.allSettled(pending);
           if (disposed) break;
@@ -198,15 +226,15 @@ export function ProjectDirectoryBrowser({ projectId, workspaceRoot, rootPath, ac
     };
     refreshDirectories.current = refresh;
     return () => { disposed = true; };
-  }, [queryClient, activeWorkspaceRoot, rootPath, projectId]);
+  }, [queryClient, activeWorkspaceRoot, rootPath, projectId, directoryBinding?.workspaceId, directoryBinding?.generation]);
   // Page invalidation also follows ordinary saves/Todo changes. Only committed
   // path membership changes alter directory entries; do not fan these out.
-  const previousPaths = useRef<{rootPath:string;projectId:number|null;paths:Map<number,string>} | undefined>(undefined);
+  const previousPaths = useRef<{scope:string;paths:Map<number,string>} | undefined>(undefined);
   useEffect(() => {
     const paths = new Map(documents.map(item => [item.id,item.managedPath]));
     const previous = previousPaths.current;
-    previousPaths.current = {rootPath,projectId,paths};
-    if (!previous || previous.rootPath !== rootPath || previous.projectId !== projectId) return;
+    previousPaths.current = {scope,paths};
+    if (!previous || previous.scope !== scope) return;
     const changed = new Set<string>();
     const addParents = (path:string) => {
       const prefix = rootPath.replaceAll("\\","/").replace(/\/$/, "") + "/";
@@ -218,29 +246,32 @@ export function ProjectDirectoryBrowser({ projectId, workspaceRoot, rootPath, ac
     for (const [id,path] of previous.paths) if (paths.get(id) !== path) addParents(path);
     for (const [id,path] of paths) if (previous.paths.get(id) !== path) addParents(path);
     if (changed.size) refreshDirectories.current([...changed]);
-  }, [queryClient,rootPath,projectId,documents]);
+  }, [queryClient,scope,rootPath,projectId,documents]);
   const request = useRef(0);
+  useLayoutEffect(() => () => { request.current += 1; }, [activeWorkspaceRoot, projectId, rootPath, directoryBinding?.workspaceId, directoryBinding?.generation]);
   useEffect(() => {
     if (!activeWorkspaceRoot || !("__TAURI_INTERNALS__" in window)) return;
     let disposed = false;
-    const refresh = refreshDirectories.current;
+    const epoch = scopeEpoch.current;
+    const current = () => !disposed && scopeEpoch.current === epoch;
     let binding: AgentWorkspaceBinding | undefined;
     const earlyHints: DirectoryDirtyHint[] = [];
     let unlisten: (() => void) | undefined;
     const changed = (hint: DirectoryDirtyHint) => {
-      if (disposed || hint.projectId !== projectId) return;
+      if (!current() || hint.projectId !== projectId) return;
       if (!binding) { earlyHints.push(hint); return; }
-      if (hint.binding.workspaceId === binding.workspaceId && hint.binding.generation === binding.generation) refresh(hint.relativePaths);
+      const expected = currentBinding.current ?? binding;
+      if (hint.binding.workspaceId === expected.workspaceId && hint.binding.generation === expected.generation) refreshDirectories.current(hint.relativePaths);
     };
     void (async () => {
       // Listen before reading identity so watcher changes during setup are kept.
       unlisten = await desktopApi.listenEvent("mind:project-directory-dirty", changed);
-      if (disposed) { unlisten(); return; }
+      if (!current()) { unlisten(); return; }
       binding = await recordDocumentApi.bindingGet(activeWorkspaceRoot);
-      if (disposed) return;
-      setBoundWorkspace({ root: activeWorkspaceRoot, binding });
+      if (!current()) return;
+      setBoundWorkspace({ scope, binding });
       for (const hint of earlyHints) changed(hint); earlyHints.length = 0;
-    })().catch(reason => { if (!disposed) setMenuError(getErrorMessage(reason, "无法监听目录变化")); });
+    })().catch(reason => { if (current()) setMenuError(getErrorMessage(reason, "无法监听目录变化")); });
     return () => { disposed = true; unlisten?.(); };
   }, [queryClient, activeWorkspaceRoot, rootPath, projectId]);
   useEffect(() => {
@@ -255,16 +286,22 @@ export function ProjectDirectoryBrowser({ projectId, workspaceRoot, rootPath, ac
     const current = ++request.current;
     setMenuError("");
     try {
+      const actualBinding = directoryBinding && activeWorkspaceRoot ? await recordDocumentApi.bindingGet(activeWorkspaceRoot) : undefined;
+      if (current !== request.current) return;
+      if (actualBinding && directoryBinding && (actualBinding.workspaceId !== directoryBinding.workspaceId || actualBinding.generation !== directoryBinding.generation)) {
+        throw new Error("工作区已切换，请刷新后重试文件操作。");
+      }
       let document = documents.find(item => projectFilePathMatches(item.managedPath, rootPath, relativePath));
       if (!document) {
         const activeWorkspaceRoot = workspaceRoot ?? queryClient.getQueryData<WorkspaceStatusSnapshot>(queryKeys.workspaceStatus)?.currentWorkspace?.rootPath;
         if (!activeWorkspaceRoot) throw new Error("工作区信息尚未就绪，请稍后重试。");
-        const binding = await recordDocumentApi.bindingGet(activeWorkspaceRoot);
+        const binding = actualBinding ?? await recordDocumentApi.bindingGet(activeWorkspaceRoot);
         if (current !== request.current) return;
         const file = await projectFileApi.register(binding, projectId, relativePath);
         if (current !== request.current) return;
         if (file.state !== "ready") throw new Error(file.reason ?? "文件身份需要核对");
         const listed = projectId === null ? (await projectMindApi.workspacePageGet()).workspaceDocuments : (await projectMindApi.projectPageGet({ projectId })).projectDocuments;
+        if (current !== request.current) return;
         const after = await recordDocumentApi.bindingGet(activeWorkspaceRoot);
         if (current !== request.current) return;
         if (binding.workspaceId !== after.workspaceId || binding.generation !== after.generation) throw new Error("工作区已切换，请重试。");
@@ -277,9 +314,9 @@ export function ProjectDirectoryBrowser({ projectId, workspaceRoot, rootPath, ac
       if (current === request.current) setMenuError(getErrorMessage(error, "无法打开文件操作菜单"));
     }
   };
-  return <div ref={element} className="project-directory">{menuError ? <p role="alert">{menuError}</p> : null}<HomeSidebarList label={projectId === null ? "工作区目录内容" : "项目目录内容"}>
-    <DirectoryBranch workspaceRoot={activeWorkspaceRoot} binding={directoryBinding} key={`${activeWorkspaceRoot}:${rootPath}:${projectId}:${directoryBinding?.workspaceId}:${directoryBinding?.generation}`} rootPath={rootPath} projectId={projectId} relativePath="" depth={0} enabled={enabled && (!bindingRequired || !!directoryBinding)} activeRelativePath={activeRelativePath} onFileContextMenu={onFileContextMenu} renderRenameInput={fileMenu?.renderRenameInput} documents={documents} />
-  </HomeSidebarList></div>;
+  return <div ref={element} className="project-directory">{menuError || directoryActions.error ? <p role="alert">{menuError || directoryActions.error}</p> : null}<HomeSidebarList label={projectId === null ? "工作区目录内容" : "项目目录内容"}>
+    <DirectoryBranch workspaceRoot={activeWorkspaceRoot} binding={directoryBinding} key={`${activeWorkspaceRoot}:${rootPath}:${projectId}:${directoryBinding?.workspaceId}:${directoryBinding?.generation}`} rootPath={rootPath} projectId={projectId} relativePath="" depth={0} enabled={enabled && (!bindingRequired || !!directoryBinding)} activeRelativePath={activeRelativePath} onFileContextMenu={onFileContextMenu} onDirectoryContextMenu={directoryActions.openMenu} renderRenameInput={fileMenu?.renderRenameInput} renderDirectoryRenameInput={directoryActions.renderRenameInput} documents={documents} />
+  </HomeSidebarList>{directoryActions.panel}</div>;
 }
 
 interface DirectoryDirtyHint { binding: AgentWorkspaceBinding; projectId: number | null; relativePaths?: string[] | null }

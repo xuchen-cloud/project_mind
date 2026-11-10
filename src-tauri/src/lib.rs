@@ -7,6 +7,7 @@ pub mod dsh_process;
 mod dsh_model;
 mod skills;
 mod project_directory;
+mod project_directory_changes;
 mod html_preview_files;
 mod html_preview;
 mod html_preview_http;
@@ -2042,6 +2043,9 @@ pub fn run() {
             dsh_assistant::dsh_assistant_manage_session,
             dsh_assistant::dsh_assistant_delete_session,
             project_directory::project_directory_list,
+            project_directory_changes::project_directory_change_prepare,
+            project_directory_changes::project_directory_rename,
+            project_directory_changes::project_directory_delete,
             project_directory::project_directory_preview,
             project_directory::project_directory_open,
             project_directory::project_directory_resolve_reference,
