@@ -17,6 +17,9 @@ export interface DirectoryChangeResult {
   relativePath: string | null;
   fileIds: number[];
 }
+export interface PreparedNavigationTrash extends PreparedDirectoryChange {
+  kind: "file" | "directory";
+}
 
 export interface ProjectDirectoryEntry {
   name: string;
@@ -31,6 +34,10 @@ export type ProjectDirectoryPreview =
   | { kind: "open"; reason: "binary" | "tooLarge"; bytes: number };
 
 export const projectDirectoryApi = {
+  prepareTrash: (target: DirectoryChangeTarget) =>
+    desktopApi.fileCommand<PreparedNavigationTrash>("project_navigation_trash_prepare", { ...target }),
+  trash: (input: DirectoryChangeTarget & { token: string; confirmed: true; requestId: string }) =>
+    desktopApi.fileCommand<DirectoryChangeResult>("project_navigation_trash", { ...input }),
   prepareChange: (target: DirectoryChangeTarget) =>
     desktopApi.fileCommand<PreparedDirectoryChange>("project_directory_change_prepare", { ...target }),
   rename: (input: DirectoryChangeTarget & { token: string; name: string; requestId: string }) =>
