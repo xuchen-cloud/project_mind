@@ -5391,13 +5391,13 @@ describe("RichEditor context menus", () => {
       startedAt: "",
       finishedAt: "",
       errorMessage: null,
-      streamText: "## 分析\n- 第一条\n- 第二条",
+      streamText: "## 分析\n- 第一条\n- 第二条\n\n| 名称 | 状态 |\n| --- | --- |\n| Alpha | 完成 |",
       result: {
         kind: "editor_skill",
         rewrite: {
           skillId: "explain",
           resultMode: "answer",
-          content: "## 分析\n- 第一条\n- 第二条",
+          content: "## 分析\n- 第一条\n- 第二条\n\n| 名称 | 状态 |\n| --- | --- |\n| Alpha | 完成 |",
           resolvedModel: "mock-model",
         },
       },
@@ -5407,6 +5407,10 @@ describe("RichEditor context menus", () => {
 
     await waitFor(() => {
       expect(container.querySelector(".ProseMirror h2")?.textContent).toBe("分析");
+      const table = container.querySelector(".ProseMirror blockquote table");
+      expect(table?.querySelectorAll("th")).toHaveLength(2);
+      expect(table?.querySelectorAll("td")).toHaveLength(2);
+      expect(table?.textContent).toContain("Alpha完成");
       expect(Array.from(container.querySelectorAll(".ProseMirror li")).map((item) => item.textContent)).toEqual([
         "第一条",
         "第二条",
