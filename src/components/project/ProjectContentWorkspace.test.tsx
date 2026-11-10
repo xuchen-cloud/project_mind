@@ -103,8 +103,9 @@ it("closes only the native-confirmed moved source without saving again, includin
   const other = await screen.findByLabelText("编辑2");
   fireEvent.change(other, { target: { value: "保留另一条草稿" } });
   const event = { binding, operationId: "native-move", source: { workspaceId: binding.workspaceId,
-    scope: { kind: "project", projectId: 7 }, kind: "record", id: "1" },
+    scope: { kind: "project" as const, projectId: 7 }, kind: "record" as const, id: "1" },
     target: { workspaceId: binding.workspaceId, scope: { kind: "project", projectId: 8 }, kind: "record", id: "99" }, oldSessionsClosed: false };
+  await act(async () => { await prepareContentOwnerMove(binding, event.source, event.operationId, async () => {}); });
   await act(async () => { for (const listener of nativeEvents.get("content:owner-moved") ?? []) listener(event); });
   await waitFor(() => expect(screen.queryByRole("tab", { name: "Record 1" })).not.toBeInTheDocument());
   expect(page.guard).not.toHaveBeenCalled();
@@ -117,6 +118,8 @@ it("closes only the native-confirmed moved source without saving again, includin
 
 it.each(["workspace", "generation", "source-workspace", "scope", "kind", "id"])("ignores a terminal event with another %s identity", async change => {
   fixture(); const input = await screen.findByLabelText("编辑1");
+  const source = { workspaceId: binding.workspaceId, scope: { kind: "project" as const, projectId: 7 }, kind: "record" as const, id: "1" };
+  await act(async () => { await prepareContentOwnerMove(binding, source, "foreign", async () => {}); });
   const event = { binding: { ...binding }, operationId: "foreign", source: { workspaceId: binding.workspaceId,
     scope: { kind: "project" as const, projectId: 7 }, kind: "record", id: "1" },
     target: { workspaceId: binding.workspaceId, scope: { kind: "project", projectId: 8 }, kind: "record", id: "99" }, oldSessionsClosed: false };
@@ -149,8 +152,9 @@ it("does not let a previously accepted event close the new generation while its 
   let resolve!: (value: typeof binding) => void;
   vi.mocked(recordDocumentApi.bindingGet).mockReturnValueOnce(new Promise(done => { resolve = done; }));
   const event = { binding, operationId: "late-completion", source: { workspaceId: binding.workspaceId,
-    scope: { kind: "project", projectId: 7 }, kind: "record", id: "1" },
+    scope: { kind: "project" as const, projectId: 7 }, kind: "record" as const, id: "1" },
     target: { workspaceId: binding.workspaceId, scope: { kind: "project", projectId: 8 }, kind: "record", id: "99" }, oldSessionsClosed: false };
+  await act(async () => { await prepareContentOwnerMove(binding, event.source, event.operationId, async () => {}); });
   await act(async () => { for (const listener of nativeEvents.get("content:owner-moved") ?? []) listener(event); });
   await act(async () => { client.setQueryData(queryKeys.projectContentBinding(workspaceRoot), { ...binding, generation: "open-2" }); });
   await act(async () => { resolve(binding); });
@@ -163,17 +167,19 @@ it("closes a reopened File on its next move while duplicate old receipts cannot 
   const tabId = useProjectContentStore.getState().open(scope, file);
   fixture(`/projects/7?content=${tabId}`); await screen.findByLabelText("文件页");
   const event = { binding, operationId: "first-move", source: { workspaceId: binding.workspaceId,
-    scope: { kind: "project", projectId: 7 }, kind: "file", id: "11" },
+    scope: { kind: "project" as const, projectId: 7 }, kind: "file" as const, id: "11" },
     target: { workspaceId: binding.workspaceId, scope: { kind: "project", projectId: 8 }, kind: "file", id: "11" }, oldSessionsClosed: true };
   const emit = async (operationId: string) => act(async () => {
     for (const listener of nativeEvents.get("content:owner-moved") ?? []) listener({ ...event, operationId });
   });
+  await act(async () => { await prepareContentOwnerMove(binding, event.source, "first-move", async () => {}); });
   await emit("first-move");
   await waitFor(() => expect(screen.queryByLabelText("文件页")).not.toBeInTheDocument());
   expect(page.fileUnmounts).toHaveBeenCalledExactlyOnceWith(11, true, true);
   act(() => { useProjectContentStore.getState().open(scope, file); });
   await screen.findByLabelText("文件页");
   await emit("first-move"); expect(screen.getByLabelText("文件页")).toBeInTheDocument();
+  await act(async () => { await prepareContentOwnerMove(binding, event.source, "second-move", async () => {}); });
   await emit("second-move");
   await waitFor(() => expect(screen.queryByLabelText("文件页")).not.toBeInTheDocument());
   expect(page.fileUnmounts).toHaveBeenCalledTimes(2); expect(page.guard).not.toHaveBeenCalled();

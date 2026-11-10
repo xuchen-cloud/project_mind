@@ -20,11 +20,14 @@ beforeEach(() => {
 });
 it("locks and saves this File before acknowledging, then unregisters the original identity on disposal", async () => {
   const flush = vi.fn(async () => {});
-  const dispose = await registerFileEditor({ binding, object, editorId: "e", flush });
+  const onMoveRequested = vi.fn();
+  const dispose = await registerFileEditor({ binding, object, editorId: "e", flush, onMoveRequested });
   deliver(request);
   await vi.waitFor(() => expect(fileEditorApi.reply).toHaveBeenCalledWith(binding, { object, editorId: "e", flushId: "f", outcome: "saved" }));
   expect(prepareContentOwnerMove).toHaveBeenCalledWith(binding, object, "move", expect.any(Function));
   expect(flush).toHaveBeenCalledOnce();
+  expect(onMoveRequested).toHaveBeenCalledExactlyOnceWith("move");
+  expect(onMoveRequested.mock.invocationCallOrder[0]).toBeLessThan(flush.mock.invocationCallOrder[0]);
   dispose();
   expect(stop).toHaveBeenCalledOnce();
   expect(fileEditorApi.unregister).toHaveBeenCalledWith(binding, object, "e");

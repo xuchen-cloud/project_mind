@@ -1,6 +1,8 @@
 import type { AgentWorkspaceBinding } from "../lib/agent-types";
 import { fileEditorApi } from "./fileEditorApi";
 import { desktopApi } from "./desktopApi";
+import { publishFileReplacedReceipt } from "../lib/content-owner-move-events";
+import { releaseContentOwnerMove } from "../lib/project-content-lifecycle";
 export type NativeFileDropTarget =
   | { kind: "new"; owner: number | null; name: string }
   | { kind: "update"; documentId: number; projectId: number | null; managedPath: string; expectedVersionNumber: number };
@@ -52,14 +54,22 @@ export function createFileDropBatch(binding: AgentWorkspaceBinding, inputs: File
             result = await commit();
           }
           entry.outcome = { sourcePath, status: "success", result };
+          if (object) publishFileReplacedReceipt({ binding: frozenBinding, operationId: entry.requestId, object,
+            versionNumber: result.versionNumber, contentHash: result.contentHash, noChange: result.noChange, oldSessionsClosed: result.oldSessionsClosed });
         } catch (error) {
           entry.outcome = { sourcePath, status: "error", error,
-            uncertain: !(error && typeof error === "object" && "code" in error && typeof error.code === "string") };
+            uncertain: !(error && typeof error === "object" && "code" in error && typeof error.code === "string" && error.code !== "RUNTIME_INCOMPATIBLE") };
         } finally {
-          if (object && entry.releasePending) {
+          if (object) {
             try {
-              await fileEditorApi.release(frozenBinding, object, entry.requestId);
-              entry.releasePending = false;
+              if (entry.releasePending) {
+                await fileEditorApi.release(frozenBinding, object, entry.requestId);
+                entry.releasePending = false;
+              }
+              // A retry can confirm failure after the original release was acknowledged.
+              if (entry.outcome?.status === "error" && !entry.outcome.uncertain) {
+                releaseContentOwnerMove({ binding: frozenBinding, operationId: entry.requestId, source: object });
+              }
               delete entry.outcome!.releaseError;
             } catch (releaseError) { entry.outcome!.releaseError = releaseError; }
           }
