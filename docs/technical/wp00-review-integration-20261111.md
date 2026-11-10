@@ -7,7 +7,7 @@
 - 集成分支：`codex/wp00-review-integration-20261111`，从固定基线建立独立 worktree。
 - 交付：接收各包最终提交，维护共享文件契约；在独立分支串行整合，按受影响范围验证组合结果并自行完成 Standards / Spec 检查。
 - 非目标：代写各组修复、重复创建会话、覆盖原 checkout、推送、合并 develop、发布、部署或删除用户数据。
-- 依赖：WP01/02/03/05/07/08/09/10 已派发；WP04/06 等 WP03 文件稳定后由原协调会话派发，WP00 不另建会话。
+- 依赖：WP01/02/03/05/07/08/09/10 已派发；WP03 稳定后原协调会话已派发 WP04，WP06 等 WP04 共享恢复入口及 db.rs 稳定后串行安排。WP00 不另建会话。
 - 验收：每包有精确提交、发现 ID、验证命令/结果、证据与未验证项；所有收到的提交在组合树上通过必要的接口/受影响验证，缺失包和平台门槛保持可见。
 
 ## 当前接收清单
@@ -16,16 +16,16 @@
 
 | 包 | 发现 | 分支 | 接收状态 | 提交 | 组合验证 |
 |---|---|---|---|---|---|
-| WP01 | VC-01 | `codex/wp01-todo-workspace-binding` | 已整合 | 源 `32ae379e946d24f93b2a0c0f2766863692a801c4`；组合 `42d2bfb` | 单包证据已复用；组合验证中 |
-| WP02 | Q-AI-01/02、PERF-AI-01 | `codex/wp02-ai-job-lifecycle-20261111` | 已整合 | 源 `52681197421261b2083d62a2e7d58dc6d280ab84`；组合 `22d67a9` | 单包证据已复用；组合补充回归见下 |
-| WP03 | ARCH-01/02/03 | `codex/wp03-project-rename-recovery` | 执行中 | 待接收 | 待执行 |
-| WP04 | ARCH-04 | 待派发 | 等待 WP03 稳定 | — | 未执行 |
-| WP05 | Q1/2/3 | `codex/wp05-todo-editors-20261111` | 已整合 | 源 `fe6797e0f5cf3b18b0dcae20e74da615f95bf3a7`；组合 `19379b3` | WP01/WP05 单独组合 168 项通过；最终组合验证中 |
-| WP06 | VC-02 | 待派发 | 等待 WP03 稳定 | — | 未执行 |
-| WP07 | SEC-DEP-01/02 | `codex/wp07-security-dependencies` | 已整合 | 源 `54dda267066ba72716035be42375db945bacf7aa`；组合 `d55ab18` | 单包证据已复用；最终组合待验证 |
-| WP08 | PERF-01 | `codex/wp08-file-path-index-20261111` | 已整合 | 源 `519b751e12d22d4c18285cdaa2824a54b99e2f3b`；组合 `a773178` | 单包证据已复用；组合验证中 |
-| WP09 | DOC-01/02、STD-01 | `codex/wp09-docs-rules-20261111` | 执行中 | 待接收 | 待执行 |
-| WP10 | OPS-01 | `codex/wp10-beta-channel-20261111` | 已整合 | 源 `44d161c83451f1d72b8b510163ba6c779853ace3`；组合 `4cd251a` | 单包 39 项通过；最终组合验证中 |
+| WP01 | VC-01 | `codex/wp01-todo-workspace-binding` | 已整合 | 源 `32ae379e946d24f93b2a0c0f2766863692a801c4`；组合 `42d2bfb` | 前端组合通过；原生结果见下 |
+| WP02 | Q-AI-01/02、PERF-AI-01 | `codex/wp02-ai-job-lifecycle-20261111` | 已整合 | 源 `52681197421261b2083d62a2e7d58dc6d280ab84`；组合 `22d67a9` | 前端组合及补充回归通过；原生结果见下 |
+| WP03 | ARCH-01/02/03 | `codex/wp03-project-rename-recovery` | 已整合 | 源 `428acbf794aa240dc960b565c7279aeec8d085fd`；组合 `0219957` | 复用最终 23 项与真实 worker 1 项；已有失败另列 |
+| WP04 | ARCH-04 | 原协调会话已派发 | 执行中，会话 `01a1c6cf-1e54-7de1-b813-c738015f44d9` | 基于 WP03 `428acbf`；待最终提交 | 未执行组合验证 |
+| WP05 | Q1/2/3 | `codex/wp05-todo-editors-20261111` | 已整合 | 源 `fe6797e0f5cf3b18b0dcae20e74da615f95bf3a7`；组合 `19379b3` | 单独组合 168 项及最终前端组合通过 |
+| WP06 | VC-02 | 待派发 | 等 WP04 共享恢复入口及 db.rs 稳定，由原协调会话串行安排 | — | 未执行 |
+| WP07 | SEC-DEP-01/02 | `codex/wp07-security-dependencies` | 已整合 | 源 `54dda267066ba72716035be42375db945bacf7aa`；组合 `d55ab18` | 组合类型、宿主构建和受影响测试通过 |
+| WP08 | PERF-01 | `codex/wp08-file-path-index-20261111` | 已整合 | 源 `519b751e12d22d4c18285cdaa2824a54b99e2f3b`；组合 `a773178` | 受影响前端组合通过 |
+| WP09 | DOC-01/02、STD-01 | `codex/wp09-docs-rules-20261111` | 等待 approval，未收到最终提交 | 待接收 | 未执行组合验证 |
+| WP10 | OPS-01 | `codex/wp10-beta-channel-20261111` | 已整合 | 源 `44d161c83451f1d72b8b510163ba6c779853ace3`；组合 `4cd251a` | 单包 39 项及最终受影响组合通过 |
 
 ## 共享文件与 Interface
 
@@ -46,7 +46,7 @@ WP05 应消费这一成功确认撤销原始 hashtag 乐观正文，不以原始
 
 ### WP03 / WP04 / WP06
 
-WP03 先稳定改名 intent、恢复入口、路径映射及 db.rs。WP04 保持 File WorkingSave/WorkingStatus Interface，将 live 卷 stage/backup 与 journal/恢复/清理一起修正；WP06 只接续 voice_minutes_apply 的稳定录音开始时间后缀。未收到 WP03 稳定交付前不自行抢改。
+WP03 已稳定交付改名 intent、恢复入口、精确路径映射及 schema42。后续以组合提交 `0219957` 为串行接入点，保留启动时 Project root → directory → working save 的恢复顺序。原协调会话已从 WP03 源提交派发 WP04：保持 File WorkingSave/WorkingStatus Interface，将 live 卷 stage/backup 与 journal/恢复/清理一起修正，并处理已有 pending journal。WP06 等 WP04 的共享恢复入口及 db.rs 稳定后串行安排，只接续 voice_minutes_apply 的稳定录音开始时间及本地时区后缀。WP00 只读跟进，不代建会话或修改责任组工作树。
 
 ## 验证计划与复用
 
@@ -74,11 +74,21 @@ WP03 先稳定改名 intent、恢复入口、路径映射及 db.rs。WP04 保持
 
 WP00 最终调用链检查补充复现：sync 的 ready promise 已完成，reset 在异步续体恢复前运行时，旧 enqueue 仍被调用一次。定向新回归在收到的源提交失败（`ai-ready-reset-red.log`）；enqueue 前核对 `aiJobSync === sync` 后，真实前端 Module 的 14/14 项通过（`ai-ready-reset-green.log`）。这是原 WP02 生命周期验收窗口的补齐，不新增通用机制；原生 binding 仍保留，不以 UI 失效代替写入门禁。
 
-保留未验证项：Windows、真实多窗口、真实 Provider 和完整原生测试二进制运行。未调用付费 Provider。
+完整原生 worker 测试二进制的组合结果见下；原生 AI 命令绑定门禁仍仅有上述 harness 动态证据。保留未验证项：Windows、真实多窗口、真实 Provider/Tauri IPC。未调用付费 Provider。
+
+### WP03
+
+[Project 根改名交付记录](../implementation/wp03-project-root-rename.md)。13 文件无冲突整合，未涉及前端 DTO/命令/事件；源提交与组合提交 patch 完全相同。
+
+- 一个原生 Module 持有 intent、目录物理身份、无覆盖 rename、SQL/outbox 与恢复。schema41→42 的精确 Record 资源位置表与版本号原子提交；不可变正文、UUID/hash 不重写。
+- canonical Record 的当前编辑投影、保存、Agent patch、历史预览/恢复及连续改名使用确切已持久引用，仍保留 Scope、来源、managed path 和 symlink 检查。迁入 File 的合法外部历史保持原位，源根 foreign history/resource 保护仍生效。
+- 复用最终 23 项定向原生测试，以及另行明确执行的真实固定 Node/Record worker 1 项；5 个真实 SIGKILL 时点、外部占用、schema40/41 升级与失败原子性有实际证据。生产 `cargo check --lib` 通过。ignored helper 不计通过。
+- 该包曾集中执行完整受影响范围：409 passed、4 failed、23 ignored。schema 硬编码断言和两项缺少 Record runtime 的失败修正/准备后均已定向通过。仍有 `imported_file_legacy_registration_rejects_foreign_physical_owner_and_forged_scope`：伪造归属仍被拒绝，但返回 `io_failed` 而非契约 `ownership_mismatch`；固定审计基线单独运行也同样失败（`/private/tmp/wp03-unrelated-baseline.log`）。本轮未修改该导入路径或放宽断言，不能宣称完整套件全绿。后续解锁条件为保持拒绝伪造归属并修正错误分类。
+- 未验证：GUI 多窗口、Windows/Linux 真机、第二卷和断电。SIGKILL 仅证明进程崩溃恢复。该包稳定可供 WP04/06 继续，但不表示满足发布门禁。
 
 ### WP07
 
-交付记录：[依赖安全修复](wp07-security-dependencies-20261111.md)（整合该提交后可用）。责任组报告：干净安装、96 项针对性测试、类型检查、宿主及 Record/Source worker 构建通过；Vite 8.1.7、markdown-it 14.3.3，默认 loopback、显式 dev:lan；400 KB reference 微测约 3220 → 87 ms。此处是单包结果，尚未计入组合通过。
+交付记录：[依赖安全修复](wp07-security-dependencies-20261111.md)。责任组报告：干净安装、96 项针对性测试、类型检查、宿主及 Record/Source worker 构建通过；Vite 8.1.7、markdown-it 14.3.3，默认 loopback、显式 dev:lan；400 KB reference 微测约 3220 → 87 ms。组合类型、宿主构建和受影响测试结果另列于下。
 
 保留未验证项：Windows、多窗口、真实 LAN/Tauri GUI、安装包；其他 11 项 audit 告警不在本包已确认修复范围。
 
@@ -97,7 +107,7 @@ WP00 最终调用链检查补充复现：sync 的 ready promise 已完成，rese
 - WP07 本地提交已无冲突 cherry-pick；最终组合中的提交为 `d55ab18`。已检查其 manifest/config/回归测试 diff、lock/包范围与 diff whitespace，Standards / Spec 暂无新增发现。
 - 原卷剩余约 4.3 GiB。依赖和未变更 Office dist 从 WP07 已完成的安装/构建经 APFS `cp -cR` 克隆至 WP00 自己的 ignored 目录，无共享可写依赖、无重装其他工作区。WP00 不声称独立 clean install 或重新构建 Office 引擎。
 - Office dist 与生成的 PPTX 类型来源逐字节核验，共 390 个文件；SHA-256 汇总保存在本地证据 `environment-reuse.json`。同目录保留 `shared-file-snapshot.json`。
-- 目前未在 WP00 运行应用/窗口、全量前端或原生测试。后续组合验证明确使用此准备环境。
+- WP00 的组合验证使用此准备环境，未启动应用/窗口。没有重跑全库前端测试。
 
 ### 六包组合验证（WP01/02/05/07/08/10）
 
@@ -109,8 +119,36 @@ WP00 最终调用链检查补充复现：sync 的 ready promise 已完成，rese
 | 失败诊断 | 144 个 RichEditor 用例缺少 WP01 标签读取新增的 QueryClient 上下文；另两个 Record 页面断言未包含 WP02 enqueue 的 binding 参数。生产类型检查通过，未通过放宽产品门禁解决。 |
 | 定向复验 | RichEditor 加真实 QueryClientProvider；两个页面精确断言 `fixture-workspace/open-1`。仅重跑这 3 文件，252/252 通过，日志 `combined-frontend-retest.log`。其余 40 文件的 578 项仍有效，合计 830 个不同用例通过。 |
 | `tsc --noEmit` | exit 0，`combined-types.log`；后续仅测试 fixture 与本报告变更，生产源码不变，复用该结果。 |
+| `vite build` | exit 0，2.27 秒，`combined-host-build.log`；使用已校验的未变更 Office 产物，保留既有大 chunk 提示，不等于重建 Office 引擎或安装包。 |
+| `npm run check:bundle-boundaries` | exit 0，宿主入口 249 KiB / 250 KiB，图像标注、文件编辑器和设置保持 lazy，`combined-bundle-boundaries.log`。 |
 
 这包括真实 TodoModuleRail → Todo Module 的 WP01/WP05 组合、AI Module/消费者、shared transport、App、目录和 Beta 脚本的交叉验证；不是 GUI、多窗口、Provider、原生二进制或发布验收。没有为测试修改原生/生产行为。
+
+### 七包原生组合验证（接入 WP03 后）
+
+WP03 源提交与组合 `0219957` 的 patch ID 一致，schema42 和 DB/FS 恢复代码未作二次修改。其受影响保存/恢复、真实 kill、真实 Record worker 和生产编译结果继续复用。WP03 没有前端 DTO/命令/事件改动，上述 830 项前端结果仍有效。
+
+用 WP03 已稳定的干净 Cargo target 经 APFS 克隆建立 WP00 独立 target，使用同版本只读 Sherpa 静态库；未修改责任组缓存或原 checkout，也不声称从空缓存构建。
+
+```sh
+SHERPA_ONNX_LIB_DIR=/private/tmp/wp03-sherpa-prebuilt/sherpa-onnx-v1.13.8-osx-arm64-static-lib/lib \
+CARGO_TARGET_DIR=/private/tmp/project-mind-wp00-native-target \
+CARGO_PROFILE_DEV_DEBUG=0 CARGO_INCREMENTAL=0 TMPDIR=/private/tmp \
+cargo test --manifest-path src-tauri/Cargo.toml --lib --quiet -j2 -- \
+  --test-threads=1 ai_jobs::tests todo_workspace_binding_tests
+```
+
+- 首次组合编译失败：WP01 的测试 runtime fixture 未适配 WP02 的必需 AI manager binding 参数，日志 `combined-native-compile-red.log`。
+- 修正 fixture 让 runtime 与 manager 复用同一个 binding，不改变生产逻辑或测试断言；同一命令重跑 **7 passed、0 failed、0 ignored**（1884 filtered），日志 `combined-native-tests.log`。4 项真实 AI manager 受控 worker 测试与 3 项真实 SQLite/storage 绑定测试来自完整 crate 测试二进制，补齐 WP02 worker 原先仅 harness 的运行证据。
+- 没有把 1 项 AI 命令 binding harness 算作此次原生 7 项；它仍未通过真实 Tauri IPC 验收。未运行 GUI、全量原生套件或真实 Provider。
+
+## Standards / Spec 整合检查
+
+WP00 自行核对七包源提交与组合提交的 patch ID、共享文件 hunk、工作区绑定、异步失效窗口、物理 worker 预算、schema/恢复顺序、精确资源来源、Todo 规范确认、路径索引语义及 Beta CAS。未启动 review 子 agent。七包 cherry-pick 无需人工冲突取舍。
+
+整合时修复三类实际问题：`5e08db1` 的 ready/reset enqueue 窗口；`521b364` 的 QueryClient 和消费者 binding 测试适配；原生 fixture 的 manager binding 参数适配。新增行为均有失败或编译失败证据及定向通过结果，没有放宽产品门禁。
+
+当前已接收七包覆盖 14/19 个原始发现的本地修复；WP04、WP06、WP09 的 5 个发现仍未完成接收。七包受影响组合检查通过，但上述已有原生错误分类失败、缺失包和平台验收仍保留，不能据此关闭整轮或进入发布。
 
 ## 工具限制与待决定项
 
