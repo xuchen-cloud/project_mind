@@ -78,7 +78,7 @@ Round3 暴露两项 G12 观察器兼容缺口：`native-page.tsx` 的模型回�
 
 Round3 单次 `cold_open`：DOCX 1188 ms、PPTX 1117 ms，均超过现有 1000 ms 门槛；后续 `preview_to_edit` 分别为 137 ms、110 ms，属于独立操作，不能相加当成冷开首次可编辑。XLSX 因 witness 失败没有有效计时。它们不是 release、全应用启动、Windows 或 p95 结论，也未证明性能门槛达成。最终空白范围修复晚于该 GUI 构建，其实际交互另由浏览器验收记录。
 
-### 最新 Round4 原生验收
+### Round4 原生验收
 
 已吸收 G12 审查通过的 `214a3789` / `96239b53` 观察器修复（104/104 边界检查及入口/应用 TypeScript 检查由 G12 提供）。`8a09a09568f306e9194f59ae9e41f3b480134a43` 的统一构建通过 XLSX 构建、根 TypeScript、观察器入口 TypeScript、生产 Vite、bundle 边界、测量前端与静默原生编译。macOS 26.5.2 arm64、Node 24、优化前端和 embedded-debug Rust 程序，**不是 release**；binary SHA256 为 `2644f22f6773a0b8922a877dd8eb3c0a293e114817f37ad7520af3095efe608e`。隔离的 app data 与 Workspace 不复用用户工作区。
 
@@ -87,3 +87,13 @@ Round3 单次 `cold_open`：DOCX 1188 ms、PPTX 1117 ms，均超过现有 1000 m
 XLSX 剩余项由独立 Spec 检查定位为 G12 观察器不匹配：`说明` 页选择 B3 并滚动至行 2/列 1 后，`sheetState()` 仍要求已离开视口的 A1 文本 `未编辑工作表：请保留中文` 出现在绘制记录，导致后续已有的选中单元格位置绘制证明及模式连续性检查未执行。native 内容/公式比较和计算周期已通过；composition cache 中存在该表的数值，但不足以补记未执行的位置证明。需由 G12 保留初始首屏和 native 内容检查，在导航后使用选中单元格的绘制证明，并增加 A1 离屏/B3 可见的回归。Office 未自行修改共享观察器，失败记录保留。
 
 Round4 单次 `cold_open` 为 DOCX 1193 ms、XLSX 1701 ms、PPTX 1133 ms，均超过现有 1000 ms 门槛。对应 `preview_to_edit` 为 138/407/110 ms，属于不同操作。计时不是全应用启动、release、Windows 或 p95 结论；Windows release、剩余 XLSX 原生验收和性能门槛均未达成，#303 保持开放，PR 保持草稿，`ready_for_merge=false`。
+
+### Round5 XLSX 受影响验收
+
+G12 的固定提交 `6919ba7552fdbf31aa27e6dfae02951823cbc215` 已完成 Standards/Spec 双轴审查，均无发现；其真实入口边界由 1 过/2 失败转为 3/3，全 native observer 107/107、入口 TypeScript 通过。这些结果由 G12 提供。Office 无冲突吸收为 `d34123601b7d19f701cd8cc1eb442ed232159e46`，三个文件与审查提交完全一致；只移除导航后对旧首屏的等待，初始 ready/sheetState 和实际 B3 内容、格式、主画布合成证明继续保留。
+
+本机重新通过测量入口 TypeScript、测量 Vite 和静默原生构建，只执行 XLSX large 的隔离 Mac 验收。构建时工作区干净，产品 bundle 仍来自 `8a09a095`；Round5 binary SHA256 为 `8615c32945a091e4c6b35166522df27ab8170363d02ee5b532b93b1eb3a6353c`，环境与 Round4 同属优化前端加 embedded-debug，非 release。原始记录在 `output/playwright/office-native-round5-xlsx/`；Round4 三份报告的 SHA256 前后相同，DOCX/PPTX 未重复执行。
+
+原离屏 A1 阻塞已解除：B3 的 native 值/实际值均为 30、格式 General、缩放 1.1，并取得其当前屏幕位置的主画布合成证明。随后 preview→edit 的连续性检查失败，XLSX 仍为六项通过、一项失败。五个 RAF 样本中，iframe 未移除，sameFrame/sameSurface/present 始终为 true；painted 在 5585 ms 为 true，5597/5629/5644 ms 为 false，5651 ms 恢复 true。当前记录将视图状态不匹配和缺少位置绘制证明都归为 false，未保存失败帧的分支原因，因此尚不能判断实际闪屏还是观察器漏证。后续需要区分这两条路径并保留严格绘制门槛；不将本轮记为通过。
+
+Round5 单次 XLSX `cold_open` 为 1764 ms，仍超过 1000 ms；`preview_to_edit` 为 351 ms，是独立操作。当前剩余项为 XLSX 模式连续性证明、性能门槛及不可用的 Windows release 实机验收；Issue 和草稿 PR 继续保持开放。
