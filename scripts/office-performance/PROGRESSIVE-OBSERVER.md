@@ -169,3 +169,20 @@ entry/application tsc passed without diagnostics; diff check passed. Existing
 dependencies/artifacts were reused. No product changes, GUI, cargo or extra native
 IO. Standards/Spec self-review: **0 remaining findings** in this narrow delta;
 main still owns integration and real native acceptance.
+
+## Integration review
+
+G12 reviewed `214a378` plus `96239b5` against the actual Rust save envelope,
+working-session lifetime and the selected historical source callback. Standards
+and Spec: **0 remaining findings** in this observer delta. The map keys retain
+Workspace, scope, object, generation, protocol and source/session identity;
+out-of-order reads do not select a different model, modify the native response,
+or widen partial range coverage. Existing content, chart geometry, image decode
+and canvas paint requirements remain in place. Workspace support was added and
+the complete native save response was tested; no fictitious receipt-only native
+contract was introduced. The worker's **104/104** boundary tests and entry tsc
+apply to the unchanged implementation integrated as `3ed5185` + `0cdf9ab`.
+
+The Office owner received these reviewed commits for its next source-matched
+native rebuild and DOCX/XLSX run. That run, timing budgets and platform acceptance
+remain separate; this observer review supplies no new native performance result.

@@ -29,4 +29,3 @@ export function fixture(result) {
   }).outputText, context);
   return {desktopApi, calls, commands, commits, models, textSources, workingStates};
 }
-
