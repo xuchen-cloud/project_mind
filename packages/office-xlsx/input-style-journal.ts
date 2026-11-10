@@ -34,8 +34,9 @@ export function withoutUnchangedInputStyles(values: unknown, before: (row: numbe
       const next = {...cell}
       if (Object.keys(remaining).length) next.s = remaining
       else delete next.s
-      nextRow ??= {...cells}
-      nextRow[column] = next
+      const updatedRow: Style = nextRow ?? {...cells}
+      updatedRow[column] = next
+      nextRow = updatedRow
     }
     if (!nextRow) continue
     result ??= {...values}
