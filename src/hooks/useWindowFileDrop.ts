@@ -28,9 +28,9 @@ export function useWindowFileDrop({
 }: UseWindowFileDropOptions) {
   const nativeWindowFileDrop = isTauriRuntime();
   // Commit callback updates without restarting an active native drag subscription.
-  const handlers = useRef({ onDrop, onHoverChange, onHoverPosition, isPositionActive });
+  const handlers = useRef({ enabled, onDrop, onHoverChange, onHoverPosition, isPositionActive });
   useLayoutEffect(() => {
-    handlers.current = { onDrop, onHoverChange, onHoverPosition, isPositionActive };
+    handlers.current = { enabled, onDrop, onHoverChange, onHoverPosition, isPositionActive };
   });
 
   useEffect(() => {
@@ -39,6 +39,7 @@ export function useWindowFileDrop({
     }
 
     let disposed = false;
+    let delivered = false;
     let unlisten: (() => void) | null = null;
     const clearHover = () => {
       const { onHoverPosition, onHoverChange } = handlers.current;
@@ -48,7 +49,7 @@ export function useWindowFileDrop({
 
     void getCurrentWindow()
       .onDragDropEvent(async ({ payload }) => {
-        if (disposed) {
+        if (disposed || !handlers.current.enabled) {
           return;
         }
         const { onDrop, onHoverPosition, onHoverChange, isPositionActive } = handlers.current;
@@ -62,13 +63,18 @@ export function useWindowFileDrop({
         switch (payload.type) {
           case "enter":
           case "over":
+            delivered = false;
             onHoverPosition?.(isActiveAtPosition ? position! : null);
             onHoverChange?.(isActiveAtPosition);
             return;
           case "leave":
+            // Leaving clears the prompt without rearming a delivered drop.
             clearHover();
             return;
           case "drop": {
+            if (delivered) return;
+            // Mark before dispatch, including failures: duplicates are not retries.
+            delivered = true;
             let result: void | Promise<unknown> = undefined;
             try {
               if (payload.paths.length > 0 && isActiveAtPosition) {

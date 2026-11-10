@@ -147,4 +147,20 @@ describe("FileVersionLabelEditor", () => {
     expect(screen.getByText("V2")).toBeVisible();
   });
 
+  it.each(["   ", new Error("   ")])("shows a default save error for whitespace rejections and preserves the draft: %s", async cause => {
+    const onSave = vi.fn().mockRejectedValueOnce(cause).mockResolvedValueOnce(undefined);
+    setup({ onSave });
+    rename("仍待保存");
+    fireEvent.click(saveButton());
+    expect(await screen.findByRole("alert")).toHaveTextContent("保存失败，请重试。");
+    expect(nameInput()).toHaveValue("仍待保存");
+    expect(screen.getByText("V2（评审修改）")).toBeVisible();
+    fireEvent.click(saveButton());
+    expect(await screen.findByRole("status")).toHaveTextContent("已保存");
+    expect(onSave.mock.calls).toEqual([
+      [{ displayName: "仍待保存", isImportant: true }],
+      [{ displayName: "仍待保存", isImportant: true }],
+    ]);
+  });
+
 });

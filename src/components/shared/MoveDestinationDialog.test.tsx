@@ -156,4 +156,20 @@ describe("MoveDestinationDialog", () => {
     expect(props.onClose).toHaveBeenCalledOnce();
   });
 
+  it.each([new Error(), "", "   ", new Error("   ")])("shows a default error for an empty rejection and retries the retained selection: %s", async cause => {
+    const onMove = vi.fn().mockRejectedValueOnce(cause).mockResolvedValueOnce(undefined);
+    const { props } = setup({ onMove });
+    search("Beta");
+    fireEvent.click(screen.getByRole("radio", { name: /Beta/ }));
+    fireEvent.click(submit());
+    expect(await screen.findByRole("alert")).toHaveTextContent("移动失败，请重试。");
+    expect(screen.getByRole("radio", { name: /Beta/ })).toBeChecked();
+    expect(screen.getByRole("searchbox")).toHaveValue("Beta");
+    expect(props.onClose).not.toHaveBeenCalled();
+    fireEvent.click(submit());
+    await act(async () => {});
+    expect(onMove.mock.calls).toEqual([[2], [2]]);
+    expect(props.onClose).toHaveBeenCalledOnce();
+  });
+
 });
