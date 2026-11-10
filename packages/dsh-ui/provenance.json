@@ -357,6 +357,19 @@
       "paths": [
         "upstream/client/ui-chat/src/client/chat/ChatGroupSeat.tsx"
       ]
+    },
+    {
+      "reason": "Use an opaque theme surface for @ reference candidates (shared input-trigger menu) so readability does not depend on backdrop blur; retain a system-color outline in Windows forced-colors mode.",
+      "paths": [
+        "upstream/client/ui-input-trigger/src/client/MenuView.module.css"
+      ]
+    },
+    {
+      "reason": "Apply repository continuous scroll edge masks to the modified trigger menu; remeasure viewport and content size while keeping breadcrumbs and scrollbar clear.",
+      "paths": [
+        "upstream/client/ui-input-trigger/src/client/MenuView.tsx",
+        "upstream/client/ui-input-trigger/src/client/MenuView.module.css"
+      ]
     }
   ],
   "derivedAssets": [
@@ -2230,12 +2243,12 @@
     },
     {
       "path": "upstream/client/ui-input-trigger/src/client/MenuView.module.css",
-      "sha256": "7a6f1828ae790a1cf9cc0755f77b0a5020618f2aca2cd12d54199fb82a86431a",
+      "sha256": "09b9c9709570172af6ea2a5fb1dbb1ab23cde668fdf7f4eef36c51dd38817c10",
       "originalSha256": "7a6f1828ae790a1cf9cc0755f77b0a5020618f2aca2cd12d54199fb82a86431a"
     },
     {
       "path": "upstream/client/ui-input-trigger/src/client/MenuView.tsx",
-      "sha256": "880b29a45616a5ec3bdcc3af5a7c0b250297284eacc49f8d43fe46167ed71c72",
+      "sha256": "f6b3318a77a5ed5b3241a00032a6ce2a222b5cee633f619f475787a7818aeaad",
       "originalSha256": "880b29a45616a5ec3bdcc3af5a7c0b250297284eacc49f8d43fe46167ed71c72"
     },
     {

@@ -4,6 +4,8 @@ import path from 'node:path';
 import { readFile, mkdtemp, writeFile, chmod, rm, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { Context } from '@deepseek-ai/cordis';
+import { SystemPrompt, renderPrompt } from '@deepseek-ai/dsh-system-prompt';
+import { assembleContextFor } from '@deepseek-ai/dsh-agent';
 
 const binding = () => import('../scripts/mind-cli.mjs');
 const context = { kind: 'project', id: 7, directory: '/workspace/project' };
@@ -11,11 +13,12 @@ const cli = { executable: '/bundled/bin/mind', workspace: '/workspace', connecti
 const deferred = () => Promise.withResolvers();
 const spec = (sessionId = 'a', mode = 'workspace-write') => ({ command: 'echo ordinary-shell', workdir: context.directory, timeoutMs: 3000, onExpiry: 'kill', stdoutMaxBytes: 4000, dshEnv: { DSH_SESSION_ID: sessionId }, sandboxPolicy: { mode, workspaceRoot: context.directory } });
 
-function fixture(t, execute) {
+function fixture(t, execute, { realPrompt = false } = {}) {
   const ctx = new Context();
   ctx.provide('sessionController', { async list() { return { items: [{ sessionId: 'a', cwd: context.directory }, { sessionId: 'b', cwd: context.directory }, { sessionId: 'foreign', cwd: '/other' }] }; } });
   const prompts = [];
-  ctx.provide('systemPrompt', { section(value) { prompts.push(value); return () => {}; }, getSectionOrder() { return 10200; } });
+  if (realPrompt) new SystemPrompt(ctx, {});
+  else ctx.provide('systemPrompt', { section(value) { prompts.push(value); return () => {}; }, getSectionOrder() { return 10200; } });
   const calls = [];
   const bridge = { async request(value) { calls.push(value); if (value.operation === 'cliLeaseOpen') return { leaseId: `lease-${calls.length}`, token: `secret-${value.sessionId}-${calls.length}` }; } };
   const executions = [];
@@ -79,6 +82,7 @@ test('prompt supplies binding facts without lease credentials; PATH and env are 
   assert.equal(f.executions[0].env.PROJECT_MIND_CONNECTION, cli.connection);
   assert.equal(f.executions[0].env.PROJECT_MIND_PROJECT_ID, '7');
   assert.equal(f.executions[0].env.PROJECT_MIND_WORKSPACE_SCOPE, '');
+  assert.equal(f.executions[0].workdir, request.workdir);
   assert.match(f.executions[0].env.PROJECT_MIND_CLI_TOKEN, /^secret-a-/);
   assert.equal(f.executions[0].sandboxPolicy, request.sandboxPolicy);
   for (const [key, value] of Object.entries(ambient)) assert.ok(process.env[key] === value, `${key} must stay unchanged`);
@@ -232,6 +236,49 @@ test('shared runtime resolves prompt and shell CLI facts independently for each 
   await assert.rejects(f.shell.execute(spec('missing')),/Unknown Session/);
   for(const run of runs)run.result.resolve({exitCode:0});await Promise.all([a.result(),b.result()]);
   assert.equal(f.calls.filter(value=>value.operation==='cliLeaseClose').length,2);
+});
+
+test('effective prompt gives existing, new and resumed Project/Workspace Sessions isolated scratch paths on every step', async t => {
+  const { installMindCli } = await binding();
+  const f = fixture(t, () => { throw new Error('prompt assembly must not execute tools'); }, { realPrompt: true });
+  const workspace = { kind: 'workspace', directory: '/workspace/Team ${literal} space' };
+  const contexts = new Map([[context.directory, { ...context, cli }], [workspace.directory, workspace]]);
+  const registry = {
+    forAgent: agent => contexts.get(agent.session.header.cwd),
+    async forSession() { throw new Error('prompt assembly must not enumerate Sessions'); },
+  };
+  const existing = { session: { id: 'existing-session', header: { cwd: context.directory } } };
+  await installMindCli(f.ctx, registry, undefined, f.bridge);
+  const assemble = agent => f.ctx.systemPrompt.assemble(assembleContextFor(agent));
+  const first = renderPrompt(await assemble(existing));
+  for (const agent of [
+    existing,
+    { session: { id: 'new-session', header: { cwd: context.directory } } },
+    { session: { id: 'workspace-session', header: { cwd: workspace.directory } } },
+    // A rehydrated agent for the same durable Session receives the same path.
+    { session: { id: existing.session.id, header: { cwd: context.directory } } },
+  ]) {
+    const assembly = await assemble(agent);
+    const section = assembly.sections.find(value => value.name === 'mind:session-files');
+    assert.equal(section.interpolate, false, 'literal directory names must survive rendering');
+    const prompt = renderPrompt(assembly);
+    const scratch = path.join(agent.session.header.cwd, '.mind-tmp', agent.session.id);
+    assert.ok(prompt.includes(JSON.stringify(scratch)), scratch);
+    assert.match(section.text, /intermediate scripts, temporary test files, and temporary data only in the hidden Session scratch directory/);
+    assert.match(section.text, /create it on demand within the current execution permissions/);
+    assert.match(section.text, /normal Project\/Workspace folder only for requested final deliverables or files the user explicitly asks to retain/);
+    assert.match(section.text, /promote such files from scratch when ready/);
+    assert.match(section.text, /relative paths retain their meaning/);
+    assert.match(section.text, /Leave existing user files in place/);
+    assert.match(section.text, /\.project-mind directory is reserved for application metadata/);
+    if (agent.session.id !== existing.session.id) assert.ok(!prompt.includes(path.join(context.directory, '.mind-tmp', existing.session.id)));
+    if (agent.session.header.cwd === workspace.directory) assert.ok(!prompt.includes(cli.connection), 'scratch policy also applies without a native CLI binding');
+    else assert.ok(prompt.includes(cli.connection), 'native CLI section remains active');
+    if (agent.session.id === existing.session.id) assert.equal(prompt, first);
+  }
+  assert.equal((await f.ctx.systemPrompt.assemble()).sections.find(value => value.name === 'mind:session-files').text, '');
+  assert.equal(f.calls.length, 0);
+  assert.equal(f.executions.length, 0);
 });
 
 test('cross-scope native CLI facts revoke the lease without passing credentials to shell',async t=>{

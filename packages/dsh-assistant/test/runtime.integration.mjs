@@ -30,13 +30,13 @@ async function waitFor(read, description, timeoutMs = 15000) {
 }
 
 async function launch(data, patch, sharedProvider, project, profileDirectory, sourceHandler, workspace, cli, contexts) {
-  const child = fork(path.join(root, 'scripts/runtime.mjs'), [...(sharedProvider ? ['--embedded'] : []), '--port', '0', '--no-open'], {
+  const child = fork(path.join(root, 'scripts/runtime.mjs'), [...(sharedProvider ? ['--embedded'] : []), ...(sharedProvider?.historyOnly ? ['--history-only'] : []), '--port', '0', '--no-open'], {
     cwd: root, execArgv: [], silent: true,
     env: { ...process.env, PROJECT_MIND_DSH_USER_DATA: data, PROJECT_MIND_DSH_SKILLS_DATA: path.join(path.dirname(data), 'skill-management'),
       ...((project || workspace) ? { PROJECT_MIND_DSH_PROFILE_DIR: profileDirectory ?? path.join(path.dirname(data), 'shared-profile') } : {}),
       ...(patch ? { PROJECT_MIND_DSH_PATCH: patch } : {}), LOCAL_TEST_KEY: 'local-integration-key' },
   });
-  if (sharedProvider) child.stdin.write(JSON.stringify({ type: 'configure', provider: { ...sharedProvider, providers: undefined }, providers: sharedProvider.providers, ...(workspace ? { workspace } : { project }), ...(cli ? { cli } : {}), ...(contexts ? { contexts } : {}) }) + '\n');
+  if (sharedProvider) child.stdin.write(JSON.stringify({ type: 'configure', ...(sharedProvider.historyOnly ? { historyOnly: true } : { provider: { ...sharedProvider, providers: undefined }, providers: sharedProvider.providers }), ...(workspace ? { workspace } : { project }), ...(cli ? { cli } : {}), ...(contexts ? { contexts } : {}) }) + '\n');
   let output = '';
   let ready;
   let ended;
@@ -1816,4 +1816,118 @@ test('current-layout startup keeps lazy project histories and workspace schedule
  try {assert.equal(stream.snapshot.header.cwd,moved.directory);}finally{await stream.close();}
  assert.deepEqual(await runtime.rpc('mind/schedules',{operation:'list'}),[task]);
  assert.equal(provider.requests.length,0);
+});
+
+
+test('history-only runtime lists summaries without provider, CLI or skills preparation', async t => {
+  const base = await mkdtemp(path.join(tmpdir(), 'mind-history-only-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const directory = await realpath(base);
+  await writeFile(path.join(base, 'skill-management'), 'not a skills directory');
+  const runtime = await launch(path.join(base, 'data'), undefined, { historyOnly: true },
+    { id: 1, name: 'History', directory });
+  t.after(() => runtime.stop());
+  const result = await runtime.rpc('mind/session/summaries', { context: { kind: 'project', id: 1 } });
+  assert.deepEqual(result.items, []);
+  assert.equal(typeof result.revision, 'string');
+  assert.equal(await readFile(path.join(base, 'skill-management'), 'utf8'), 'not a skills directory');
+});
+
+
+test('scratch policy reaches real new and restored Project and Workspace tool steps', { timeout: 120000 }, async t => {
+  const base = await realpath(await mkdtemp(path.join(tmpdir(), 'mind-scratch-live-')));
+  const bodies = [];
+  const provider = await startLocalProvider({ onSyntheticRequest: body => bodies.push(body) });
+  let runtime, stream;
+  t.after(async () => {
+    try { await stream?.close(); await runtime?.stop(); }
+    finally { await provider.close(); await rm(base, { recursive: true, force: true }); }
+  });
+  const shared = { name: 'Scratch fixture', modelId: 'local-test-model', baseUrl: provider.url, apiKey: 'local-integration-key', supportsImage: false };
+  const patch = path.join(base, 'scratch.patch.yml');
+  await writeFile(patch, '- id: sandbox-policy\n  config:\n    mode: danger-full-access\n- id: approval\n  config:\n    policy: never\n');
+  const measured = [];
+  for (const kind of ['project', 'workspace']) {
+    const directory = path.join(base, kind);
+    await mkdir(directory);
+    const context = { kind, id: kind === 'project' ? 1 : randomUUID(), name: kind, directory };
+    const data = path.join(base, kind + '-data');
+    const open = () => launch(data, patch, shared, kind === 'project' ? context : undefined, undefined, undefined, kind === 'workspace' ? context : undefined);
+    runtime = await open();
+    const { sessionId } = await runtime.rpc('session/create', {});
+    await runtime.rpc('session/rename', { sessionId, title: 'Scratch integration' });
+    for (const restored of [false, true]) {
+      if (restored) { await runtime.stop(); runtime = await open(); }
+      stream = await follow(runtime, sessionId);
+      const scratch = path.join(directory, '.mind-tmp', sessionId);
+      const name = restored ? 'restored' : 'new';
+      const marker = path.join(scratch, name + '.txt');
+      const final = path.join(directory, name + '-deliverable.txt');
+      const quote = value => process.platform === 'win32' ? "'" + value.replaceAll("'", "''") + "'" : "'" + value.replaceAll("'", "'\\''") + "'";
+      const command = process.platform === 'win32'
+        ? `New-Item -ItemType Directory -Force -Path ${quote(scratch)} | Out-Null; Set-Content -LiteralPath ${quote(marker)} -Value scratch; Copy-Item -LiteralPath ${quote(marker)} -Destination ${quote(final)}`
+        : `mkdir -p ${quote(scratch)} && printf scratch > ${quote(marker)} && cp ${quote(marker)} ${quote(final)}`;
+      const callId = `scratch-${kind}-${name}`;
+      provider.enqueueResponse({ chunks: [''], toolCalls: [{ index: 0, id: callId, type: 'function', function: { name: process.platform === 'win32' ? 'pwsh' : 'bash', arguments: JSON.stringify({ description: 'Prepare scratch then publish requested deliverable', command }) } }] });
+      const before = bodies.length;
+      await prompt(runtime, stream, sessionId, 'Prepare intermediate data in scratch and deliver the requested final file.');
+      const system = bodies.slice(before).flatMap(body => body.messages.filter(message => message.role === 'system')).map(message => typeof message.content === 'string' ? message.content : message.content.map(block => block.text ?? '').join('\n')).join('\n');
+      assert.ok(system.includes(JSON.stringify(scratch)), 'the mounted prompt must use the actual current Session scratch path');
+      assert.equal((await readFile(marker, 'utf8')).trim(), 'scratch');
+      assert.equal((await readFile(final, 'utf8')).trim(), 'scratch');
+      assert.ok(providerToolReply(bodies, callId), 'actual shell result must reach the next provider step');
+      measured.push({ kind, restored, scratch: path.relative(base, marker), deliverable: path.relative(base, final) });
+      await stream.close(); stream = undefined;
+    }
+    await runtime.stop(); runtime = undefined;
+    const started = performance.now();
+    runtime = await launch(data, undefined, { historyOnly: true }, kind === 'project' ? context : undefined, undefined, undefined, kind === 'workspace' ? context : undefined);
+    const result = await runtime.rpc('mind/session/summaries', { context: { kind, id: context.id } });
+    assert.ok(result.items.some(row => row.sessionId === sessionId));
+    measured.push({ kind, historyOnlyReopenMs: Math.round(performance.now() - started), items: result.items.length });
+    await runtime.stop(); runtime = undefined;
+  }
+  t.diagnostic(JSON.stringify({ integration: 'real DSH runtime and shell, deterministic local provider', measured }));
+});
+
+test('summary latency covers first A/B, revisit, focus and rapid A/B/A on one real host', { timeout: 60000 }, async t => {
+  const base = await realpath(await mkdtemp(path.join(tmpdir(), 'mind-summary-cost-')));
+  const provider = await startLocalProvider();
+  let runtime;
+  t.after(async () => { try { await runtime?.stop(); } finally { await provider.close(); await rm(base, { recursive: true, force: true }); } });
+  const a = { kind: 'project', id: 1, name: 'A', directory: path.join(base, 'A') };
+  const b = { kind: 'project', id: 2, name: 'B', directory: path.join(base, 'B') };
+  await mkdir(a.directory); await mkdir(b.directory);
+  const shared = { name: 'Summary cost fixture', modelId: 'local-test-model', baseUrl: provider.url, apiKey: 'local-integration-key', supportsImage: false };
+  const data = path.join(base, 'history');
+  runtime = await launch(data, undefined, shared, a, undefined, undefined, undefined, undefined, [a, b]);
+  const sessions = [];
+  for (const context of [a, b]) {
+    const { sessionId } = await runtime.rpc('mind/session/create', { context });
+    await runtime.rpc('session/rename', { sessionId, title: context.name });
+    sessions.push(sessionId);
+  }
+  await runtime.stop();
+  const start = performance.now();
+  runtime = await launch(data, undefined, { historyOnly: true }, a);
+  const hostReadyMs = +(performance.now() - start).toFixed(2);
+  const pid = runtime.child.pid;
+  const measured = [];
+  const measure = async (name, context, expected) => {
+    const begin = performance.now();
+    const value = await runtime.rpc('mind/session/summaries', { context });
+    assert.deepEqual(value.items.map(row => row.sessionId), [expected]);
+    measured.push({ name, ms: +(performance.now() - begin).toFixed(2), rows: value.items.length });
+  };
+  await measure('first-A', a, sessions[0]);
+  const admission = performance.now();
+  await runtime.rpc('mind/context', { context: b });
+  const registerBMs = +(performance.now() - admission).toFixed(2);
+  await measure('first-B', b, sessions[1]);
+  await measure('revisit-A', a, sessions[0]);
+  await measure('focus-A-backend-if-stale', a, sessions[0]);
+  await Promise.all([measure('rapid-A-1', a, sessions[0]), measure('rapid-B', b, sessions[1]), measure('rapid-A-2', a, sessions[0])]);
+  assert.equal(runtime.child.pid, pid, 'admitting another Project must retain the same host');
+  assert.equal(provider.requests.length, 0, 'summary/history preparation must not contact the provider');
+  t.diagnostic(JSON.stringify({ platform: process.platform, node: process.version, boundary: 'real Node HTTP metadata (frontend cache behavior tested separately)', hostReadyMs, registerBMs, measured }));
 });

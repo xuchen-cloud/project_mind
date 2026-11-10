@@ -2052,6 +2052,7 @@ pub fn run() {
             dsh_assistant::dsh_assistant_start,
             dsh_assistant::dsh_scheduled_tasks,
             dsh_assistant::dsh_assistant_sessions,
+            dsh_assistant::history::dsh_assistant_session_summaries,
             dsh_assistant::dsh_assistant_runtime_status,
             dsh_assistant::dsh_assistant_select_session,
             dsh_assistant::dsh_assistant_fetch,
