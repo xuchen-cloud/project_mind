@@ -13,35 +13,6 @@ struct NativeTarget {
     id: i64,
 }
 
-/// Preserve the existing rename rollback until the enclosing SQLite commit
-/// (including outbox) succeeds. This is not a filesystem crash journal.
-pub(super) struct ProjectRootRename {
-    original: std::path::PathBuf,
-    next: std::path::PathBuf,
-    committed: bool,
-}
-impl ProjectRootRename {
-    pub(super) fn new(original: std::path::PathBuf, next: std::path::PathBuf) -> Self {
-        Self {
-            original,
-            next,
-            committed: false,
-        }
-    }
-    fn commit(&mut self) {
-        self.committed = true;
-    }
-}
-impl Drop for ProjectRootRename {
-    fn drop(&mut self) {
-        if !self.committed {
-            if let Err(error) = std::fs::rename(&self.next, &self.original) {
-                eprintln!("Project directory rename rollback failed: {error}");
-            }
-        }
-    }
-}
-
 pub(super) struct ProjectRootCreate {
     path: std::path::PathBuf,
     committed: bool,
@@ -281,13 +252,18 @@ impl Database {
                 }
             }
         }
+        #[cfg(test)]
+        if operation == "project.update" {
+            super::project_root_rename::crash_point(3);
+        }
         tx.commit()?;
         Ok(result)
     }
 
-    pub fn project_update(&self, input: ProjectUpdateInput) -> Result<ProjectRecord> {
-        self.file_version_recover_pending()?;
-        let _file_project_lock = self.file_project_lock(input.project_id, true)?;
+    pub(super) fn project_update_transaction(
+        &self,
+        input: ProjectUpdateInput,
+    ) -> Result<ProjectRecord> {
         let targets = vec![
             NativeTarget {
                 kind: ObjectKind::Project,
@@ -304,14 +280,9 @@ impl Database {
                 id: input.project_id,
             },
         ];
-        let (result, mut rename) =
-            self.native_source_write_many("project.update", targets.clone(), || {
-                Ok((self.project_update_native(input)?, targets))
-            })?;
-        if let Some(rename) = &mut rename {
-            rename.commit();
-        }
-        Ok(result)
+        self.native_source_write_many("project.update", targets.clone(), || {
+            Ok((self.project_update_native(input)?, targets))
+        })
     }
 
     pub fn project_create(&self, input: ProjectCreateInput) -> Result<ProjectRecord> {
