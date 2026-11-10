@@ -1,0 +1,4310 @@
+{
+  "runner": {
+    "binary": "/Users/xuchen/.codex/worktrees/f95c/project_mind/output/g12-observer-round3/G12 Observer.app/Contents/MacOS/project_mind_alpha",
+    "config": {
+      "workspaceRoot": "/Users/xuchen/.codex/worktrees/f95c/project_mind/output/g12-observer-round3/workspace",
+      "format": "docx",
+      "sample": "simple",
+      "run": 1,
+      "width": 980,
+      "setup": false,
+      "visible": true,
+      "acceptance": true,
+      "cycles": 0,
+      "races": false,
+      "reportUrl": "http://127.0.0.1:65201/result"
+    },
+    "attempt": 1,
+    "wallMs": 11189.264041999999
+  },
+  "scope": "native ProjectFileContent shell (not full application startup)",
+  "config": {
+    "acceptance": true,
+    "cycles": 0,
+    "format": "docx",
+    "races": false,
+    "reportUrl": "http://127.0.0.1:65201/result",
+    "run": 1,
+    "sample": "simple",
+    "setup": false,
+    "visible": true,
+    "width": 980,
+    "workspaceRoot": "/Users/xuchen/.codex/worktrees/f95c/project_mind/output/g12-observer-round3/workspace"
+  },
+  "visibility": "visible",
+  "visiblePreflight": {
+    "initialVisibility": "visible",
+    "visibility": "visible",
+    "waitedMs": 0
+  },
+  "shell_ready": {
+    "startTime": 453,
+    "navigation": [
+      {
+        "name": "tauri://localhost/scripts/office-performance/native.html",
+        "entryType": "navigation",
+        "startTime": 0,
+        "duration": 246,
+        "initiatorType": "navigation",
+        "nextHopProtocol": "",
+        "workerStart": 0,
+        "redirectStart": 0,
+        "redirectEnd": 0,
+        "fetchStart": 0,
+        "domainLookupStart": 0,
+        "domainLookupEnd": 0,
+        "connectStart": 0,
+        "connectEnd": 0,
+        "secureConnectionStart": 0,
+        "requestStart": 0,
+        "finalResponseHeadersStart": 0,
+        "firstInterimResponseStart": 0,
+        "responseStart": 0,
+        "responseEnd": 5,
+        "transferSize": 0,
+        "encodedBodySize": 0,
+        "decodedBodySize": 0,
+        "deliveryType": "",
+        "serverTiming": [],
+        "unloadEventStart": 0,
+        "unloadEventEnd": 0,
+        "domInteractive": 5,
+        "domContentLoadedEventStart": 67,
+        "domContentLoadedEventEnd": 67,
+        "domComplete": 246,
+        "loadEventStart": 246,
+        "loadEventEnd": 246,
+        "type": "navigate",
+        "redirectCount": 0
+      }
+    ]
+  },
+  "commands": [
+    {
+      "api": "command",
+      "name": "workspace_open",
+      "startTime": 454,
+      "duration": 817.0000000000002
+    },
+    {
+      "api": "command",
+      "name": "projects_list",
+      "startTime": 1271.0000000000002,
+      "duration": 2.9999999999997726
+    },
+    {
+      "api": "command",
+      "name": "record_workspace_binding_get",
+      "startTime": 1274,
+      "duration": 0
+    },
+    {
+      "api": "fileCommand",
+      "name": "project_file_register",
+      "startTime": 1274,
+      "duration": 45
+    },
+    {
+      "api": "fileCommand",
+      "name": "project_file_register",
+      "startTime": 1319,
+      "duration": 15
+    },
+    {
+      "api": "command",
+      "name": "record_workspace_binding_get",
+      "startTime": 1349,
+      "duration": 4
+    },
+    {
+      "api": "command",
+      "name": "record_workspace_binding_get",
+      "startTime": 1351,
+      "duration": 6
+    },
+    {
+      "api": "fileCommand",
+      "name": "project_file_applications",
+      "startTime": 1353,
+      "duration": 287.0000000000002
+    },
+    {
+      "api": "fileCommand",
+      "name": "project_file_resolve",
+      "startTime": 1357,
+      "duration": 15
+    },
+    {
+      "api": "command",
+      "name": "file_versions_list",
+      "startTime": 1372,
+      "duration": 2
+    },
+    {
+      "api": "command",
+      "name": "file_working_open",
+      "startTime": 1374,
+      "duration": 1035.0000000000005
+    },
+    {
+      "api": "command",
+      "name": "file_working_close",
+      "startTime": 3153,
+      "duration": 8
+    },
+    {
+      "api": "command",
+      "name": "record_workspace_binding_get",
+      "startTime": 3154,
+      "duration": 2
+    },
+    {
+      "api": "fileCommand",
+      "name": "project_file_resolve",
+      "startTime": 3156,
+      "duration": 4
+    },
+    {
+      "api": "command",
+      "name": "file_versions_list",
+      "startTime": 3160,
+      "duration": 1
+    },
+    {
+      "api": "command",
+      "name": "file_working_open",
+      "startTime": 3161,
+      "duration": 498.00000000000045
+    },
+    {
+      "api": "command",
+      "name": "file_working_close",
+      "startTime": 3951,
+      "duration": 9
+    },
+    {
+      "api": "command",
+      "name": "record_workspace_binding_get",
+      "startTime": 3953.0000000000005,
+      "duration": 1.9999999999995453
+    },
+    {
+      "api": "fileCommand",
+      "name": "project_file_resolve",
+      "startTime": 3955,
+      "duration": 4
+    },
+    {
+      "api": "command",
+      "name": "file_versions_list",
+      "startTime": 3959,
+      "duration": 1
+    },
+    {
+      "api": "command",
+      "name": "file_working_open",
+      "startTime": 3960,
+      "duration": 455
+    },
+    {
+      "api": "command",
+      "name": "file_working_close",
+      "startTime": 4725.000000000001,
+      "duration": 23.99999999999909
+    },
+    {
+      "api": "command",
+      "name": "record_workspace_binding_get",
+      "startTime": 4726,
+      "duration": 19
+    },
+    {
+      "api": "fileCommand",
+      "name": "project_file_resolve",
+      "startTime": 4745,
+      "duration": 4
+    },
+    {
+      "api": "command",
+      "name": "file_versions_list",
+      "startTime": 4749,
+      "duration": 1
+    },
+    {
+      "api": "command",
+      "name": "file_working_open",
+      "startTime": 4750,
+      "duration": 439
+    },
+    {
+      "api": "command",
+      "name": "file_working_activity",
+      "startTime": 5787,
+      "duration": 5
+    },
+    {
+      "api": "command",
+      "name": "file_working_activity",
+      "startTime": 6137,
+      "duration": 5
+    },
+    {
+      "api": "command",
+      "name": "file_working_save_office",
+      "startTime": 7339,
+      "duration": 574
+    },
+    {
+      "api": "command",
+      "name": "file_working_tick",
+      "startTime": 7916,
+      "duration": 6.0000000000009095
+    },
+    {
+      "api": "command",
+      "name": "file_working_close",
+      "startTime": 7952,
+      "duration": 4
+    },
+    {
+      "api": "command",
+      "name": "file_working_open",
+      "startTime": 7978,
+      "duration": 463
+    },
+    {
+      "api": "command",
+      "name": "file_working_close",
+      "startTime": 8441,
+      "duration": 3
+    },
+    {
+      "api": "command",
+      "name": "file_working_archive",
+      "startTime": 8471,
+      "duration": 20
+    },
+    {
+      "api": "fileCommand",
+      "name": "project_file_resolve",
+      "startTime": 8491,
+      "duration": 3
+    },
+    {
+      "api": "command",
+      "name": "record_workspace_binding_get",
+      "startTime": 8519,
+      "duration": 4
+    },
+    {
+      "api": "fileCommand",
+      "name": "project_file_resolve",
+      "startTime": 8523,
+      "duration": 3
+    },
+    {
+      "api": "command",
+      "name": "file_versions_list",
+      "startTime": 8526,
+      "duration": 1.000000000001819
+    },
+    {
+      "api": "command",
+      "name": "file_working_open",
+      "startTime": 8527.000000000002,
+      "duration": 399.9999999999982
+    },
+    {
+      "api": "fileCommand",
+      "name": "project_file_resolve",
+      "startTime": 9260,
+      "duration": 3
+    },
+    {
+      "api": "fileCommand",
+      "name": "project_file_read_bytes",
+      "startTime": 9263,
+      "duration": 4
+    },
+    {
+      "api": "command",
+      "name": "file_versions_list",
+      "startTime": 9267,
+      "duration": 0
+    },
+    {
+      "api": "fileCommand",
+      "name": "project_file_read_bytes",
+      "startTime": 9267,
+      "duration": 5
+    },
+    {
+      "api": "command",
+      "name": "record_workspace_binding_get",
+      "startTime": 9366,
+      "duration": 3
+    },
+    {
+      "api": "command",
+      "name": "file_versions_list",
+      "startTime": 9369,
+      "duration": 1.000000000001819
+    },
+    {
+      "api": "command",
+      "name": "file_working_close",
+      "startTime": 9370.000000000002,
+      "duration": 2.999999999998181
+    },
+    {
+      "api": "command",
+      "name": "file_office_inspect",
+      "startTime": 9374,
+      "duration": 398
+    },
+    {
+      "api": "command",
+      "name": "record_workspace_binding_get",
+      "startTime": 10034,
+      "duration": 26
+    },
+    {
+      "api": "fileCommand",
+      "name": "project_file_resolve",
+      "startTime": 10060,
+      "duration": 10
+    },
+    {
+      "api": "command",
+      "name": "file_versions_list",
+      "startTime": 10070,
+      "duration": 2.000000000001819
+    },
+    {
+      "api": "command",
+      "name": "file_working_open",
+      "startTime": 10072.000000000002,
+      "duration": 429.9999999999982
+    },
+    {
+      "api": "command",
+      "name": "file_version_restore",
+      "startTime": 10725,
+      "error": "Error: File version/hash changed before the operation",
+      "duration": 7.000000000001819
+    },
+    {
+      "api": "fileCommand",
+      "name": "project_file_resolve",
+      "startTime": 10732.000000000002,
+      "duration": 2.999999999998181
+    },
+    {
+      "api": "fileCommand",
+      "name": "project_file_read_bytes",
+      "startTime": 10735,
+      "duration": 4
+    }
+  ],
+  "errors": [],
+  "measurements": [
+    {
+      "kind": "performance",
+      "name": "cold_open",
+      "file": "simple.docx",
+      "fileId": "1",
+      "version": 1,
+      "startTime": 1334,
+      "duration": 1778,
+      "budgetMs": 1000,
+      "withinBudget": false,
+      "status": "over_budget",
+      "commandOffset": 5,
+      "commandCount": 6,
+      "evidence": {
+        "textSample": "PERF_docx_small_a 中文文档往返验证第一节 基础内容待修改中文段落：春风拂面。未修改段落：山川日月保持原样。姓名状态张三待改单元↕图片后未修改段落。",
+        "expectedText": "PERF_docx_small_a 中文文档往返验证",
+        "decodedImages": 2,
+        "canvasCount": 0,
+        "paintedCanvases": 0,
+        "stableDoubleRafPasses": 3,
+        "geometry": [
+          [
+            73.5,
+            26,
+            816,
+            1056,
+            816,
+            1056
+          ]
+        ],
+        "visibility": "visible"
+      },
+      "resources": [
+        {
+          "document": 0,
+          "url": "tauri://localhost/scripts/office-performance/native.html",
+          "entries": [],
+          "marks": [
+            {
+              "name": "office-component:docx:requested",
+              "entryType": "mark",
+              "startTime": 1350,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:requested",
+              "entryType": "mark",
+              "startTime": 1350,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:ready",
+              "entryType": "mark",
+              "startTime": 1373,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:ready",
+              "entryType": "mark",
+              "startTime": 1373,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 2411,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 2417.0000000000005,
+              "duration": 0
+            }
+          ]
+        },
+        {
+          "document": 1,
+          "url": "tauri://localhost/assets/office-8b057eb8633b45ee/renderer.html",
+          "entries": [],
+          "marks": []
+        }
+      ]
+    },
+    {
+      "kind": "performance",
+      "name": "first_other_file",
+      "file": "complex.docx",
+      "fileId": "2",
+      "version": 1,
+      "startTime": 3150,
+      "duration": 775.0000000000005,
+      "budgetMs": 1000,
+      "withinBudget": true,
+      "status": "passed",
+      "commandOffset": 11,
+      "commandCount": 5,
+      "evidence": {
+        "textSample": "PERF_docx_complex_a 中文文档往返验证第一节 基础内容待修改中文段落：春风拂面。未修改段落：山川日月保持原样。姓名状态张三待改单元↕图片后未修改段落。第一页页脚：保留中文页脚第一页页眉：保留中文抬头分页后内容：第二页保留。未修改链接：示例链接分节符第一页页脚：保留中文页脚第二节页眉：独立抬头第二节 分节内容分节后内容：第三页保留。",
+        "expectedText": "PERF_docx_complex_a 中文文档往返验证",
+        "decodedImages": 2,
+        "canvasCount": 0,
+        "paintedCanvases": 0,
+        "stableDoubleRafPasses": 3,
+        "geometry": [
+          [
+            84.5,
+            26,
+            793.9,
+            3423,
+            794,
+            3423
+          ]
+        ],
+        "visibility": "visible"
+      },
+      "resources": [
+        {
+          "document": 0,
+          "url": "tauri://localhost/scripts/office-performance/native.html",
+          "entries": [
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 3112,
+              "duration": 38,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 3112,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 3150,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            }
+          ],
+          "marks": [
+            {
+              "name": "office-component:docx:requested",
+              "entryType": "mark",
+              "startTime": 1350,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:requested",
+              "entryType": "mark",
+              "startTime": 1350,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:ready",
+              "entryType": "mark",
+              "startTime": 1373,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:ready",
+              "entryType": "mark",
+              "startTime": 1373,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 2411,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 2417.0000000000005,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 3660,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 3663.0000000000005,
+              "duration": 0
+            }
+          ]
+        },
+        {
+          "document": 1,
+          "url": "tauri://localhost/assets/office-8b057eb8633b45ee/renderer.html",
+          "entries": [],
+          "marks": []
+        }
+      ]
+    },
+    {
+      "kind": "performance",
+      "name": "close_reopen",
+      "file": "complex.docx",
+      "fileId": "2",
+      "version": 1,
+      "startTime": 3952,
+      "duration": 747,
+      "budgetMs": 1000,
+      "withinBudget": true,
+      "status": "passed",
+      "commandOffset": 17,
+      "commandCount": 4,
+      "evidence": {
+        "textSample": "PERF_docx_complex_a 中文文档往返验证第一节 基础内容待修改中文段落：春风拂面。未修改段落：山川日月保持原样。姓名状态张三待改单元↕图片后未修改段落。第一页页脚：保留中文页脚第一页页眉：保留中文抬头分页后内容：第二页保留。未修改链接：示例链接分节符第一页页脚：保留中文页脚第二节页眉：独立抬头第二节 分节内容分节后内容：第三页保留。",
+        "expectedText": "PERF_docx_complex_a 中文文档往返验证",
+        "decodedImages": 2,
+        "canvasCount": 0,
+        "paintedCanvases": 0,
+        "stableDoubleRafPasses": 3,
+        "geometry": [
+          [
+            84.5,
+            26,
+            793.9,
+            3423,
+            794,
+            3423
+          ]
+        ],
+        "visibility": "visible"
+      },
+      "resources": [
+        {
+          "document": 0,
+          "url": "tauri://localhost/scripts/office-performance/native.html",
+          "entries": [
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 3112,
+              "duration": 38,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 3112,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 3150,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 3926,
+              "duration": 24,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 3926,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 3950,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            }
+          ],
+          "marks": [
+            {
+              "name": "office-component:docx:requested",
+              "entryType": "mark",
+              "startTime": 1350,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:requested",
+              "entryType": "mark",
+              "startTime": 1350,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:ready",
+              "entryType": "mark",
+              "startTime": 1373,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:ready",
+              "entryType": "mark",
+              "startTime": 1373,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 2411,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 2417.0000000000005,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 3660,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 3663.0000000000005,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 4415,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 4418,
+              "duration": 0
+            }
+          ]
+        },
+        {
+          "document": 1,
+          "url": "tauri://localhost/assets/office-8b057eb8633b45ee/renderer.html",
+          "entries": [],
+          "marks": []
+        }
+      ]
+    },
+    {
+      "kind": "performance",
+      "name": "switch_file",
+      "file": "simple.docx",
+      "fileId": "1",
+      "version": 1,
+      "startTime": 4724,
+      "duration": 708,
+      "budgetMs": 1000,
+      "withinBudget": true,
+      "status": "passed",
+      "commandOffset": 21,
+      "commandCount": 5,
+      "evidence": {
+        "textSample": "PERF_docx_small_a 中文文档往返验证第一节 基础内容待修改中文段落：春风拂面。未修改段落：山川日月保持原样。姓名状态张三待改单元↕图片后未修改段落。",
+        "expectedText": "PERF_docx_small_a 中文文档往返验证",
+        "decodedImages": 2,
+        "canvasCount": 0,
+        "paintedCanvases": 0,
+        "stableDoubleRafPasses": 3,
+        "geometry": [
+          [
+            73.5,
+            26,
+            816,
+            1056,
+            816,
+            1056
+          ]
+        ],
+        "visibility": "visible"
+      },
+      "resources": [
+        {
+          "document": 0,
+          "url": "tauri://localhost/scripts/office-performance/native.html",
+          "entries": [
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 3112,
+              "duration": 38,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 3112,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 3150,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 3926,
+              "duration": 24,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 3926,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 3950,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 4699,
+              "duration": 24,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 4699,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 4723,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            }
+          ],
+          "marks": [
+            {
+              "name": "office-component:docx:requested",
+              "entryType": "mark",
+              "startTime": 1350,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:requested",
+              "entryType": "mark",
+              "startTime": 1350,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:ready",
+              "entryType": "mark",
+              "startTime": 1373,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:ready",
+              "entryType": "mark",
+              "startTime": 1373,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 2411,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 2417.0000000000005,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 3660,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 3663.0000000000005,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 4415,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 4418,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 5189,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 5192,
+              "duration": 0
+            }
+          ]
+        },
+        {
+          "document": 1,
+          "url": "tauri://localhost/assets/office-8b057eb8633b45ee/renderer.html",
+          "entries": [],
+          "marks": []
+        }
+      ]
+    },
+    {
+      "kind": "performance",
+      "name": "preview_to_edit",
+      "file": "simple.docx",
+      "fileId": "1",
+      "version": 1,
+      "startTime": 5456,
+      "duration": 135,
+      "budgetMs": 1000,
+      "withinBudget": true,
+      "status": "passed",
+      "commandOffset": 26,
+      "commandCount": 0,
+      "evidence": {
+        "textSample": "PERF_docx_small_a 中文文档往返验证第一节 基础内容待修改中文段落：春风拂面。未修改段落：山川日月保持原样。姓名状态张三待改单元↕图片后未修改段落。",
+        "expectedText": "PERF_docx_small_a 中文文档往返验证",
+        "decodedImages": 2,
+        "canvasCount": 0,
+        "paintedCanvases": 0,
+        "stableDoubleRafPasses": 3,
+        "geometry": [
+          [
+            73.5,
+            140,
+            816,
+            1056,
+            816,
+            1056
+          ]
+        ],
+        "visibility": "visible"
+      },
+      "resources": [
+        {
+          "document": 0,
+          "url": "tauri://localhost/scripts/office-performance/native.html",
+          "entries": [
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 3112,
+              "duration": 38,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 3112,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 3150,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 3926,
+              "duration": 24,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 3926,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 3950,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 4699,
+              "duration": 24,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 4699,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 4723,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 5432,
+              "duration": 24,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 5432,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 5456,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            }
+          ],
+          "marks": [
+            {
+              "name": "office-component:docx:requested",
+              "entryType": "mark",
+              "startTime": 1350,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:requested",
+              "entryType": "mark",
+              "startTime": 1350,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:ready",
+              "entryType": "mark",
+              "startTime": 1373,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:ready",
+              "entryType": "mark",
+              "startTime": 1373,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 2411,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 2417.0000000000005,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 3660,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 3663.0000000000005,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 4415,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 4418,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 5189,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 5192,
+              "duration": 0
+            }
+          ]
+        },
+        {
+          "document": 1,
+          "url": "tauri://localhost/assets/office-8b057eb8633b45ee/renderer.html",
+          "entries": [],
+          "marks": []
+        }
+      ]
+    },
+    {
+      "kind": "acceptance",
+      "name": "acceptance_navigation_zoom_and_mode",
+      "file": "simple.docx",
+      "fileId": "1",
+      "version": 1,
+      "startTime": 5614,
+      "duration": 98,
+      "status": "passed",
+      "commandOffset": 26,
+      "commandCount": 0,
+      "evidence": {
+        "navigation": {
+          "before": {
+            "mode": "preview",
+            "anchor": 1,
+            "head": 1,
+            "zoom": "100%",
+            "scroll": {
+              "top": 0,
+              "left": 0
+            }
+          },
+          "after": {
+            "mode": "preview",
+            "anchor": 27,
+            "head": 27,
+            "zoom": "110%",
+            "scroll": {
+              "top": 40,
+              "left": 0
+            }
+          }
+        },
+        "before": {
+          "mode": "preview",
+          "anchor": 27,
+          "head": 27,
+          "zoom": "110%",
+          "scroll": {
+            "top": 40,
+            "left": 0
+          }
+        },
+        "after": {
+          "mode": "edit",
+          "anchor": 27,
+          "head": 27,
+          "zoom": "110%",
+          "scroll": {
+            "top": 40,
+            "left": 0
+          }
+        },
+        "continuity": {
+          "sameIframe": true,
+          "sameSurface": true,
+          "frameRemoved": false,
+          "samples": [
+            {
+              "at": 5685.000000000001,
+              "sameFrame": true,
+              "sameSurface": true,
+              "present": true,
+              "painted": true
+            },
+            {
+              "at": 5698,
+              "sameFrame": true,
+              "sameSurface": true,
+              "present": true,
+              "painted": true
+            },
+            {
+              "at": 5712,
+              "sameFrame": true,
+              "sameSurface": true,
+              "present": true,
+              "painted": true
+            },
+            {
+              "at": 5712,
+              "sameFrame": true,
+              "sameSurface": true,
+              "present": true,
+              "painted": true
+            }
+          ],
+          "observation": "parent RAF samples plus iframe removal observer; no screenshot assertion"
+        },
+        "persistenceScope": "navigation/zoom across mode switch in the same renderer; no harness restore"
+      },
+      "resources": [
+        {
+          "document": 0,
+          "url": "tauri://localhost/scripts/office-performance/native.html",
+          "entries": [
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 3112,
+              "duration": 38,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 3112,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 3150,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 3926,
+              "duration": 24,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 3926,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 3950,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 4699,
+              "duration": 24,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 4699,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 4723,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 5432,
+              "duration": 24,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 5432,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 5456,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 5591,
+              "duration": 22,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 5591,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 5613,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            }
+          ],
+          "marks": [
+            {
+              "name": "office-component:docx:requested",
+              "entryType": "mark",
+              "startTime": 1350,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:requested",
+              "entryType": "mark",
+              "startTime": 1350,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:ready",
+              "entryType": "mark",
+              "startTime": 1373,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:ready",
+              "entryType": "mark",
+              "startTime": 1373,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 2411,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 2417.0000000000005,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 3660,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 3663.0000000000005,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 4415,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 4418,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 5189,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 5192,
+              "duration": 0
+            }
+          ]
+        },
+        {
+          "document": 1,
+          "url": "tauri://localhost/assets/office-8b057eb8633b45ee/renderer.html",
+          "entries": [],
+          "marks": []
+        }
+      ]
+    },
+    {
+      "kind": "acceptance",
+      "name": "acceptance_reset_navigation",
+      "file": "simple.docx",
+      "fileId": "1",
+      "version": 1,
+      "startTime": 5736,
+      "duration": 15,
+      "status": "passed",
+      "commandOffset": 26,
+      "commandCount": 0,
+      "evidence": {
+        "navigationReset": true,
+        "state": {
+          "mode": "edit",
+          "anchor": 27,
+          "head": 27,
+          "zoom": "110%",
+          "scroll": {
+            "top": 40,
+            "left": 0
+          }
+        }
+      },
+      "resources": [
+        {
+          "document": 0,
+          "url": "tauri://localhost/scripts/office-performance/native.html",
+          "entries": [
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 3112,
+              "duration": 38,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 3112,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 3150,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 3926,
+              "duration": 24,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 3926,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 3950,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 4699,
+              "duration": 24,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 4699,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 4723,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 5432,
+              "duration": 24,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 5432,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 5456,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 5591,
+              "duration": 22,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 5591,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 5613,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 5712,
+              "duration": 24,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 5712,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 5736,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            }
+          ],
+          "marks": [
+            {
+              "name": "office-component:docx:requested",
+              "entryType": "mark",
+              "startTime": 1350,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:requested",
+              "entryType": "mark",
+              "startTime": 1350,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:ready",
+              "entryType": "mark",
+              "startTime": 1373,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:ready",
+              "entryType": "mark",
+              "startTime": 1373,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 2411,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 2417.0000000000005,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 3660,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 3663.0000000000005,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 4415,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 4418,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 5189,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 5192,
+              "duration": 0
+            }
+          ]
+        },
+        {
+          "document": 1,
+          "url": "tauri://localhost/assets/office-8b057eb8633b45ee/renderer.html",
+          "entries": [],
+          "marks": []
+        }
+      ]
+    },
+    {
+      "kind": "acceptance",
+      "name": "acceptance_real_mutation_autosave",
+      "file": "simple.docx",
+      "fileId": "1",
+      "version": 1,
+      "startTime": 5776,
+      "duration": 2146.000000000001,
+      "status": "passed",
+      "commandOffset": 26,
+      "commandCount": 4,
+      "evidence": {
+        "witness": {
+          "marker": "NATIVEdocx1a3bfc6f7",
+          "method": "Tiptap insertContentAt in existing first text block"
+        },
+        "baselineRevision": 0,
+        "receipt": {
+          "fileId": "1",
+          "command": "file_working_save_office",
+          "protocol": "working",
+          "receipt": {
+            "object": {
+              "workspaceId": "c4144c69d75a50c921feea03e26be39f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "1"
+            },
+            "revision": 1,
+            "contentHash": "sha256:7ced079987fcd3fddbcad9c1626a5c984048f002014654f297fe9e8a4aca0fdf",
+            "archivedVersionNumber": 1,
+            "pendingArchive": true,
+            "lastActivityAtMs": 1794319305036,
+            "archiveDueAtMs": 1794320205036,
+            "noChange": false
+          },
+          "time": 7913
+        },
+        "persisted": {
+          "object": {
+            "workspaceId": "c4144c69d75a50c921feea03e26be39f",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            },
+            "kind": "file",
+            "id": "1"
+          },
+          "revision": 1,
+          "contentHash": "sha256:7ced079987fcd3fddbcad9c1626a5c984048f002014654f297fe9e8a4aca0fdf",
+          "archivedVersionNumber": 1,
+          "pendingArchive": true,
+          "lastActivityAtMs": 1794319305036,
+          "archiveDueAtMs": 1794320205036,
+          "noChange": false
+        },
+        "autosaveMs": 2144,
+        "explicitSaveInvoked": false
+      },
+      "resources": [
+        {
+          "document": 0,
+          "url": "tauri://localhost/scripts/office-performance/native.html",
+          "entries": [
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 3112,
+              "duration": 38,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 3112,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 3150,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 3926,
+              "duration": 24,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 3926,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 3950,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 4699,
+              "duration": 24,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 4699,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 4723,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 5432,
+              "duration": 24,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 5432,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 5456,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 5591,
+              "duration": 22,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 5591,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 5613,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 5712,
+              "duration": 24,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 5712,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 5736,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 5752,
+              "duration": 23,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 5752,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 5775,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            }
+          ],
+          "marks": [
+            {
+              "name": "office-component:docx:requested",
+              "entryType": "mark",
+              "startTime": 1350,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:requested",
+              "entryType": "mark",
+              "startTime": 1350,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:ready",
+              "entryType": "mark",
+              "startTime": 1373,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:ready",
+              "entryType": "mark",
+              "startTime": 1373,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 2411,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 2417.0000000000005,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 3660,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 3663.0000000000005,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 4415,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 4418,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 5189,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 5192,
+              "duration": 0
+            }
+          ]
+        },
+        {
+          "document": 1,
+          "url": "tauri://localhost/assets/office-8b057eb8633b45ee/renderer.html",
+          "entries": [],
+          "marks": []
+        }
+      ]
+    },
+    {
+      "kind": "acceptance",
+      "name": "acceptance_close_and_native_readback",
+      "file": "simple.docx",
+      "fileId": "1",
+      "version": 1,
+      "startTime": 7945,
+      "duration": 499,
+      "status": "passed",
+      "commandOffset": 30,
+      "commandCount": 3,
+      "evidence": {
+        "witness": {
+          "marker": "NATIVEdocx1a3bfc6f7",
+          "method": "Tiptap insertContentAt in existing first text block"
+        },
+        "receipt": {
+          "object": {
+            "workspaceId": "c4144c69d75a50c921feea03e26be39f",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            },
+            "kind": "file",
+            "id": "1"
+          },
+          "revision": 1,
+          "contentHash": "sha256:7ced079987fcd3fddbcad9c1626a5c984048f002014654f297fe9e8a4aca0fdf",
+          "archivedVersionNumber": 1,
+          "pendingArchive": true,
+          "lastActivityAtMs": 1794319305036,
+          "archiveDueAtMs": 1794320205036,
+          "noChange": false
+        },
+        "closeGuardCompleted": true,
+        "nativeReadback": true
+      },
+      "resources": [
+        {
+          "document": 0,
+          "url": "tauri://localhost/scripts/office-performance/native.html",
+          "entries": [
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 3112,
+              "duration": 38,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 3112,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 3150,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 3926,
+              "duration": 24,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 3926,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 3950,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 4699,
+              "duration": 24,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 4699,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 4723,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 5432,
+              "duration": 24,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 5432,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 5456,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 5591,
+              "duration": 22,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 5591,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 5613,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 5712,
+              "duration": 24,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 5712,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 5736,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 5752,
+              "duration": 23,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 5752,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 5775,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 7923,
+              "duration": 22,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 7923,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 7945,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            }
+          ],
+          "marks": [
+            {
+              "name": "office-component:docx:requested",
+              "entryType": "mark",
+              "startTime": 1350,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:requested",
+              "entryType": "mark",
+              "startTime": 1350,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:ready",
+              "entryType": "mark",
+              "startTime": 1373,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:ready",
+              "entryType": "mark",
+              "startTime": 1373,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 2411,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 2417.0000000000005,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 3660,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 3663.0000000000005,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 4415,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 4418,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 5189,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 5192,
+              "duration": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "acceptance",
+      "name": "acceptance_native_archive_boundary",
+      "file": "simple.docx",
+      "fileId": "1",
+      "version": 1,
+      "startTime": 8471,
+      "duration": 23,
+      "status": "passed",
+      "commandOffset": 33,
+      "commandCount": 2,
+      "evidence": {
+        "archived": {
+          "object": {
+            "workspaceId": "c4144c69d75a50c921feea03e26be39f",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            },
+            "kind": "file",
+            "id": "1"
+          },
+          "revision": 1,
+          "contentHash": "sha256:7ced079987fcd3fddbcad9c1626a5c984048f002014654f297fe9e8a4aca0fdf",
+          "archivedVersionNumber": 2,
+          "pendingArchive": false,
+          "lastActivityAtMs": 1794319305036,
+          "archiveDueAtMs": null,
+          "noChange": false
+        },
+        "latestVersion": 2,
+        "explicitArchiveInvoked": true
+      },
+      "resources": [
+        {
+          "document": 0,
+          "url": "tauri://localhost/scripts/office-performance/native.html",
+          "entries": [
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 3112,
+              "duration": 38,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 3112,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 3150,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 3926,
+              "duration": 24,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 3926,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 3950,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 4699,
+              "duration": 24,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 4699,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 4723,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 5432,
+              "duration": 24,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 5432,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 5456,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 5591,
+              "duration": 22,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 5591,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 5613,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 5712,
+              "duration": 24,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 5712,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 5736,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 5752,
+              "duration": 23,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 5752,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 5775,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 7923,
+              "duration": 22,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 7923,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 7945,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 8445,
+              "duration": 26,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 8445,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 8471,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            }
+          ],
+          "marks": [
+            {
+              "name": "office-component:docx:requested",
+              "entryType": "mark",
+              "startTime": 1350,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:requested",
+              "entryType": "mark",
+              "startTime": 1350,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:ready",
+              "entryType": "mark",
+              "startTime": 1373,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:ready",
+              "entryType": "mark",
+              "startTime": 1373,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 2411,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 2417.0000000000005,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 3660,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 3663.0000000000005,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 4415,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 4418,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 5189,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 5192,
+              "duration": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "acceptance",
+      "name": "acceptance_reopen_and_verify",
+      "file": "simple.docx",
+      "fileId": "1",
+      "version": 2,
+      "startTime": 8518,
+      "duration": 674,
+      "status": "passed",
+      "commandOffset": 35,
+      "commandCount": 4,
+      "evidence": {
+        "firstScreen": {
+          "textSample": "PERF_docx_small_a 中文文档往返验证 NATIVEdocx1a3bfc6f7第一节 基础内容待修改中文段落：春风拂面。未修改段落：山川日月保持原样。姓名状态张三待改单元↕图片后未修改段落。",
+          "expectedText": "PERF_docx_small_a 中文文档往返验证 NATIV",
+          "decodedImages": 2,
+          "canvasCount": 0,
+          "paintedCanvases": 0,
+          "stableDoubleRafPasses": 3,
+          "geometry": [
+            [
+              73.5,
+              26,
+              816,
+              1056,
+              816,
+              1056
+            ]
+          ],
+          "visibility": "visible"
+        },
+        "witness": {
+          "marker": "NATIVEdocx1a3bfc6f7",
+          "method": "Tiptap insertContentAt in existing first text block"
+        },
+        "reopenedVersion": 2,
+        "savedContentVerified": true,
+        "finalMode": "edit"
+      },
+      "resources": [
+        {
+          "document": 0,
+          "url": "tauri://localhost/scripts/office-performance/native.html",
+          "entries": [
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 3112,
+              "duration": 38,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 3112,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 3150,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 3926,
+              "duration": 24,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 3926,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 3950,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 4699,
+              "duration": 24,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 4699,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 4723,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 5432,
+              "duration": 24,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 5432,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 5456,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 5591,
+              "duration": 22,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 5591,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 5613,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 5712,
+              "duration": 24,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 5712,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 5736,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 5752,
+              "duration": 23,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 5752,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 5775,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 7923,
+              "duration": 22,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 7923,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 7945,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 8445,
+              "duration": 26,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 8445,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 8471,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 8494,
+              "duration": 23,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 8494,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 8517,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            }
+          ],
+          "marks": [
+            {
+              "name": "office-component:docx:requested",
+              "entryType": "mark",
+              "startTime": 1350,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:requested",
+              "entryType": "mark",
+              "startTime": 1350,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:ready",
+              "entryType": "mark",
+              "startTime": 1373,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:ready",
+              "entryType": "mark",
+              "startTime": 1373,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 2411,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 2417.0000000000005,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 3660,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 3663.0000000000005,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 4415,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 4418,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 5189,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 5192,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 8928,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 8930,
+              "duration": 0
+            }
+          ]
+        },
+        {
+          "document": 1,
+          "url": "tauri://localhost/assets/office-8b057eb8633b45ee/renderer.html",
+          "entries": [],
+          "marks": []
+        }
+      ]
+    },
+    {
+      "kind": "acceptance",
+      "name": "acceptance_native_history_and_stale_cas",
+      "file": "simple.docx",
+      "fileId": "1",
+      "version": 2,
+      "startTime": 9214,
+      "duration": 1591,
+      "status": "passed",
+      "commandOffset": 39,
+      "commandCount": 15,
+      "evidence": {
+        "kind": "acceptance",
+        "status": "passed",
+        "name": "native_history_readonly_and_stale_restore",
+        "history": {
+          "source": {
+            "object": {
+              "workspaceId": "c4144c69d75a50c921feea03e26be39f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "1"
+            },
+            "revision": "sha256:a989e4563681a0609ced6faf7df3bf6bf2d8caaa3e3dda60f4b2404e41c56628",
+            "fileVersion": 1,
+            "recordVersion": null,
+            "blockId": null,
+            "locator": null,
+            "title": "simple.docx",
+            "excerpt": ""
+          },
+          "readiness": {
+            "textSample": "PERF_docx_small_a 中文文档往返验证第一节 基础内容待修改中文段落：春风拂面。未修改段落：山川日月保持原样。姓名状态张三待改单元↕图片后未修改段落。",
+            "expectedText": "PERF_docx_small_a 中文文档往返验证",
+            "decodedImages": 2,
+            "canvasCount": 0,
+            "paintedCanvases": 0,
+            "stableDoubleRafPasses": 3,
+            "geometry": [
+              [
+                73.5,
+                26,
+                816,
+                1056,
+                816,
+                1056
+              ]
+            ],
+            "visibility": "visible"
+          },
+          "status": "历史版本 · 只读",
+          "saveEnabled": false,
+          "contentWitness": "PERF_docx_small_a 中文文档往返验证",
+          "editMarkerPresent": false
+        },
+        "current": {
+          "source": {
+            "object": {
+              "workspaceId": "c4144c69d75a50c921feea03e26be39f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "1"
+            },
+            "revision": "sha256:7ced079987fcd3fddbcad9c1626a5c984048f002014654f297fe9e8a4aca0fdf",
+            "fileVersion": 2,
+            "recordVersion": null,
+            "blockId": null,
+            "locator": null,
+            "title": "simple.docx",
+            "excerpt": ""
+          },
+          "readiness": {
+            "textSample": "PERF_docx_small_a 中文文档往返验证 NATIVEdocx1a3bfc6f7第一节 基础内容待修改中文段落：春风拂面。未修改段落：山川日月保持原样。姓名状态张三待改单元↕图片后未修改段落。",
+            "expectedText": "PERF_docx_small_a 中文文档往返验证 NATIV",
+            "decodedImages": 2,
+            "canvasCount": 0,
+            "paintedCanvases": 0,
+            "stableDoubleRafPasses": 3,
+            "geometry": [
+              [
+                73.5,
+                26,
+                816,
+                1056,
+                816,
+                1056
+              ]
+            ],
+            "visibility": "visible"
+          },
+          "status": "已保存",
+          "saveEnabled": false,
+          "contentWitness": "PERF_docx_small_a 中文文档往返验证",
+          "editMarkerPresent": true
+        },
+        "finalCheck": {
+          "source": {
+            "object": {
+              "workspaceId": "c4144c69d75a50c921feea03e26be39f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "1"
+            },
+            "revision": "sha256:7ced079987fcd3fddbcad9c1626a5c984048f002014654f297fe9e8a4aca0fdf",
+            "fileVersion": 2,
+            "recordVersion": null,
+            "blockId": null,
+            "locator": null,
+            "title": "simple.docx",
+            "excerpt": ""
+          },
+          "readiness": {
+            "textSample": "PERF_docx_small_a 中文文档往返验证 NATIVEdocx1a3bfc6f7第一节 基础内容待修改中文段落：春风拂面。未修改段落：山川日月保持原样。姓名状态张三待改单元↕图片后未修改段落。",
+            "expectedText": "PERF_docx_small_a 中文文档往返验证 NATIV",
+            "decodedImages": 2,
+            "canvasCount": 0,
+            "paintedCanvases": 0,
+            "stableDoubleRafPasses": 3,
+            "geometry": [
+              [
+                73.5,
+                26,
+                816,
+                1056,
+                816,
+                1056
+              ]
+            ],
+            "visibility": "visible"
+          },
+          "status": "已保存",
+          "saveEnabled": false,
+          "contentWitness": "PERF_docx_small_a 中文文档往返验证",
+          "editMarkerPresent": true
+        },
+        "retained": {
+          "versionId": "1",
+          "versionNumber": 1,
+          "contentHash": "sha256:a989e4563681a0609ced6faf7df3bf6bf2d8caaa3e3dda60f4b2404e41c56628",
+          "byteLength": 37956
+        },
+        "staleCAS": {
+          "requestId": "e0f4b672-8189-4654-8f18-de9ad904b146",
+          "versionId": "1",
+          "expectedVersion": 1,
+          "expectedHash": "sha256:a989e4563681a0609ced6faf7df3bf6bf2d8caaa3e3dda60f4b2404e41c56628",
+          "code": "REVISION_CONFLICT",
+          "unchangedVersion": 2,
+          "unchangedHash": "sha256:7ced079987fcd3fddbcad9c1626a5c984048f002014654f297fe9e8a4aca0fdf",
+          "unchangedOriginalBytes": true,
+          "byteLength": 38676
+        },
+        "scope": "real ProjectFileContent version menu, native retained bytes, renderer content/read-only status and stale restore CAS; isolated fixture only"
+      },
+      "resources": [
+        {
+          "document": 0,
+          "url": "tauri://localhost/scripts/office-performance/native.html",
+          "entries": [
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 3112,
+              "duration": 38,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 3112,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 3150,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 3926,
+              "duration": 24,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 3926,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 3950,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 4699,
+              "duration": 24,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 4699,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 4723,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 5432,
+              "duration": 24,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 5432,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 5456,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 5591,
+              "duration": 22,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 5591,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 5613,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 5712,
+              "duration": 24,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 5712,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 5736,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 5752,
+              "duration": 23,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 5752,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 5775,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 7923,
+              "duration": 22,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 7923,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 7945,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 8445,
+              "duration": 26,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 8445,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 8471,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 8494,
+              "duration": 23,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 8494,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 8517,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:65201/result",
+              "entryType": "resource",
+              "startTime": 9192,
+              "duration": 22,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 9192,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 9214,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            }
+          ],
+          "marks": [
+            {
+              "name": "office-component:docx:requested",
+              "entryType": "mark",
+              "startTime": 1350,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:requested",
+              "entryType": "mark",
+              "startTime": 1350,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:ready",
+              "entryType": "mark",
+              "startTime": 1373,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:ready",
+              "entryType": "mark",
+              "startTime": 1373,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 2411,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 2417.0000000000005,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 3660,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 3663.0000000000005,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 4415,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 4418,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 5189,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 5192,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 8928,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 8930,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 9374,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 9774,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 10503,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:mounted",
+              "entryType": "mark",
+              "startTime": 10505,
+              "duration": 0
+            }
+          ]
+        },
+        {
+          "document": 1,
+          "url": "tauri://localhost/assets/office-8b057eb8633b45ee/renderer.html",
+          "entries": [],
+          "marks": []
+        }
+      ]
+    }
+  ],
+  "commits": [
+    {
+      "fileId": "1",
+      "command": "file_working_save_office",
+      "protocol": "working",
+      "receipt": {
+        "object": {
+          "workspaceId": "c4144c69d75a50c921feea03e26be39f",
+          "scope": {
+            "kind": "project",
+            "projectId": 1
+          },
+          "kind": "file",
+          "id": "1"
+        },
+        "revision": 1,
+        "contentHash": "sha256:7ced079987fcd3fddbcad9c1626a5c984048f002014654f297fe9e8a4aca0fdf",
+        "archivedVersionNumber": 1,
+        "pendingArchive": true,
+        "lastActivityAtMs": 1794319305036,
+        "archiveDueAtMs": 1794320205036,
+        "noChange": false
+      },
+      "time": 7913
+    }
+  ],
+  "status": "over_budget",
+  "resources": [
+    {
+      "document": 0,
+      "url": "tauri://localhost/scripts/office-performance/native.html",
+      "entries": [
+        {
+          "name": "http://127.0.0.1:65201/result",
+          "entryType": "resource",
+          "startTime": 3112,
+          "duration": 38,
+          "initiatorType": "fetch",
+          "nextHopProtocol": "",
+          "workerStart": 0,
+          "redirectStart": 0,
+          "redirectEnd": 0,
+          "fetchStart": 3112,
+          "domainLookupStart": 0,
+          "domainLookupEnd": 0,
+          "connectStart": 0,
+          "connectEnd": 0,
+          "secureConnectionStart": 0,
+          "requestStart": 0,
+          "finalResponseHeadersStart": 0,
+          "firstInterimResponseStart": 0,
+          "responseStart": 0,
+          "responseEnd": 3150,
+          "transferSize": 0,
+          "encodedBodySize": 0,
+          "decodedBodySize": 0,
+          "deliveryType": "",
+          "serverTiming": []
+        },
+        {
+          "name": "http://127.0.0.1:65201/result",
+          "entryType": "resource",
+          "startTime": 3926,
+          "duration": 24,
+          "initiatorType": "fetch",
+          "nextHopProtocol": "",
+          "workerStart": 0,
+          "redirectStart": 0,
+          "redirectEnd": 0,
+          "fetchStart": 3926,
+          "domainLookupStart": 0,
+          "domainLookupEnd": 0,
+          "connectStart": 0,
+          "connectEnd": 0,
+          "secureConnectionStart": 0,
+          "requestStart": 0,
+          "finalResponseHeadersStart": 0,
+          "firstInterimResponseStart": 0,
+          "responseStart": 0,
+          "responseEnd": 3950,
+          "transferSize": 0,
+          "encodedBodySize": 0,
+          "decodedBodySize": 0,
+          "deliveryType": "",
+          "serverTiming": []
+        },
+        {
+          "name": "http://127.0.0.1:65201/result",
+          "entryType": "resource",
+          "startTime": 4699,
+          "duration": 24,
+          "initiatorType": "fetch",
+          "nextHopProtocol": "",
+          "workerStart": 0,
+          "redirectStart": 0,
+          "redirectEnd": 0,
+          "fetchStart": 4699,
+          "domainLookupStart": 0,
+          "domainLookupEnd": 0,
+          "connectStart": 0,
+          "connectEnd": 0,
+          "secureConnectionStart": 0,
+          "requestStart": 0,
+          "finalResponseHeadersStart": 0,
+          "firstInterimResponseStart": 0,
+          "responseStart": 0,
+          "responseEnd": 4723,
+          "transferSize": 0,
+          "encodedBodySize": 0,
+          "decodedBodySize": 0,
+          "deliveryType": "",
+          "serverTiming": []
+        },
+        {
+          "name": "http://127.0.0.1:65201/result",
+          "entryType": "resource",
+          "startTime": 5432,
+          "duration": 24,
+          "initiatorType": "fetch",
+          "nextHopProtocol": "",
+          "workerStart": 0,
+          "redirectStart": 0,
+          "redirectEnd": 0,
+          "fetchStart": 5432,
+          "domainLookupStart": 0,
+          "domainLookupEnd": 0,
+          "connectStart": 0,
+          "connectEnd": 0,
+          "secureConnectionStart": 0,
+          "requestStart": 0,
+          "finalResponseHeadersStart": 0,
+          "firstInterimResponseStart": 0,
+          "responseStart": 0,
+          "responseEnd": 5456,
+          "transferSize": 0,
+          "encodedBodySize": 0,
+          "decodedBodySize": 0,
+          "deliveryType": "",
+          "serverTiming": []
+        },
+        {
+          "name": "http://127.0.0.1:65201/result",
+          "entryType": "resource",
+          "startTime": 5591,
+          "duration": 22,
+          "initiatorType": "fetch",
+          "nextHopProtocol": "",
+          "workerStart": 0,
+          "redirectStart": 0,
+          "redirectEnd": 0,
+          "fetchStart": 5591,
+          "domainLookupStart": 0,
+          "domainLookupEnd": 0,
+          "connectStart": 0,
+          "connectEnd": 0,
+          "secureConnectionStart": 0,
+          "requestStart": 0,
+          "finalResponseHeadersStart": 0,
+          "firstInterimResponseStart": 0,
+          "responseStart": 0,
+          "responseEnd": 5613,
+          "transferSize": 0,
+          "encodedBodySize": 0,
+          "decodedBodySize": 0,
+          "deliveryType": "",
+          "serverTiming": []
+        },
+        {
+          "name": "http://127.0.0.1:65201/result",
+          "entryType": "resource",
+          "startTime": 5712,
+          "duration": 24,
+          "initiatorType": "fetch",
+          "nextHopProtocol": "",
+          "workerStart": 0,
+          "redirectStart": 0,
+          "redirectEnd": 0,
+          "fetchStart": 5712,
+          "domainLookupStart": 0,
+          "domainLookupEnd": 0,
+          "connectStart": 0,
+          "connectEnd": 0,
+          "secureConnectionStart": 0,
+          "requestStart": 0,
+          "finalResponseHeadersStart": 0,
+          "firstInterimResponseStart": 0,
+          "responseStart": 0,
+          "responseEnd": 5736,
+          "transferSize": 0,
+          "encodedBodySize": 0,
+          "decodedBodySize": 0,
+          "deliveryType": "",
+          "serverTiming": []
+        },
+        {
+          "name": "http://127.0.0.1:65201/result",
+          "entryType": "resource",
+          "startTime": 5752,
+          "duration": 23,
+          "initiatorType": "fetch",
+          "nextHopProtocol": "",
+          "workerStart": 0,
+          "redirectStart": 0,
+          "redirectEnd": 0,
+          "fetchStart": 5752,
+          "domainLookupStart": 0,
+          "domainLookupEnd": 0,
+          "connectStart": 0,
+          "connectEnd": 0,
+          "secureConnectionStart": 0,
+          "requestStart": 0,
+          "finalResponseHeadersStart": 0,
+          "firstInterimResponseStart": 0,
+          "responseStart": 0,
+          "responseEnd": 5775,
+          "transferSize": 0,
+          "encodedBodySize": 0,
+          "decodedBodySize": 0,
+          "deliveryType": "",
+          "serverTiming": []
+        },
+        {
+          "name": "http://127.0.0.1:65201/result",
+          "entryType": "resource",
+          "startTime": 7923,
+          "duration": 22,
+          "initiatorType": "fetch",
+          "nextHopProtocol": "",
+          "workerStart": 0,
+          "redirectStart": 0,
+          "redirectEnd": 0,
+          "fetchStart": 7923,
+          "domainLookupStart": 0,
+          "domainLookupEnd": 0,
+          "connectStart": 0,
+          "connectEnd": 0,
+          "secureConnectionStart": 0,
+          "requestStart": 0,
+          "finalResponseHeadersStart": 0,
+          "firstInterimResponseStart": 0,
+          "responseStart": 0,
+          "responseEnd": 7945,
+          "transferSize": 0,
+          "encodedBodySize": 0,
+          "decodedBodySize": 0,
+          "deliveryType": "",
+          "serverTiming": []
+        },
+        {
+          "name": "http://127.0.0.1:65201/result",
+          "entryType": "resource",
+          "startTime": 8445,
+          "duration": 26,
+          "initiatorType": "fetch",
+          "nextHopProtocol": "",
+          "workerStart": 0,
+          "redirectStart": 0,
+          "redirectEnd": 0,
+          "fetchStart": 8445,
+          "domainLookupStart": 0,
+          "domainLookupEnd": 0,
+          "connectStart": 0,
+          "connectEnd": 0,
+          "secureConnectionStart": 0,
+          "requestStart": 0,
+          "finalResponseHeadersStart": 0,
+          "firstInterimResponseStart": 0,
+          "responseStart": 0,
+          "responseEnd": 8471,
+          "transferSize": 0,
+          "encodedBodySize": 0,
+          "decodedBodySize": 0,
+          "deliveryType": "",
+          "serverTiming": []
+        },
+        {
+          "name": "http://127.0.0.1:65201/result",
+          "entryType": "resource",
+          "startTime": 8494,
+          "duration": 23,
+          "initiatorType": "fetch",
+          "nextHopProtocol": "",
+          "workerStart": 0,
+          "redirectStart": 0,
+          "redirectEnd": 0,
+          "fetchStart": 8494,
+          "domainLookupStart": 0,
+          "domainLookupEnd": 0,
+          "connectStart": 0,
+          "connectEnd": 0,
+          "secureConnectionStart": 0,
+          "requestStart": 0,
+          "finalResponseHeadersStart": 0,
+          "firstInterimResponseStart": 0,
+          "responseStart": 0,
+          "responseEnd": 8517,
+          "transferSize": 0,
+          "encodedBodySize": 0,
+          "decodedBodySize": 0,
+          "deliveryType": "",
+          "serverTiming": []
+        },
+        {
+          "name": "http://127.0.0.1:65201/result",
+          "entryType": "resource",
+          "startTime": 9192,
+          "duration": 22,
+          "initiatorType": "fetch",
+          "nextHopProtocol": "",
+          "workerStart": 0,
+          "redirectStart": 0,
+          "redirectEnd": 0,
+          "fetchStart": 9192,
+          "domainLookupStart": 0,
+          "domainLookupEnd": 0,
+          "connectStart": 0,
+          "connectEnd": 0,
+          "secureConnectionStart": 0,
+          "requestStart": 0,
+          "finalResponseHeadersStart": 0,
+          "firstInterimResponseStart": 0,
+          "responseStart": 0,
+          "responseEnd": 9214,
+          "transferSize": 0,
+          "encodedBodySize": 0,
+          "decodedBodySize": 0,
+          "deliveryType": "",
+          "serverTiming": []
+        },
+        {
+          "name": "http://127.0.0.1:65201/result",
+          "entryType": "resource",
+          "startTime": 10806.000000000002,
+          "duration": 38.99999999999818,
+          "initiatorType": "fetch",
+          "nextHopProtocol": "",
+          "workerStart": 0,
+          "redirectStart": 0,
+          "redirectEnd": 0,
+          "fetchStart": 10806.000000000002,
+          "domainLookupStart": 0,
+          "domainLookupEnd": 0,
+          "connectStart": 0,
+          "connectEnd": 0,
+          "secureConnectionStart": 0,
+          "requestStart": 0,
+          "finalResponseHeadersStart": 0,
+          "firstInterimResponseStart": 0,
+          "responseStart": 0,
+          "responseEnd": 10845,
+          "transferSize": 0,
+          "encodedBodySize": 0,
+          "decodedBodySize": 0,
+          "deliveryType": "",
+          "serverTiming": []
+        }
+      ],
+      "marks": [
+        {
+          "name": "office-component:docx:requested",
+          "entryType": "mark",
+          "startTime": 1350,
+          "duration": 0
+        },
+        {
+          "name": "office-component:host:requested",
+          "entryType": "mark",
+          "startTime": 1350,
+          "duration": 0
+        },
+        {
+          "name": "office-component:host:ready",
+          "entryType": "mark",
+          "startTime": 1373,
+          "duration": 0
+        },
+        {
+          "name": "office-component:docx:ready",
+          "entryType": "mark",
+          "startTime": 1373,
+          "duration": 0
+        },
+        {
+          "name": "office-component:host:mounted",
+          "entryType": "mark",
+          "startTime": 2411,
+          "duration": 0
+        },
+        {
+          "name": "office-component:docx:mounted",
+          "entryType": "mark",
+          "startTime": 2417.0000000000005,
+          "duration": 0
+        },
+        {
+          "name": "office-component:host:mounted",
+          "entryType": "mark",
+          "startTime": 3660,
+          "duration": 0
+        },
+        {
+          "name": "office-component:docx:mounted",
+          "entryType": "mark",
+          "startTime": 3663.0000000000005,
+          "duration": 0
+        },
+        {
+          "name": "office-component:host:mounted",
+          "entryType": "mark",
+          "startTime": 4415,
+          "duration": 0
+        },
+        {
+          "name": "office-component:docx:mounted",
+          "entryType": "mark",
+          "startTime": 4418,
+          "duration": 0
+        },
+        {
+          "name": "office-component:host:mounted",
+          "entryType": "mark",
+          "startTime": 5189,
+          "duration": 0
+        },
+        {
+          "name": "office-component:docx:mounted",
+          "entryType": "mark",
+          "startTime": 5192,
+          "duration": 0
+        },
+        {
+          "name": "office-component:host:mounted",
+          "entryType": "mark",
+          "startTime": 8928,
+          "duration": 0
+        },
+        {
+          "name": "office-component:docx:mounted",
+          "entryType": "mark",
+          "startTime": 8930,
+          "duration": 0
+        },
+        {
+          "name": "office-component:host:mounted",
+          "entryType": "mark",
+          "startTime": 9374,
+          "duration": 0
+        },
+        {
+          "name": "office-component:docx:mounted",
+          "entryType": "mark",
+          "startTime": 9774,
+          "duration": 0
+        },
+        {
+          "name": "office-component:host:mounted",
+          "entryType": "mark",
+          "startTime": 10503,
+          "duration": 0
+        },
+        {
+          "name": "office-component:docx:mounted",
+          "entryType": "mark",
+          "startTime": 10505,
+          "duration": 0
+        }
+      ]
+    },
+    {
+      "document": 1,
+      "url": "tauri://localhost/assets/office-8b057eb8633b45ee/renderer.html",
+      "entries": [],
+      "marks": []
+    }
+  ]
+}
