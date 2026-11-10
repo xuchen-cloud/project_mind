@@ -18,15 +18,17 @@ fn open_runtime(
     let secret_state = Arc::new(Mutex::new(None));
     let voice_db =
         Database::open_runtime_connection(&paths.db_path, &paths.root_path, None).unwrap();
+    let binding = WorkspaceBinding {
+        workspace_id: metadata.workspace_id.clone(),
+        generation: generation.into(),
+    };
     Arc::new(WorkspaceRuntime {
-        agent_binding: WorkspaceBinding {
-            workspace_id: metadata.workspace_id.clone(),
-            generation: generation.into(),
-        },
+        agent_binding: binding.clone(),
         agent_runs: Mutex::new(Default::default()),
         summary: workspace_summary(&paths.root_path, &metadata),
         metadata,
         ai_jobs: AiJobManager::new(
+            binding,
             paths.db_path.clone(),
             paths.root_path.clone(),
             secret_state.clone(),
