@@ -14,7 +14,7 @@ import { flowchart, sequence, gantt, fenced } from './tests/fixtures/mermaid';
 import '../../src/styles/app.css';
 
 function RecordFixture() {
-  const editor = useEditor({ extensions: buildRichEditorExtensions('记录图表'), content: {
+  const editor = useEditor({ editorProps: { attributes: { class: 'rich-editor__surface' } }, extensions: buildRichEditorExtensions('记录图表'), content: {
     type: 'doc', content: [{ type: 'codeBlock', attrs: { language: 'mermaid', languageExplicit: true }, content: [{ type: 'text', text: flowchart }] }, { type: 'paragraph' }],
   } });
   return <section><h2>Record</h2><button onClick={() => { if (editor) { const html = editor.getHTML(); editor.commands.setContent(html); } }}>保存并重开 Record</button><div className="rich-editor__content"><EditorContent editor={editor} /></div></section>;

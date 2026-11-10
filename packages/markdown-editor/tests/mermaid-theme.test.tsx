@@ -23,6 +23,7 @@ it('embeds independent light and dark themes in concurrent real flow/sequence re
     if (result.ok) expect(result.svg).not.toContain('<foreignObject');
   }
   expect(outputs[0]).toMatchObject({ ok: true, svg: expect.stringContaining('#eeece6') });
+  if (outputs[0].ok) expect(outputs[0].svg).toContain('background-color: rgb(32, 33, 36)');
   expect(outputs[1]).toMatchObject({ ok: true, svg: expect.stringContaining('#37352f') });
   expect(outputs[2]).toMatchObject({ ok: true, svg: expect.stringContaining('项目交付安排') });
 });

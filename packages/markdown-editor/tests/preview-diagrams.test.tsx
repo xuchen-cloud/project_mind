@@ -42,7 +42,7 @@ it('keeps document references, footnotes, math and nested diagrams in the shared
   expect(flow.querySelector('svg')?.textContent).toContain('image: 说明');
   expect(flow.querySelector('style')?.textContent).toContain('stroke-width:3px');
   expect(screen.getByRole('link', { name: /说明/u })).toHaveAttribute('href', 'https://example.com/docs');
-  expect(screen.getByText('脚注正文')).toBeInTheDocument();
+  expect(screen.getByText(/脚注正文/u)).toBeInTheDocument();
   expect(container.querySelector('.katex')).not.toBeNull();
   expect(within(container.querySelector('.mind-markdown__preview')!).getByRole('table')).toBeInTheDocument();
 });

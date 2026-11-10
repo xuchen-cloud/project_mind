@@ -19,7 +19,7 @@ export function mermaidConfig(theme: DiagramTheme): MermaidConfig {
   return {
     startOnLoad: false, securityLevel: 'strict', suppressErrorRendering: true,
     theme: 'base', htmlLabels: false,
-    fontFamily: 'Work Sans, PingFang SC, Microsoft YaHei, Noto Sans CJK SC, sans-serif',
+    fontFamily: 'SF Pro Text, -apple-system, BlinkMacSystemFont, Segoe UI, PingFang SC, Microsoft YaHei, Noto Sans CJK SC, sans-serif',
     themeVariables: {
       darkMode: dark, background: colors.background, fontSize: '15px',
       primaryColor: colors.surface, primaryTextColor: colors.text, primaryBorderColor: colors.border,
@@ -56,9 +56,14 @@ export function renderMermaid(source: string, theme: DiagramTheme = 'light'): Pr
   const next = rendering.then(async (): Promise<DiagramResult> => {
     try {
       const mermaid = await loadMermaid();
-      mermaid.initialize(mermaidConfig(theme));
+      const config = mermaidConfig(theme);
+      mermaid.initialize(config);
       const { svg } = await mermaid.render(`md-mermaid-${++renderSeq}`, source);
-      return { ok: true, svg };
+      // A standalone SVG/image has no host surface. Carry its paper as well as
+      // its ink so dark labels remain legible in every container and decoder.
+      const root = new DOMParser().parseFromString(svg, 'image/svg+xml').documentElement;
+      root.style.backgroundColor = String(mermaid.mermaidAPI.getConfig().themeVariables.background ?? config.themeVariables.background);
+      return { ok: true, svg: root.outerHTML };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
