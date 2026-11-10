@@ -1,8 +1,15 @@
 import { create } from "zustand";
 
 import type { AiJobSnapshot, AiJobStatus } from "../lib/types";
+import type { AgentWorkspaceBinding } from "../lib/agent-types";
+
+export function sameAiJobBinding(a: AgentWorkspaceBinding | null, b: AgentWorkspaceBinding) {
+  return a?.workspaceId === b.workspaceId && a.generation === b.generation;
+}
 
 interface AiJobStore {
+  binding: AgentWorkspaceBinding | null;
+  bindWorkspace: (binding: AgentWorkspaceBinding) => void;
   jobsById: Record<number, AiJobSnapshot>;
   latestJobIdByTarget: Record<string, number>;
   upsertJob: (job: AiJobSnapshot) => void;
@@ -55,11 +62,18 @@ function mergeJobs(
 }
 
 export const useAiJobStore = create<AiJobStore>((set) => ({
+  binding: null,
   jobsById: {},
   latestJobIdByTarget: {},
+  bindWorkspace: (binding) => set((state) => sameAiJobBinding(state.binding, binding)
+    ? state : { binding, jobsById: {}, latestJobIdByTarget: {} }),
   upsertJob: (job) =>
-    set((state) => mergeJobs(state.jobsById, state.latestJobIdByTarget, [job])),
+    set((state) => sameAiJobBinding(state.binding, job.binding)
+      ? mergeJobs(state.jobsById, state.latestJobIdByTarget, [job]) : state),
   upsertJobs: (jobs) =>
-    set((state) => mergeJobs(state.jobsById, state.latestJobIdByTarget, jobs)),
-  reset: () => set({ jobsById: {}, latestJobIdByTarget: {} }),
+    set((state) => {
+      const current = jobs.filter((job) => sameAiJobBinding(state.binding, job.binding));
+      return current.length ? mergeJobs(state.jobsById, state.latestJobIdByTarget, current) : state;
+    }),
+  reset: () => set({ binding: null, jobsById: {}, latestJobIdByTarget: {} }),
 }));

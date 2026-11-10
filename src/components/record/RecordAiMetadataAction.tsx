@@ -99,6 +99,7 @@ export function RecordAiMetadataAction({
           markdown,
           availableTags,
         }),
+        binding,
       );
       if (job.status !== "succeeded") {
         throw new Error(

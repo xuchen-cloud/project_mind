@@ -260,7 +260,12 @@ impl WorkspaceRuntime {
         let execution = db.ai_execution_settings_get()?;
         let secret_state = Arc::new(Mutex::new(secret_password));
         let app_handle = app_handle.clone();
+        let agent_binding = agent::models::WorkspaceBinding {
+            workspace_id: metadata.workspace_id.clone(),
+            generation: format!("{:032x}", rand::random::<u128>()),
+        };
         let ai_jobs = AiJobManager::new(
+            agent_binding.clone(),
             paths.db_path.clone(),
             paths.root_path.clone(),
             secret_state.clone(),
@@ -270,10 +275,6 @@ impl WorkspaceRuntime {
             }),
         );
 
-        let agent_binding = agent::models::WorkspaceBinding {
-                workspace_id: metadata.workspace_id.clone(),
-                generation: format!("{:032x}", rand::random::<u128>()),
-            };
         let connection_credentials = agent::bridge::credentials::FileCredentialStore::local()
             .map_err(|error| anyhow!(error.message))?;
         db.agent_connection_migrate_local_credentials(
@@ -1498,21 +1499,44 @@ fn ai_editor_skill_reorder(
 }
 
 #[tauri::command]
+fn ai_job_binding_get(state: State<'_, AppState>) -> CommandResult<agent::models::WorkspaceBinding> {
+    with_workspace_runtime(state, |runtime| Ok(runtime.agent_binding.clone()))
+}
+
+// Hold the current runtime lock through the job operation so a stale request
+// cannot address the same numeric job ID in a newly opened Workspace.
+fn with_bound_ai_jobs<T>(
+    state: State<'_, AppState>,
+    binding: &agent::models::WorkspaceBinding,
+    task: impl FnOnce(&AiJobManager) -> T,
+) -> CommandResult<T> {
+    let current = lock_mutex(&state.current_workspace);
+    let runtime = current.as_ref().ok_or("No Workspace is open")?;
+    require_workspace_binding(binding, &runtime.agent_binding)?;
+    Ok(task(&runtime.ai_jobs))
+}
+
+#[tauri::command]
 fn ai_job_enqueue(
     state: State<'_, AppState>,
     input: AiJobEnqueueInput,
+    binding: agent::models::WorkspaceBinding,
 ) -> CommandResult<AiJobSnapshot> {
-    with_workspace_runtime(state, |runtime| Ok(runtime.ai_jobs.enqueue(input)))
+    with_bound_ai_jobs(state, &binding, |jobs| jobs.enqueue(input))
 }
 
 #[tauri::command]
-fn ai_job_get(state: State<'_, AppState>, job_id: i64) -> CommandResult<Option<AiJobSnapshot>> {
-    with_workspace_runtime(state, |runtime| Ok(runtime.ai_jobs.get(job_id)))
+fn ai_job_get(
+    state: State<'_, AppState>, job_id: i64, binding: agent::models::WorkspaceBinding,
+) -> CommandResult<Option<AiJobSnapshot>> {
+    with_bound_ai_jobs(state, &binding, |jobs| jobs.get(job_id))
 }
 
 #[tauri::command]
-fn ai_job_cancel(state: State<'_, AppState>, job_id: i64) -> CommandResult<Option<AiJobSnapshot>> {
-    with_workspace_runtime(state, |runtime| Ok(runtime.ai_jobs.cancel(job_id)))
+fn ai_job_cancel(
+    state: State<'_, AppState>, job_id: i64, binding: agent::models::WorkspaceBinding,
+) -> CommandResult<Option<AiJobSnapshot>> {
+    with_bound_ai_jobs(state, &binding, |jobs| jobs.cancel(job_id))
 }
 
 #[tauri::command]
@@ -1525,8 +1549,10 @@ fn ai_image_target_signature(
 }
 
 #[tauri::command]
-fn ai_jobs_list_active(state: State<'_, AppState>) -> CommandResult<Vec<AiJobSnapshot>> {
-    with_workspace_runtime(state, |runtime| Ok(runtime.ai_jobs.list_active()))
+fn ai_jobs_list_active(
+    state: State<'_, AppState>, binding: agent::models::WorkspaceBinding,
+) -> CommandResult<Vec<AiJobSnapshot>> {
+    with_bound_ai_jobs(state, &binding, |jobs| jobs.list_active())
 }
 
 #[tauri::command]
@@ -2034,6 +2060,7 @@ pub fn run() {
             ai_editor_skill_upsert,
             ai_editor_skill_delete,
             ai_editor_skill_reorder,
+            ai_job_binding_get,
             ai_job_enqueue,
             ai_job_get,
             ai_job_cancel,

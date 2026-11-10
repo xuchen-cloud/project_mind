@@ -30,6 +30,7 @@ const availableTags: ProjectTagRecord[] = [
 function successfulJob(): AiJobSnapshot {
   return {
     id: 4,
+    binding,
     kind: "record_metadata",
     targetKey: "record-ai-metadata:project:5:8",
     status: "succeeded",
@@ -62,6 +63,7 @@ it("uses Committed Content and atomically applies title and tags against a bound
   await userEvent.click(screen.getByRole("button",{ name: "AI 填写标题和标签" }));
   await waitFor(() => expect(onApplied).toHaveBeenCalledWith({ title: "AI 生成标题",tags,metadata,expectedRevision: baseline.revision }));
   expect(beforeApply).toHaveBeenCalledTimes(2);
+  expect(mocks.enqueueAndWait.mock.calls[0][1]).toEqual(binding);
   expect(mocks.enqueueAndWait.mock.calls[0][0].input.markdown).toBe("正文已确认[committed]");
   expect(mocks.metadataApply).toHaveBeenCalledWith(binding,{
     metadata: { target: { scope: { kind: "project",projectId: 5 },recordId: 8 },title: "AI 生成标题",tagIds: [11,12],expectedRevision: baseline.revision },

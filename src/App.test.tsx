@@ -193,6 +193,7 @@ vi.mock("./services/projectMindApi", () => ({
         },
       ],
     })),
+    aiJobBindingGet: vi.fn(async () => ({ workspaceId: "test-workspace", generation: "test-open" })),
     aiJobsListActive: vi.fn(async () => []),
     aiJobGet: vi.fn(async () => null),
     aiSettingsGet: vi.fn(async () => ({

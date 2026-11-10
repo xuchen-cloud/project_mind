@@ -7,6 +7,8 @@ import type { Editor } from "@tiptap/core";
 import { Plugin } from "@tiptap/pm/state";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+const aiJobBinding = { workspaceId: "workspace", generation: "opened" };
+
 import * as aiJobs from "../../lib/aiJobs";
 import { buildContactMentionHtml } from "../../lib/contactMentions";
 import { buildInternalReferenceHtml } from "../../lib/internalReferences";
@@ -417,7 +419,10 @@ beforeAll(() => {
 beforeEach(() => {
   vi.clearAllMocks();
   clearManagedImageThumbnailCacheForTests();
-  useAiJobStore.getState().reset();
+  aiJobs.resetAiJobSync();
+  useAiJobStore.getState().bindWorkspace(aiJobBinding);
+  vi.spyOn(projectMindApi, "aiJobBindingGet").mockResolvedValue(aiJobBinding);
+  vi.spyOn(projectMindApi, "aiJobsListActive").mockResolvedValue([]);
   useFeedbackStore.setState({ toasts: [] });
   defaultIntersectionState = true;
   intersectionObservers.length = 0;
@@ -519,12 +524,13 @@ function selectTextRange(startNode: Text, startOffset: number, endNode: Text, en
 }
 
 function mockEditorSkillJob(jobId: number) {
-  const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
+  const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue(aiJobBinding);
   let targetKey = "";
   const enqueueSpy = vi.spyOn(projectMindApi, "aiJobEnqueue").mockImplementation(async (input) => {
     targetKey = input.targetKey;
     return {
       id: jobId,
+      binding: aiJobBinding,
       kind: "editor_skill",
       targetKey,
       status: "queued",
@@ -831,7 +837,7 @@ describe("RichEditor images", () => {
     act(() => { saving = controllerRef.current?.save({ force: true }); });
     rendered.rerender(<RichEditor {...props} html={onSave.mock.calls[0][0].html} />);
     await act(async () => { finishSave(); await saving; });
-    expect(cancelSpy).not.toHaveBeenCalledWith(904);
+    expect(cancelSpy).not.toHaveBeenCalledWith({ id: 904, binding: aiJobBinding });
     expect(surface).toHaveTextContent("new edit");
     signatureSpy.mockRestore();
     cancelSpy.mockRestore();
@@ -1297,11 +1303,12 @@ describe("RichEditor images", () => {
     const user = userEvent.setup();
     const onSave = vi.fn(async () => undefined);
     const controllerRef = { current: null as RichEditorController | null };
-    const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
+    const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue(aiJobBinding);
     const cancelSpy = vi.spyOn(projectMindApi, "aiJobCancel").mockResolvedValue(null);
     const signatureSpy = vi.spyOn(projectMindApi, "aiImageTargetSignature").mockResolvedValue("image-signature");
     const enqueueSpy = vi.spyOn(projectMindApi, "aiJobEnqueue").mockImplementation(async (input) => ({
       id: 81,
+      binding: aiJobBinding,
       kind: "editor_skill",
       targetKey: input.targetKey,
       status: "queued",
@@ -1416,6 +1423,7 @@ describe("RichEditor images", () => {
     }
     useAiJobStore.getState().upsertJob({
       id: 81,
+      binding: aiJobBinding,
       kind: "editor_skill",
       targetKey: request?.targetKey ?? "",
       status: "running",
@@ -1431,6 +1439,7 @@ describe("RichEditor images", () => {
     expect(onSave.mock.calls.at(-1)?.[0].html).not.toContain("图中提取的文字");
     useAiJobStore.getState().upsertJob({
       id: 81,
+      binding: aiJobBinding,
       kind: "editor_skill",
       targetKey: request?.targetKey ?? "",
       status: "succeeded",
@@ -1496,11 +1505,12 @@ describe("RichEditor images", () => {
     const user = userEvent.setup();
     const onSave = vi.fn(async () => undefined);
     const controllerRef = { current: null as RichEditorController | null };
-    const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
+    const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue(aiJobBinding);
     const cancelSpy = vi.spyOn(projectMindApi, "aiJobCancel").mockResolvedValue(null);
     const signatureSpy = vi.spyOn(projectMindApi, "aiImageTargetSignature").mockResolvedValue("image-signature");
     const enqueueSpy = vi.spyOn(projectMindApi, "aiJobEnqueue").mockImplementation(async (input) => ({
       id: 901,
+      binding: aiJobBinding,
       kind: "editor_skill",
       targetKey: input.targetKey,
       status: "queued",
@@ -1567,7 +1577,7 @@ describe("RichEditor images", () => {
     await waitFor(() => expect(enqueueSpy).toHaveBeenCalledTimes(1));
     expect(surface).toHaveTextContent("最近编辑");
     expect(surface).toHaveTextContent("历史版本之前");
-    expect(cancelSpy).not.toHaveBeenCalledWith(901);
+    expect(cancelSpy).not.toHaveBeenCalledWith({ id: 901, binding: aiJobBinding });
 
     cancelSpy.mockRestore();
     enqueueSpy.mockRestore();
@@ -1579,10 +1589,11 @@ describe("RichEditor images", () => {
     const user = userEvent.setup();
     const onSave = vi.fn(async () => undefined);
     const controllerRef = { current: null as RichEditorController | null };
-    const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
+    const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue(aiJobBinding);
     const signatureSpy = vi.spyOn(projectMindApi, "aiImageTargetSignature").mockResolvedValue("image-signature");
     const enqueueSpy = vi.spyOn(projectMindApi, "aiJobEnqueue").mockImplementation(async (input) => ({
       id: 902,
+      binding: aiJobBinding,
       kind: "editor_skill",
       targetKey: input.targetKey,
       status: "queued",
@@ -1647,6 +1658,7 @@ describe("RichEditor images", () => {
     const request = enqueueSpy.mock.calls[0]?.[0];
     useAiJobStore.getState().upsertJob({
       id: 902,
+      binding: aiJobBinding,
       kind: "editor_skill",
       targetKey: request?.targetKey ?? "",
       status: "succeeded",
@@ -1679,10 +1691,11 @@ describe("RichEditor images", () => {
 
   it("resolves legacy asset-only image markup for Windows image AI requests", async () => {
     const user = userEvent.setup();
-    const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
+    const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue(aiJobBinding);
     const signatureSpy = vi.spyOn(projectMindApi, "aiImageTargetSignature").mockResolvedValue("legacy-signature");
     const enqueueSpy = vi.spyOn(projectMindApi, "aiJobEnqueue").mockImplementation(async (input) => ({
       id: 903,
+      binding: aiJobBinding,
       kind: "editor_skill",
       targetKey: input.targetKey,
       status: "queued",
@@ -1747,7 +1760,7 @@ describe("RichEditor images", () => {
     const user = userEvent.setup();
     const onSave = vi.fn(async () => undefined);
     const controllerRef = { current: null as RichEditorController | null };
-    const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
+    const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue(aiJobBinding);
     const signatureSpy = vi.spyOn(projectMindApi, "aiImageTargetSignature").mockResolvedValue("signature");
     const cancelSpy = vi.spyOn(projectMindApi, "aiJobCancel").mockResolvedValue(null);
     let jobId = 100;
@@ -1755,6 +1768,7 @@ describe("RichEditor images", () => {
     const enqueueSpy = vi.spyOn(projectMindApi, "aiJobEnqueue").mockImplementation(async (input) => {
       const snapshot = {
         id: ++jobId,
+        binding: aiJobBinding,
         kind: "editor_skill" as const,
         targetKey: input.targetKey,
         status: "queued" as const,
@@ -1824,12 +1838,13 @@ describe("RichEditor images", () => {
     expect(container.querySelectorAll("[data-ai-rewrite-protected='true']")).toHaveLength(2);
     await waitFor(() => expect(screen.getByRole("list", { name: "其他 AI 会话" })).toBeInTheDocument());
     await user.click(within(screen.getByRole("list", { name: "其他 AI 会话" })).getByRole("button", { name: "关闭 文字提取 AI 会话" }));
-    expect(cancelSpy).not.toHaveBeenCalledWith(101);
+    expect(cancelSpy).not.toHaveBeenCalledWith({ id: 101, binding: aiJobBinding });
     releaseFirstJob?.();
-    await waitFor(() => expect(cancelSpy).toHaveBeenCalledWith(101));
+    await waitFor(() => expect(cancelSpy).toHaveBeenCalledWith({ id: 101, binding: aiJobBinding }));
     const secondRequest = enqueueSpy.mock.calls[1]?.[0];
     useAiJobStore.getState().upsertJob({
       id: 102,
+      binding: aiJobBinding,
       kind: "editor_skill",
       targetKey: secondRequest?.targetKey ?? "",
       status: "succeeded",
@@ -1851,7 +1866,7 @@ describe("RichEditor images", () => {
 
   it("keeps Windows IME input and surrounding content intact when an image answer result is malformed", async () => {
     const user = userEvent.setup();
-    const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
+    const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue(aiJobBinding);
     const signatureSpy = vi.spyOn(projectMindApi, "aiImageTargetSignature").mockResolvedValue("signature");
     const cancelSpy = vi.spyOn(projectMindApi, "aiJobCancel").mockResolvedValue(null);
     let jobId = 200;
@@ -1859,6 +1874,7 @@ describe("RichEditor images", () => {
     const enqueueSpy = vi.spyOn(projectMindApi, "aiJobEnqueue").mockImplementation(async (input) => {
       const snapshot = {
         id: ++jobId,
+        binding: aiJobBinding,
         kind: "editor_skill" as const,
         targetKey: input.targetKey,
         status: "queued" as const,
@@ -1943,6 +1959,7 @@ describe("RichEditor images", () => {
     await user.type(nearbyParagraph, " 已更新");
     useAiJobStore.getState().upsertJob({
       id: 201,
+      binding: aiJobBinding,
       kind: "editor_skill",
       targetKey: request.targetKey,
       status: "succeeded",
@@ -1981,7 +1998,7 @@ describe("RichEditor images", () => {
       />,
     );
     await waitFor(() => expect(screen.queryByText("无法解析的原始模型响应")).not.toBeInTheDocument());
-    expect(cancelSpy).toHaveBeenCalledWith(201);
+    expect(cancelSpy).toHaveBeenCalledWith({ id: 201, binding: aiJobBinding });
 
     const currentImage = container.querySelector("img.rich-editor__image") as HTMLImageElement;
     fireEvent.contextMenu(currentImage, { clientX: 30, clientY: 30 });
@@ -1999,9 +2016,9 @@ describe("RichEditor images", () => {
         contentIdentity="workspace-record:9"
       />,
     );
-    expect(cancelSpy).not.toHaveBeenCalledWith(202);
+    expect(cancelSpy).not.toHaveBeenCalledWith({ id: 202, binding: aiJobBinding });
     releaseWorkspaceJob?.();
-    await waitFor(() => expect(cancelSpy).toHaveBeenCalledWith(202));
+    await waitFor(() => expect(cancelSpy).toHaveBeenCalledWith({ id: 202, binding: aiJobBinding }));
     cancelSpy.mockRestore();
     enqueueSpy.mockRestore();
     signatureSpy.mockRestore();
@@ -2039,6 +2056,7 @@ describe("RichEditor images", () => {
     await waitFor(() => expect(job.getTargetKey()).toContain("editor-skill:"));
     useAiJobStore.getState().upsertJob({
       id: 204,
+      binding: aiJobBinding,
       kind: "editor_skill",
       targetKey: job.getTargetKey(),
       status: "succeeded",
@@ -2070,11 +2088,12 @@ describe("RichEditor images", () => {
 
   it("rolls back a streamed image preview before a dirty Workspace switch", async () => {
     const user = userEvent.setup();
-    const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
+    const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue(aiJobBinding);
     const signatureSpy = vi.spyOn(projectMindApi, "aiImageTargetSignature").mockResolvedValue("signature");
     const cancelSpy = vi.spyOn(projectMindApi, "aiJobCancel").mockResolvedValue(null);
     const enqueueSpy = vi.spyOn(projectMindApi, "aiJobEnqueue").mockImplementation(async (input) => ({
       id: 205,
+      binding: aiJobBinding,
       kind: "editor_skill",
       targetKey: input.targetKey,
       status: "queued",
@@ -2126,6 +2145,7 @@ describe("RichEditor images", () => {
     const request = enqueueSpy.mock.calls[0]?.[0];
     useAiJobStore.getState().upsertJob({
       id: 205,
+      binding: aiJobBinding,
       kind: "editor_skill",
       targetKey: request?.targetKey ?? "",
       status: "running",
@@ -2152,10 +2172,11 @@ describe("RichEditor images", () => {
     await waitFor(() => {
       expect(rendered.container.querySelector(".ProseMirror")?.textContent).not.toContain("不得持久化的临时预览");
       expect(rendered.container.querySelector("[data-ai-rewrite-protected='true']")).not.toBeInTheDocument();
-      expect(cancelSpy).toHaveBeenCalledWith(205);
+      expect(cancelSpy).toHaveBeenCalledWith({ id: 205, binding: aiJobBinding });
     });
     useAiJobStore.getState().upsertJob({
       id: 205,
+      binding: aiJobBinding,
       kind: "editor_skill",
       targetKey: request?.targetKey ?? "",
       status: "succeeded",
@@ -2175,7 +2196,7 @@ describe("RichEditor images", () => {
 
   it("retries a failed image answer, inserts the answer, and cancels on unmount", async () => {
     const user = userEvent.setup();
-    const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
+    const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue(aiJobBinding);
     const signatureSpy = vi.spyOn(projectMindApi, "aiImageTargetSignature").mockResolvedValue("signature");
     const cancelSpy = vi.spyOn(projectMindApi, "aiJobCancel").mockResolvedValue(null);
     let jobId = 210;
@@ -2183,6 +2204,7 @@ describe("RichEditor images", () => {
     const enqueueSpy = vi.spyOn(projectMindApi, "aiJobEnqueue").mockImplementation(async (input) => {
       const snapshot = {
         id: ++jobId,
+        binding: aiJobBinding,
         kind: "editor_skill" as const,
         targetKey: input.targetKey,
         status: "queued" as const,
@@ -2243,6 +2265,7 @@ describe("RichEditor images", () => {
     const firstRequest = enqueueSpy.mock.calls[0]?.[0];
     useAiJobStore.getState().upsertJob({
       id: 211,
+      binding: aiJobBinding,
       kind: "editor_skill",
       targetKey: firstRequest?.targetKey ?? "",
       status: "failed",
@@ -2255,10 +2278,11 @@ describe("RichEditor images", () => {
     });
     await user.click(await screen.findByRole("button", { name: "重试" }));
     await waitFor(() => expect(enqueueSpy).toHaveBeenCalledTimes(2));
-    expect(cancelSpy).toHaveBeenCalledWith(211);
+    expect(cancelSpy).toHaveBeenCalledWith({ id: 211, binding: aiJobBinding });
     const retryRequest = enqueueSpy.mock.calls[1]?.[0];
     useAiJobStore.getState().upsertJob({
       id: 212,
+      binding: aiJobBinding,
       kind: "editor_skill",
       targetKey: retryRequest?.targetKey ?? "",
       status: "succeeded",
@@ -2287,9 +2311,9 @@ describe("RichEditor images", () => {
     await openAnswerSkill();
     await waitFor(() => expect(enqueueSpy).toHaveBeenCalledTimes(3));
     rendered.unmount();
-    expect(cancelSpy).not.toHaveBeenCalledWith(213);
+    expect(cancelSpy).not.toHaveBeenCalledWith({ id: 213, binding: aiJobBinding });
     releaseUnmountedJob?.();
-    await waitFor(() => expect(cancelSpy).toHaveBeenCalledWith(213));
+    await waitFor(() => expect(cancelSpy).toHaveBeenCalledWith({ id: 213, binding: aiJobBinding }));
     cancelSpy.mockRestore();
     enqueueSpy.mockRestore();
     signatureSpy.mockRestore();
@@ -2300,7 +2324,7 @@ describe("RichEditor images", () => {
     const user = userEvent.setup();
     const onSave = vi.fn(async () => undefined);
     const controllerRef = { current: null as RichEditorController | null };
-    const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
+    const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue(aiJobBinding);
     const signatureSpy = vi.spyOn(projectMindApi, "aiImageTargetSignature").mockResolvedValue("signature");
     let targetKey = "";
     let releaseEnqueue: (() => void) | null = null;
@@ -2311,6 +2335,7 @@ describe("RichEditor images", () => {
       });
       return {
         id: 220,
+        binding: aiJobBinding,
         kind: "editor_skill",
         targetKey,
         status: "queued",
@@ -2382,6 +2407,7 @@ describe("RichEditor images", () => {
     disturbViewportOnNextWidgetMutation = true;
     useAiJobStore.getState().upsertJob({
       id: 220,
+      binding: aiJobBinding,
       kind: "editor_skill",
       targetKey,
       status: "running",
@@ -2402,6 +2428,7 @@ describe("RichEditor images", () => {
     disturbViewportOnNextWidgetMutation = true;
     useAiJobStore.getState().upsertJob({
       id: 220,
+      binding: aiJobBinding,
       kind: "editor_skill",
       targetKey,
       status: "succeeded",
@@ -4567,9 +4594,10 @@ describe("RichEditor context menus", () => {
 
   it("submits prompt overrides from the AI menu with Enter", async () => {
     const user = userEvent.setup();
-    const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
+    const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue(aiJobBinding);
     const enqueueSpy = vi.spyOn(projectMindApi, "aiJobEnqueue").mockResolvedValue({
       id: 11,
+      binding: aiJobBinding,
       kind: "editor_skill",
       targetKey: "editor-skill:test",
       status: "queued",
@@ -4646,12 +4674,13 @@ describe("RichEditor context menus", () => {
       return true;
     });
     const aiCommit = vi.fn(() => { boundaries.push(JSON.stringify(controllerRef.current?.getCommittedDocumentJson())); });
-    const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
+    const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue(aiJobBinding);
     let targetKey = "";
     const enqueueSpy = vi.spyOn(projectMindApi, "aiJobEnqueue").mockImplementation(async (input) => {
       targetKey = input.targetKey;
       return {
         id: 61,
+        binding: aiJobBinding,
         kind: "editor_skill",
         targetKey,
         status: "queued",
@@ -4704,6 +4733,7 @@ describe("RichEditor context menus", () => {
     await waitFor(() => expect(targetKey).toContain("editor-skill:"));
     useAiJobStore.getState().upsertJob({
       id: 61,
+      binding: aiJobBinding,
       kind: "editor_skill",
       targetKey,
       status: "running",
@@ -4720,6 +4750,7 @@ describe("RichEditor context menus", () => {
 
     useAiJobStore.getState().upsertJob({
       id: 61,
+      binding: aiJobBinding,
       kind: "editor_skill",
       targetKey,
       status: "succeeded",
@@ -4821,6 +4852,7 @@ describe("RichEditor context menus", () => {
     await act(async () => {
       useAiJobStore.getState().upsertJob({
         id: 55,
+        binding: aiJobBinding,
         kind: "editor_skill",
         targetKey: job.getTargetKey(),
         status: "succeeded",
@@ -4885,6 +4917,7 @@ describe("RichEditor context menus", () => {
     await act(async () => {
       useAiJobStore.getState().upsertJob({
         id: 56,
+        binding: aiJobBinding,
         kind: "editor_skill",
         targetKey: job.getTargetKey(),
         status: "succeeded",
@@ -4931,12 +4964,13 @@ describe("RichEditor context menus", () => {
       expect(result.ok, JSON.stringify(result)).toBe(true);
     };
     const user = userEvent.setup();
-    const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
+    const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue(aiJobBinding);
     let targetKey = "";
     const enqueueSpy = vi.spyOn(projectMindApi, "aiJobEnqueue").mockImplementation(async (input) => {
       targetKey = input.targetKey;
       return {
         id: 41,
+        binding: aiJobBinding,
         kind: "editor_skill",
         targetKey,
         status: "queued",
@@ -5009,6 +5043,7 @@ describe("RichEditor context menus", () => {
 
     useAiJobStore.getState().upsertJob({
       id: 41,
+      binding: aiJobBinding,
       kind: "editor_skill",
       targetKey,
       status: "running",
@@ -5024,6 +5059,7 @@ describe("RichEditor context menus", () => {
     });
     useAiJobStore.getState().upsertJob({
       id: 41,
+      binding: aiJobBinding,
       kind: "editor_skill",
       targetKey,
       status: "succeeded",
@@ -5102,7 +5138,7 @@ describe("RichEditor context menus", () => {
     fireEvent.contextMenu(text.parentElement!, {clientX: 20, clientY: 20});
     await user.click(within(await screen.findByRole("menu", {name: "文本操作"})).getByRole("menuitem", {name: "润色"}));
     await waitFor(() => expect(job.getTargetKey()).toContain("editor-skill:"));
-    const base = {id: 54, kind: "editor_skill" as const, targetKey: job.getTargetKey(), queuedAt: "", startedAt: "", errorMessage: null};
+    const base = {id: 54, binding: aiJobBinding, kind: "editor_skill" as const, targetKey: job.getTargetKey(), queuedAt: "", startedAt: "", errorMessage: null};
     useAiJobStore.getState().upsertJob({...base, status: "running", finishedAt: null, streamText: "## Inserted heading", result: null});
     await waitFor(() => expect(surface.querySelector("h2")?.textContent).toBe("Inserted heading"));
     const markdown = "## Inserted heading\n\nFinal authored paragraph.";
@@ -5155,6 +5191,7 @@ describe("RichEditor context menus", () => {
 
     useAiJobStore.getState().upsertJob({
       id: 53,
+      binding: aiJobBinding,
       kind: "editor_skill",
       targetKey: job.getTargetKey(),
       status: "running",
@@ -5174,6 +5211,7 @@ describe("RichEditor context menus", () => {
 
     useAiJobStore.getState().upsertJob({
       id: 53,
+      binding: aiJobBinding,
       kind: "editor_skill",
       targetKey: job.getTargetKey(),
       status: "running",
@@ -5192,6 +5230,7 @@ describe("RichEditor context menus", () => {
 
     useAiJobStore.getState().upsertJob({
       id: 53,
+      binding: aiJobBinding,
       kind: "editor_skill",
       targetKey: job.getTargetKey(),
       status: "running",
@@ -5213,12 +5252,13 @@ describe("RichEditor context menus", () => {
 
   it("preserves selected rich text formatting while streaming and accepting modify results", async () => {
     const user = userEvent.setup();
-    const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
+    const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue(aiJobBinding);
     let targetKey = "";
     const enqueueSpy = vi.spyOn(projectMindApi, "aiJobEnqueue").mockImplementation(async (input) => {
       targetKey = input.targetKey;
       return {
         id: 51,
+        binding: aiJobBinding,
         kind: "editor_skill",
         targetKey,
         status: "queued",
@@ -5286,6 +5326,7 @@ describe("RichEditor context menus", () => {
     }
     useAiJobStore.getState().upsertJob({
       id: 51,
+      binding: aiJobBinding,
       kind: "editor_skill",
       targetKey,
       status: "running",
@@ -5304,6 +5345,7 @@ describe("RichEditor context menus", () => {
 
     useAiJobStore.getState().upsertJob({
       id: 51,
+      binding: aiJobBinding,
       kind: "editor_skill",
       targetKey,
       status: "succeeded",
@@ -5336,12 +5378,13 @@ describe("RichEditor context menus", () => {
 
   it("streams markdown answers and inserts them as rich editor blocks", async () => {
     const user = userEvent.setup();
-    const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue();
+    const ensureSyncSpy = vi.spyOn(aiJobs, "ensureAiJobSync").mockResolvedValue(aiJobBinding);
     let targetKey = "";
     const enqueueSpy = vi.spyOn(projectMindApi, "aiJobEnqueue").mockImplementation(async (input) => {
       targetKey = input.targetKey;
       return {
         id: 52,
+        binding: aiJobBinding,
         kind: "editor_skill",
         targetKey,
         status: "queued",
@@ -5402,6 +5445,7 @@ describe("RichEditor context menus", () => {
     await waitFor(() => expect(targetKey).toContain("editor-skill:"));
     useAiJobStore.getState().upsertJob({
       id: 52,
+      binding: aiJobBinding,
       kind: "editor_skill",
       targetKey,
       status: "running",
@@ -5421,6 +5465,7 @@ describe("RichEditor context menus", () => {
 
     useAiJobStore.getState().upsertJob({
       id: 52,
+      binding: aiJobBinding,
       kind: "editor_skill",
       targetKey,
       status: "succeeded",
@@ -5496,6 +5541,7 @@ describe("RichEditor context menus", () => {
     await act(async () => {
       useAiJobStore.getState().upsertJob({
         id: 54,
+        binding: aiJobBinding,
         kind: "editor_skill",
         targetKey: job.getTargetKey(),
         status: "running",
@@ -5515,6 +5561,7 @@ describe("RichEditor context menus", () => {
     await act(async () => {
       useAiJobStore.getState().upsertJob({
         id: 54,
+        binding: aiJobBinding,
         kind: "editor_skill",
         targetKey: job.getTargetKey(),
         status: "running",
@@ -5534,6 +5581,7 @@ describe("RichEditor context menus", () => {
     await act(async () => {
       useAiJobStore.getState().upsertJob({
         id: 54,
+        binding: aiJobBinding,
         kind: "editor_skill",
         targetKey: job.getTargetKey(),
         status: "running",

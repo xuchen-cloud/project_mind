@@ -10,6 +10,7 @@ import type {
   AiEditorSkillUpsertInput,
   AiExecutionSettings,
   AiJobEnqueueInput,
+  AiJobIdentity,
   AiJobSnapshot,
   AiNetworkSettings,
   AiNetworkSettingsUpsertInput,
@@ -241,19 +242,21 @@ export const projectMindApi = {
     desktopApi.command<AiEditorSkillRecord[]>("ai_editor_skill_reorder", {
       input,
     }),
-  aiJobEnqueue: (input: AiJobEnqueueInput) =>
-    desktopApi.command<AiJobSnapshot>("ai_job_enqueue", { input }),
-  aiJobGet: (jobId: number) =>
-    desktopApi.command<AiJobSnapshot | null>("ai_job_get", { jobId }),
-  aiJobCancel: (jobId: number) =>
-    desktopApi.command<AiJobSnapshot | null>("ai_job_cancel", { jobId }),
+  aiJobBindingGet: () =>
+    desktopApi.command<AgentWorkspaceBinding>("ai_job_binding_get"),
+  aiJobEnqueue: (input: AiJobEnqueueInput, binding: AgentWorkspaceBinding) =>
+    desktopApi.command<AiJobSnapshot>("ai_job_enqueue", { input, binding }),
+  aiJobGet: ({ id: jobId, binding }: AiJobIdentity) =>
+    desktopApi.command<AiJobSnapshot | null>("ai_job_get", { jobId, binding }),
+  aiJobCancel: ({ id: jobId, binding }: AiJobIdentity) =>
+    desktopApi.command<AiJobSnapshot | null>("ai_job_cancel", { jobId, binding }),
   aiImageTargetSignature: (input: { path: string; annotationState?: string | null }) =>
     desktopApi.command<string>("ai_image_target_signature", {
       path: input.path,
       annotationState: input.annotationState ?? null,
     }),
-  aiJobsListActive: () =>
-    desktopApi.command<AiJobSnapshot[]>("ai_jobs_list_active"),
+  aiJobsListActive: (binding: AgentWorkspaceBinding) =>
+    desktopApi.command<AiJobSnapshot[]>("ai_jobs_list_active", { binding }),
   aiExecutionSettingsUpsert: (input: AiExecutionSettings) =>
     desktopApi.command<AiExecutionSettings>("ai_execution_settings_upsert", {
       input,

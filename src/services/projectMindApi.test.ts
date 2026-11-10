@@ -628,9 +628,18 @@ describe("projectMindApi", () => {
     });
   });
 
+  const aiJobBinding = { workspaceId: "workspace", generation: "opened" };
+
+  it("reads the current native AI job binding", async () => {
+    serviceMocks.commandMock.mockResolvedValueOnce(aiJobBinding);
+    expect(await projectMindApi.aiJobBindingGet()).toEqual(aiJobBinding);
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("ai_job_binding_get");
+  });
+
   it("maps ai job enqueue to the correct command", async () => {
     serviceMocks.commandMock.mockResolvedValueOnce({
       id: 1,
+      binding: aiJobBinding,
       kind: "editor_skill",
       targetKey: "editor-rewrite:test",
       status: "queued",
@@ -651,9 +660,10 @@ describe("projectMindApi", () => {
         resultMode: "modify",
         selectedText: "原文",
       },
-    });
+    }, aiJobBinding);
 
     expect(serviceMocks.commandMock).toHaveBeenCalledWith("ai_job_enqueue", {
+      binding: aiJobBinding,
       input: {
         kind: "editor_skill",
         targetKey: "editor-rewrite:test",
@@ -671,19 +681,26 @@ describe("projectMindApi", () => {
   it("maps ai job get to the correct command", async () => {
     serviceMocks.commandMock.mockResolvedValueOnce(null);
 
-    await projectMindApi.aiJobGet(12);
+    await projectMindApi.aiJobGet({ id: 12, binding: aiJobBinding });
 
     expect(serviceMocks.commandMock).toHaveBeenCalledWith("ai_job_get", {
       jobId: 12,
+      binding: aiJobBinding,
     });
   });
 
-  it("maps ai jobs list active without payload", async () => {
+  it("maps ai jobs list active with its binding", async () => {
     serviceMocks.commandMock.mockResolvedValueOnce([]);
 
-    await projectMindApi.aiJobsListActive();
+    await projectMindApi.aiJobsListActive(aiJobBinding);
 
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith("ai_jobs_list_active");
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("ai_jobs_list_active", { binding: aiJobBinding });
+  });
+
+  it("maps ai job cancellation with the original identity", async () => {
+    serviceMocks.commandMock.mockResolvedValueOnce(null);
+    await projectMindApi.aiJobCancel({ id: 12, binding: aiJobBinding });
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("ai_job_cancel", { jobId: 12, binding: aiJobBinding });
   });
 
   it("maps ai execution settings updates to the correct command", async () => {

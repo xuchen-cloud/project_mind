@@ -1,9 +1,10 @@
-import { listen } from "@tauri-apps/api/event";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import type {
   AiEditorSkillInput,
   AiEditorSkillResult,
   AiJobEnqueueInput,
+  AiJobIdentity,
   AiJobSnapshot,
   AiJobStatus,
   AiProfileTestInput,
@@ -11,11 +12,32 @@ import type {
   AiRecordMetadataResult,
 } from "./types";
 import { projectMindApi } from "../services/projectMindApi";
-import { useAiJobStore } from "../state/ai-job-store";
+import { sameAiJobBinding, useAiJobStore } from "../state/ai-job-store";
+import type { AgentWorkspaceBinding } from "./agent-types";
 
 const AI_JOB_EVENT = "ai-job-updated";
 
-let aiJobSyncPromise: Promise<void> | null = null;
+interface AiJobSync {
+  promise: Promise<AgentWorkspaceBinding | null>;
+  abort: AbortController;
+  unlisten?: UnlistenFn;
+}
+let aiJobSync: AiJobSync | null = null;
+
+function workspaceChanged() {
+  return new Error("工作区已切换，AI 请求已停止等待");
+}
+
+function awaitInSync<T>(sync: AiJobSync, operation: Promise<T>): Promise<T> {
+  if (sync.abort.signal.aborted) return Promise.reject(workspaceChanged());
+  return new Promise((resolve, reject) => {
+    const aborted = () => reject(workspaceChanged());
+    sync.abort.signal.addEventListener("abort", aborted, { once: true });
+    void operation.then(resolve, reject).finally(() => {
+      sync.abort.signal.removeEventListener("abort", aborted);
+    });
+  });
+}
 
 export function aiProfileTestJobTargetKey(profileId?: number | null) {
   return `profile-test:${profileId ?? "draft"}`;
@@ -50,36 +72,70 @@ export function aiJobStatusLabel(status: AiJobStatus) {
   }
 }
 
-export async function ensureAiJobSync() {
-  if (!aiJobSyncPromise) {
-    aiJobSyncPromise = (async () => {
-      await listen<AiJobSnapshot>(AI_JOB_EVENT, (event) => {
-        if (event.payload) {
+export function ensureAiJobSync(): Promise<AgentWorkspaceBinding | null> {
+  if (!aiJobSync) {
+    const sync: AiJobSync = { promise: Promise.resolve(null), abort: new AbortController() };
+    aiJobSync = sync;
+    sync.promise = (async () => {
+      const binding = await projectMindApi.aiJobBindingGet();
+      if (aiJobSync !== sync) return null;
+      useAiJobStore.getState().bindWorkspace(binding);
+      const unlisten = await listen<AiJobSnapshot>(AI_JOB_EVENT, (event) => {
+        if (aiJobSync === sync && event.payload) {
           useAiJobStore.getState().upsertJob(event.payload);
         }
       });
-
-      const activeJobs = await projectMindApi.aiJobsListActive();
+      if (aiJobSync !== sync) {
+        unlisten();
+        return null;
+      }
+      sync.unlisten = unlisten;
+      const activeJobs = await projectMindApi.aiJobsListActive(binding);
+      if (aiJobSync !== sync) return null;
       useAiJobStore.getState().upsertJobs(activeJobs);
+      return binding;
     })().catch((error) => {
-      aiJobSyncPromise = null;
+      if (aiJobSync !== sync) return null;
+      resetAiJobSync();
       throw error;
     });
   }
-
-  return aiJobSyncPromise;
+  return aiJobSync.promise;
 }
 
 export function resetAiJobSync() {
-  aiJobSyncPromise = null;
+  const sync = aiJobSync;
+  aiJobSync = null;
+  sync?.abort.abort();
+  sync?.unlisten?.();
   useAiJobStore.getState().reset();
 }
 
-export async function enqueueAndWait(input: AiJobEnqueueInput) {
-  await ensureAiJobSync();
-  const snapshot = await projectMindApi.aiJobEnqueue(input);
+export async function enqueueAiJob(input: AiJobEnqueueInput, expectedBinding?: AgentWorkspaceBinding) {
+  const ready = ensureAiJobSync();
+  const sync = aiJobSync!;
+  const binding = await awaitInSync(sync, ready);
+  if (!binding || (expectedBinding && !sameAiJobBinding(binding, expectedBinding))) {
+    throw workspaceChanged();
+  }
+  const snapshot = await awaitInSync(sync, projectMindApi.aiJobEnqueue(input, binding));
+  if (!sameAiJobBinding(binding, snapshot.binding)) throw workspaceChanged();
   useAiJobStore.getState().upsertJob(snapshot);
-  return waitForAiJob(snapshot.id);
+  return snapshot;
+}
+
+export async function cancelAiJob(identity: AiJobIdentity) {
+  const sync = aiJobSync;
+  const snapshot = await projectMindApi.aiJobCancel(identity);
+  if (sync && aiJobSync === sync && snapshot) useAiJobStore.getState().upsertJob(snapshot);
+  return snapshot;
+}
+
+export async function enqueueAndWait(input: AiJobEnqueueInput, expectedBinding?: AgentWorkspaceBinding) {
+  const queued = enqueueAiJob(input, expectedBinding);
+  const sync = aiJobSync!;
+  const snapshot = await queued;
+  return waitForAiJob(sync, snapshot);
 }
 
 export function useAiJobTarget(targetKey: string) {
@@ -132,34 +188,28 @@ export function readRecordMetadataJobResult(job: AiJobSnapshot): AiRecordMetadat
   return job.result.metadata;
 }
 
-async function waitForAiJob(jobId: number) {
-  const current = useAiJobStore.getState().jobsById[jobId];
-  if (isAiJobTerminal(current)) {
-    return current;
-  }
+function waitForAiJob(sync: AiJobSync, identity: AiJobIdentity): Promise<AiJobSnapshot> {
+  if (sync.abort.signal.aborted) return Promise.reject(workspaceChanged());
+  const current = useAiJobStore.getState().jobsById[identity.id];
+  if (isAiJobTerminal(current)) return Promise.resolve(current);
 
-  return new Promise<AiJobSnapshot>((resolve) => {
-    const unsubscribe = useAiJobStore.subscribe((state) => {
-      const next = state.jobsById[jobId];
-      if (!isAiJobTerminal(next)) {
-        return;
-      }
-
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
       unsubscribe();
+      sync.abort.signal.removeEventListener("abort", aborted);
+    };
+    const aborted = () => { cleanup(); reject(workspaceChanged()); };
+    const check = () => {
+      const next = useAiJobStore.getState().jobsById[identity.id];
+      if (!isAiJobTerminal(next)) return;
+      cleanup();
       resolve(next);
-    });
-
-    const latest = useAiJobStore.getState().jobsById[jobId];
-    if (isAiJobTerminal(latest)) {
-      unsubscribe();
-      resolve(latest);
-      return;
-    }
-
-    void projectMindApi.aiJobGet(jobId).then((snapshot) => {
-      if (snapshot) {
-        useAiJobStore.getState().upsertJob(snapshot);
-      }
-    });
+    };
+    const unsubscribe = useAiJobStore.subscribe(check);
+    sync.abort.signal.addEventListener("abort", aborted, { once: true });
+    check();
+    void projectMindApi.aiJobGet(identity).then((snapshot) => {
+      if (aiJobSync === sync && snapshot) useAiJobStore.getState().upsertJob(snapshot);
+    }).catch((error) => { cleanup(); reject(error); });
   });
 }
