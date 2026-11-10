@@ -3,6 +3,7 @@ import { getSchema } from "@tiptap/core";
 import { expect, it } from "vitest";
 import { buildRichEditorExtensions } from "../components/rich-editor/extensions";
 import { parseRecordHtml } from "./record-document-html";
+import { renderMarkdownToHtml } from "../components/rich-editor/markdown";
 import { serializeRecordDocument } from "./record-document-format";
 
 const schema = getSchema(buildRichEditorExtensions("", { stableBlocks: true, portableAssets: true }));
@@ -61,4 +62,36 @@ it("preserves fixed File SourceRef in canonical projection and legacy HTML conve
   expect(parseRecordHtml(projection.html, schema)).toEqual(document);
   expect(() => parseRecordHtml(projection.html.replace('data-ref-id="51"', 'data-ref-id="52"'), schema)).toThrow(/identity/);
   expect(() => parseRecordHtml(projection.html.replace('data-ref-kind="document"', 'data-ref-kind="todo"'), schema)).toThrow(/identity/);
+});
+
+// Regression from review/evidence/frontend-probes/block-validation.test.tsx:
+// assert the intended language before comparing the canonical roundtrip.
+it.each(["ts", "typescript", "mermaid", "unknown-language", null])(
+  "preserves code language %s through Markdown, canonical and HTML",
+  (language) => {
+    const source = "hello\nworld";
+    const markdown = "```" + (language ?? "") + "\n" + source + "\n```";
+    const canonical = parseRecordHtml(renderMarkdownToHtml(markdown), schema);
+    expect(canonical.content![0].attrs).toMatchObject({ language, languageExplicit: language !== null });
+    // Node Markdown rendering retains its existing terminal newline.
+    expect(canonical.content![0].content).toEqual([{ type: "text", text: source + "\n" }]);
+    const projection = serializeRecordDocument(canonical, schema);
+    expect(projection.markdown.split("\n")[0]).toBe("```" + (language ?? ""));
+    expect(parseRecordHtml(projection.html, schema)).toEqual(canonical);
+    const fromMarkdown = parseRecordHtml(renderMarkdownToHtml(projection.markdown), schema);
+    expect(fromMarkdown.content![0]).toMatchObject({
+      type: "codeBlock", attrs: { language, languageExplicit: language !== null },
+    });
+  },
+);
+
+it("reads the first element child past comments and text, using HTML class whitespace", () => {
+  const canonical = parseRecordHtml('<pre><!--comment--> <code class="highlight\tlanguage-ts\nlanguage-js">x</code></pre>', schema);
+  expect(canonical.content![0].attrs).toMatchObject({ language: "ts", languageExplicit: true });
+});
+
+it("keeps explicit-language metadata independent of the language class", () => {
+  const canonical = parseRecordHtml('<pre data-language-explicit="false"><code class="language-ts">x</code></pre>', schema);
+  expect(canonical.content![0].attrs).toMatchObject({ language: "ts", languageExplicit: false });
+  expect(parseRecordHtml(serializeRecordDocument(canonical, schema).html, schema)).toEqual(canonical);
 });
