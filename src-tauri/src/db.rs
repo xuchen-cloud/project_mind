@@ -79,6 +79,7 @@ pub(crate) mod file_owner_move;
 pub(crate) mod file_drop;
 pub(crate) mod file_content;
 pub(crate) mod project_directory_files;
+pub(crate) mod project_directory_changes;
 pub(crate) mod dsh_source_evidence;
 #[cfg(test)]
 mod startup_tests;
@@ -397,6 +398,7 @@ impl Database {
             db.bind_native_workspace(&crate::workspace::load_metadata(workspace_root)?.0.workspace_id)?;
         }
         db.migrate()?;
+        db.project_directory_recover_pending(None)?;
         db.file_working_recover_pending()?;
         db.voice_retry_asset_cleanup()?;
         Ok(db)

@@ -562,6 +562,8 @@ impl Database {
         )?;
         let project = self.file_project_lock(project_id, false)?;
         let file = self.file_version_lock(document_id)?;
+        let document = self.document_record(document_id)?;
+        self.directory_require_file_no_pending(&document)?;
         Ok((project, file))
     }
     pub(super) fn file_scope_storage_lock(&self, directory: &str, project_id: Option<i64>, exclusive: bool) -> Result<File> {
@@ -575,6 +577,24 @@ impl Database {
         directory: &str,
         object_id: i64,
         exclusive: bool,
+    ) -> Result<File> {
+        self.file_storage_lock_mode(directory, object_id, exclusive, true)
+    }
+    /// Lifecycle-fenced directory mutations must never block behind a File
+    /// writer which may itself be waiting to enter that same fence.
+    pub(super) fn file_storage_try_lock(
+        &self,
+        directory: &str,
+        object_id: i64,
+    ) -> Result<File> {
+        self.file_storage_lock_mode(directory, object_id, true, false)
+    }
+    fn file_storage_lock_mode(
+        &self,
+        directory: &str,
+        object_id: i64,
+        exclusive: bool,
+        wait: bool,
     ) -> Result<File> {
         use fs2::FileExt;
         if object_id <= 0 {
@@ -609,7 +629,9 @@ impl Database {
         if !lock.metadata()?.is_file() || lock.metadata()?.file_type().is_symlink() {
             bail!("Invalid File lock handle");
         }
-        if exclusive {
+        if !wait {
+            lock.try_lock_exclusive()?;
+        } else if exclusive {
             lock.lock_exclusive()?;
         } else {
             FileExt::lock_shared(&lock)?;
@@ -822,6 +844,7 @@ impl Database {
     }
     pub(crate) fn file_version_recover_pending(&self) -> Result<()> {
         self.file_owner_move_recover_pending()?;
+        self.project_directory_recover_pending(None)?;
         self.file_working_recover_pending()?;
         self.file_import_recover_pending()?;
         self.file_metadata_recover_pending()?;

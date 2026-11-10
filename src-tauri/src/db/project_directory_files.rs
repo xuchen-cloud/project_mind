@@ -431,6 +431,7 @@ impl Database {
                 "File belongs to another Project",
             ));
         }
+        self.directory_require_file_no_pending(&document)?;
         Ok((document, root))
     }
     fn directory_hash(&self, id: i64, version: i64) -> Result<Option<String>> {
@@ -555,6 +556,7 @@ impl Database {
         let root = self.directory_owner(workspace, project)?;
         let path = business_path(&root, relative)?;
         let _project_lock = self.file_project_lock(project, false)?;
+        self.directory_require_no_pending(&path, project)?;
         let identity_lock = self.file_storage_lock("file-import-identities", 1, true)?;
         let metadata = fs::symlink_metadata(&path)?;
         if !metadata.is_file() {
@@ -684,6 +686,7 @@ impl Database {
         )>,
         gui: Option<(&str, &file_versions::GuiFileVersionIntent, bool)>,
     ) -> Result<DirectoryFile> {
+        self.directory_require_no_pending(path, project)?;
         if !replacement && self.file_working_matches_live(existing)? { return self.directory_projection(existing); }
         let _identity_lock = self.file_storage_lock("file-import-identities", 1, true)?;
         let root = self.directory_owner(workspace, project)?;
@@ -925,7 +928,6 @@ impl Database {
         let (project, id) = file_id(object)?;
         let _project_lock = self.file_project_lock(project, false)?;
         let _file_lock = self.file_version_lock(id)?;
-        if self.file_working_matches_live(object)? { return self.directory_projection(object); }
         let (document, root) = self.directory_target(object)?;
         let path = PathBuf::from(&document.managed_path);
         let relative = path
@@ -944,6 +946,10 @@ impl Database {
                 &error.to_string(),
             );
         }
+        // A missing original (including a removed ancestor) is a navigation
+        // state. Do not read its physical identity before reporting missing:
+        // persisted working bytes and immutable versions remain available.
+        if self.file_working_matches_live(object)? { return self.directory_projection(object); }
         if let Err(error) = business_path(&root, &relative) {
             return self.directory_state(object, "unavailable", &error.to_string());
         }
@@ -1423,6 +1429,7 @@ impl Database {
         self.file_owner_require_unshared_root(&original, project)?;
         self.record_owner_require_unshared_root(&original, project)?;
         let target = business_path(&root, relative)?;
+        self.directory_require_no_pending(&target, project)?;
         self.directory_unclaimed(&target, object)?;
         if original == target {
             return self.directory_projection(object);
