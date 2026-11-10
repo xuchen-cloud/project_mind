@@ -1,6 +1,8 @@
 import { agentApi } from "../../services/agentApi";
 import { projectFileApi } from "../../services/projectFileApi";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render as renderWithTestingLibrary, screen, waitFor, within } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactElement } from "react";
 import userEvent from "@testing-library/user-event";
 import { Copy } from "lucide-react";
 import type { Editor } from "@tiptap/core";
@@ -19,6 +21,13 @@ import { useFeedbackStore } from "../../state/feedback-store";
 import appStyles from "../../styles/app.css?raw";
 import { clearManagedImageThumbnailCacheForTests } from "./imageThumbnails";
 import { RichEditor, type RichEditorController } from "./RichEditor";
+
+function render(ui: ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return renderWithTestingLibrary(ui, {
+    wrapper: ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>,
+  });
+}
 
 it.each(["", "<p></p>", "<p>Existing</p>", `<p data-block-id="${"e".repeat(32)}">Existing</p>`])("validates an immediate canonical Record save after mounting %s", async (html) => {
   const { handleRecordDocumentRequest } = await import("../../workers/record-document-worker");

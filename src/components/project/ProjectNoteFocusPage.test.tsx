@@ -1060,7 +1060,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     expect(aiMetadataMocks.enqueueAndWait).toHaveBeenCalledWith(expect.objectContaining({
       kind: "record_metadata",
       input: expect.objectContaining({ markdown: "正文" }),
-    }));
+    }), { workspaceId: "fixture-workspace", generation: "open-1" });
     expect(screen.getByDisplayValue("访谈结论")).toBeInTheDocument();
   });
 

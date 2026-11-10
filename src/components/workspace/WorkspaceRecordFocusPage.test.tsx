@@ -1056,7 +1056,7 @@ describe("WorkspaceRecordFocusPage record switching", () => {
     expect(aiMetadataMocks.enqueueAndWait).toHaveBeenCalledWith(expect.objectContaining({
       kind: "record_metadata",
       input: expect.objectContaining({ markdown: "正文 A" }),
-    }));
+    }), { workspaceId: "fixture-workspace", generation: "open-1" });
     expect(screen.getByDisplayValue("Workspace 方法总结")).toBeInTheDocument();
   });
 
