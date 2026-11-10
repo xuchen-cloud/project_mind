@@ -1,0 +1,60 @@
+
+ RUN  v4.1.2 /private/tmp/project-mind-review-combined
+
+stderr | src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > subscribes to Tauri window drag-drop events and forwards dropped paths
+The current testing environment is not configured to support act(...)
+
+stderr | src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > subscribes to Tauri window drag-drop events and forwards dropped paths
+The current testing environment is not configured to support act(...)
+
+stderr | src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > shares one native subscription in StrictMode and filters subscribers by enabled state and position
+The current testing environment is not configured to support act(...)
+
+stderr | src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > shares one native subscription in StrictMode and filters subscribers by enabled state and position
+The current testing environment is not configured to support act(...)
+
+stderr | src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > shares one native subscription in StrictMode and filters subscribers by enabled state and position
+The current testing environment is not configured to support act(...)
+
+stderr | src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > shares one native subscription in StrictMode and filters subscribers by enabled state and position
+The current testing environment is not configured to support act(...)
+
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > subscribes to Tauri window drag-drop events and forwards dropped paths 53ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > keeps pending native registration across unmount and reuses it with the latest subscriber 3ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > shares one native subscription in StrictMode and filters subscribers by enabled state and position 3ms
+stderr | src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > keeps hover-driven React rerenders from interrupting the native drag session
+The current testing environment is not configured to support act(...)
+
+stderr | src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > keeps hover-driven React rerenders from interrupting the native drag session
+The current testing environment is not configured to support act(...)
+
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > reports native installation failure without retrying on component churn 55ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > reports a subscriber failure while still delivering to another subscriber 5ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > does not subscribe outside the Tauri runtime 2ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > converts physical coordinates to CSS pixels before hit-testing and dropping 1ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > reports CSS hover positions only inside the active region and clears them on leave 1ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > dispatches the drop before clearing hover, then awaits its asynchronous result 1ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > keeps the native subscription while using updated hover, hit-test and drop callbacks 6ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > reports a drop throw while clearing both hover signals 1ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > reports a drop reject while clearing both hover signals 1ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > keeps hover-driven React rerenders from interrupting the native drag session 1ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > clears hover and removes the subscriber on disable, ignoring subsequent native events 1ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > clears hover and removes the subscriber on unmount, ignoring subsequent native events 1ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > leaves native registration window-owned when it resolves after unmount 1ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > does not clear a newer drag when an earlier drop finishes 1ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > does not call updated or unmounted handlers when an earlier drop finishes 1ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > keeps a newer subscriber drag when window-owned registration fails late 1ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > clears an outside drop without forwarding paths 1ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > clears an empty drop without forwarding paths 1ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > delivers only one drop per drag even while pending, after completion, or after leave 1ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > allows the next drag after a new enter event 1ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > allows the next drag after a new over event 1ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > does not retry a failed throw until the user drags in again 1ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > does not retry a failed reject until the user drags in again 1ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > ignores native events after disable commits but before passive cleanup 1ms
+
+ Test Files  1 passed (1)
+      Tests  27 passed (27)
+   Start at  01:07:57
+   Duration  467ms (transform 62ms, setup 47ms, import 27ms, tests 145ms, environment 193ms)
+

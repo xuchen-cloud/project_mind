@@ -1,0 +1,182 @@
+
+ RUN  v4.1.2 /private/tmp/project-mind-review-combined
+
+ ✓ src/components/document/ProjectFileContent.test.tsx > opens a legacy File after explicit recovery with a registered hash: true, without relying on a cached version query 88ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > opens a legacy File after explicit recovery with a registered hash: false, without relying on a cached version query 37ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > releases the old File session only when the confirmed move has not ended it natively (true) 67ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > releases the old File session only when the confirmed move has not ended it natively (false) 26ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > reloads a replaced File in the same Tab, releases only after retiring its old renderer, and closes the new session normally 61ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > completes a captured replacement from its local receipt and ignores that receipt in a later instance with a new draft 71ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > retires every captured same-File instance before unlocking a synchronous local replacement 53ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > retires every captured same-File instance before unlocking a synchronous native replacement 51ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > waits for both captured instances to finish a local replacement when instance 0 finishes first 53ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > waits for both captured instances to finish a local replacement when instance 1 finishes first 47ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > waits for both captured instances to finish a native replacement when instance 0 finishes first 42ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > waits for both captured instances to finish a native replacement when instance 1 finishes first 43ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > keeps the original File renderer and draft when a prepared replacement is released without committing 36ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > ignores a released operation receipt even when this instance remembers participating in its capture 34ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > registers a fresh participant when a receipt-first retry captures the same operation after its previous barrier was released 37ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > retires replacement sessions according to oldSessionsClosed independently of noChange: {"noChange":false,"oldSessionsClosed":false} 30ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > retires replacement sessions according to oldSessionsClosed independently of noChange: {"noChange":false,"oldSessionsClosed":true} 29ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > retires replacement sessions according to oldSessionsClosed independently of noChange: {"noChange":true,"oldSessionsClosed":true} 29ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > retains the noChange editor/session, acknowledges its native archive, and ignores duplicate terminals after new edits 33ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > retires a hidden current renderer immediately and loads replacement working content only after showing it 26ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > allows a same-File native flush after a hidden replacement without reviving or saving its retired editor 77ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > ignores replacement terminal events with a foreign kind 23ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > ignores replacement terminal events with a foreign owner 25ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > ignores replacement terminal events with a foreign generation 25ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > ignores replacement terminal events with a foreign workspace 23ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > ignores replacement terminal events with a foreign id 26ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > keeps the selected immutable history renderer after replacement and only refreshes version metadata 159ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > registers a File editor with the frozen native lowercase 32-hex identity 6ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > waits for the replacement terminal listener before registering the File editor 5ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > captures an active File cell on its native save event and retains registration while hidden 26ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > replies failed to a File save event without confirming discard when the native save fails 26ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > registers a readonly File early but cannot acknowledge saved until its loaded editor is ready 179ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > unregisters a late File registration after its page was disposed 58ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > disposes the old File registration when its root identity changes 17ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > disposes the old File registration when its owner identity changes 13ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > disposes the old File registration when its id identity changes 12ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > disposes the old File registration when its binding identity changes 17ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > shows a diagnostic when File move registration fails 11ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > blocks body input until registration succeeds and retries registration without reloading the existing renderer 27ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > allows the real hidden Office close guard after confirming a deleted managed File 23ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > keeps the File draft and never confirms discard or moves on strict save failure NOT_FOUND 34ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > keeps the File draft and never confirms discard or moves on strict save failure OBJECT_WITHDRAWN 31ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > keeps the File draft and never confirms discard or moves on strict save failure SOURCE_NOT_READY 33ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > confirms closing after the native original_missing error from a deleted disk original 18ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > does not treat a missing internal Office reference or version as a missing target File 17ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > rejects Office close consent when the active binding changes to null 16ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > rejects Office close consent when the active binding changes to {"workspaceId":"another-workspace","generation":"g"} 17ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > rejects Office close consent when the active binding changes to {"workspaceId":"w","generation":"reopened"} 18ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > rechecks generation when a later leave guard reuses previous Office close consent 17ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > propagates target absence lookup failures without offering discard: 'IO_FAILED' 17ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > propagates target absence lookup failures without offering discard: 'SCOPE_DENIED' 17ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > propagates target absence lookup failures without offering discard: 'WORKSPACE_CHANGED' 18ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > reuses close consent for repeated leave guards, but asks again after a new Office edit 17ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > shares an outstanding Office close confirmation and rejects consent if editing continues 18ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > allows closing only after confirming explicit Office source unavailability: 'OBJECT_WITHDRAWN' 17ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > allows closing only after confirming explicit Office source unavailability: 'SOURCE_NOT_READY' 16ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > keeps the Office draft after declining close and permits a later confirmed retry 22ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > invalidates close consent for spreadsheet input before the cell enters the edit journal 21ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > never offers Office discard for ambiguous or unrelated failures: 'IO_FAILED' 'Cannot prepare or commit File Version' 19ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > never offers Office discard for ambiguous or unrelated failures: 'SCOPE_DENIED' 'File belongs to another owner' 19ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > never offers Office discard for ambiguous or unrelated failures: 'REVISION_CONFLICT' 'Office File baseline hash changed' 29ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > never offers Office discard for ambiguous or unrelated failures: 'FILE_CHANGED_UNREGISTERED' 'Office File changed on disk' 63ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > never offers Office discard for ambiguous or unrelated failures: 'SOURCE_CHANGED' 'File changed during preflight' 46ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > never offers Office discard for ambiguous or unrelated failures: 'SOURCE_NOT_READY' 'Historical File hash is unknown' 23ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > never offers Office discard for ambiguous or unrelated failures: 'SOURCE_NOT_READY' 'Retained File Version bytes are missi…' 19ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > never offers Office discard for ambiguous or unrelated failures: 'SOURCE_NOT_READY' 'missing' 17ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > never offers Office discard for ambiguous or unrelated failures: 'WORKSPACE_CHANGED' 'File Workspace binding changed' 18ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > never offers Office discard for ambiguous or unrelated failures: 'IDEMPOTENCY_CONFLICT' 'Request identity conflict' 19ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > does not classify unstructured Office errors by their missing-file message 19ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > close consent never authorizes ordinary Office save 32ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > close consent never authorizes ordinary Office shortcut 27ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > close consent never authorizes ordinary Office refresh 31ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > close consent never authorizes ordinary Office version 37ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > close consent never authorizes ordinary Office external 35ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > previews without Session or model; latest and fixed version share the same File component 23ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > isolates late byte responses when changing versions 8ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > checks every source page against the same version/hash and preserves complete Unicode text 4ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > rejects mixed version pagination instead of rendering partial content 5ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > reports the native bound generation rejection 5ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > reports missing historical snapshot and never retries latest 5ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > does not read hidden tabs and aborts pending pagination on hiding 4ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > uses fixed HTML TextBody source with exact line location and no extra service reads 14ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > keeps legacy Office unsupported and does not invoke text parsing 3ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > opens a system application from a historical File view using only the current File identity 22ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > retains reading position across hiding and restores it without taking focus 11ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > reloads committed invalidation in latest mode and keeps a historical view fixed 26ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > refreshes invalidated File metadata in current without replacing its renderer, draft, or session 53ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > refreshes invalidated File metadata in hidden without replacing its renderer, draft, or session 51ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > refreshes invalidated File metadata in history without replacing its renderer, draft, or session 60ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > acknowledges an already loaded hidden readonly File without saving or reopening it (version undefined) 61ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > acknowledges an already loaded hidden readonly File without saving or reopening it (version 1) 61ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > does not acknowledge an initially loading readonly File after it is hidden 114ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > ignores a late File metadata result after its renderer changes 52ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > ignores a late File metadata result after its owner changes 22ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > ignores a late File metadata result after its binding changes 34ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > ignores a superseded metadata fetch when a second invalidation completes first 33ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > loads current Markdown relative and reference images only through bound same-Project File resolution 679ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > does not mix current images into historical Markdown when dependent snapshots are unavailable 18ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > runs HTML through a fixed native session without reading dependencies in React 10ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > passes historical HTML dependency policy to native without mixing current resources 12ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > ignores late current-image resolution when switching the same File to fixed history 39ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > reconciles latest before reading the actual registered head, while fixed versions skip live reconciliation 38ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > shows ambiguity reason in latest and keeps retained history readable even when the live file is unavailable 26ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > refreshes current related resources on committed dependency changes and releases its subscription when hidden 29ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > restores shell-supplied scroll and zoom after actual unmount/remount and reports subsequent view changes 12ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > renders an image normally when a retained source mode belongs to an older text version 9ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > restores an initial image zoom and releases its themed portal and blob on actual unmount 6ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > reports only the loaded immutable source, clears it before reload/version changes and on hide/unmount 23ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > provides a verified source for unsupported bytes and never publishes a late old source 9ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > accepts the actual version view arriving after sourceReady without restoring again on saved scroll updates 8ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > restores each actual version from the shell sourceReady render and after hidden unmount 16ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > keeps sourceReady null when the returned bytes do not match the requested version hash 6ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > retains the native HTML session while hidden and revalidating, then rebuilds it on refresh 45ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > retires hidden HTML immediately when revalidation discovers a different latest version before bytes arrive 77ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > releases retained HTML after a real read failure and never publishes old source as ready 28ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > retires HTML on a fixed-version change while hidden and ignores the late old refresh read 89ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > binds HTML source mode to the shell, closes native, preserves source through refresh and hide 46ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > retains separate native sessions in visited Projects with source readiness scoped to the visible Project 44ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > releases image bodies and Blob resources when hidden instead of retaining non-HTML content 7ms
+stderr | src/components/document/ProjectFileContent.test.tsx > restores Markdown source mode from the shell without rereading bytes when the mode changes
+TypeError: textRange(...).getClientRects is not a function
+    at TextTile.coordsIn (file:///private/tmp/project-mind-review-combined/node_modules/@codemirror/view/dist/index.js:2094:51)
+    at LineTile.coordsIn (file:///private/tmp/project-mind-review-combined/node_modules/@codemirror/view/dist/index.js:2007:27)
+    at DocView.coordsAt (file:///private/tmp/project-mind-review-combined/node_modules/@codemirror/view/dist/index.js:3256:21)
+    at EditorView.coordsAtPos (file:///private/tmp/project-mind-review-combined/node_modules/@codemirror/view/dist/index.js:8527:29)
+    at RectangleMarker.forRange (file:///private/tmp/project-mind-review-combined/node_modules/@codemirror/view/dist/index.js:9294:28)
+    at Object.markers (file:///private/tmp/project-mind-review-combined/node_modules/@codemirror/view/dist/index.js:9561:51)
+    at LayerView.measure (file:///private/tmp/project-mind-review-combined/node_modules/@codemirror/view/dist/index.js:9451:27)
+    at file:///private/tmp/project-mind-review-combined/node_modules/@codemirror/view/dist/index.js:8183:34
+    at Array.map (<anonymous>)
+    at EditorView.measure (file:///private/tmp/project-mind-review-combined/node_modules/@codemirror/view/dist/index.js:8181:42)
+
+ ✓ src/components/document/ProjectFileContent.test.tsx > restores Markdown source mode from the shell without rereading bytes when the mode changes 441ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > exposes external open on unsupported and pinned File views as the current original 19ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > shows external open failures and permits retry without changing the fixed version 25ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > shows the recovery slot only after current File identity needs attention 31ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > cancels an external-open lookup when the File page changes {"projectId":3} 12ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > cancels an external-open lookup when the File page changes {"fileId":8} 13ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > cancels an external-open lookup when the File page changes {"visible":false} 12ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > preserves the compact toolbar and fixed version label through refresh without resetting to latest 14ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > opens a Workspace-owned file through the shared version and byte pipeline without a Project identity 3ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > keeps the failed Office version selection open and preserves its draft and CAS baseline for retry 67ms
+stderr | src/components/document/ProjectFileContent.test.tsx > mounts Markdown text and controls before images settle, and reveals each completed image independently
+TypeError: textRange(...).getClientRects is not a function
+    at TextTile.coordsIn (file:///private/tmp/project-mind-review-combined/node_modules/@codemirror/view/dist/index.js:2094:51)
+    at LineTile.coordsIn (file:///private/tmp/project-mind-review-combined/node_modules/@codemirror/view/dist/index.js:2007:27)
+    at DocView.coordsAt (file:///private/tmp/project-mind-review-combined/node_modules/@codemirror/view/dist/index.js:3256:21)
+    at EditorView.coordsAtPos (file:///private/tmp/project-mind-review-combined/node_modules/@codemirror/view/dist/index.js:8527:29)
+    at RectangleMarker.forRange (file:///private/tmp/project-mind-review-combined/node_modules/@codemirror/view/dist/index.js:9294:28)
+    at Object.markers (file:///private/tmp/project-mind-review-combined/node_modules/@codemirror/view/dist/index.js:9561:51)
+    at LayerView.measure (file:///private/tmp/project-mind-review-combined/node_modules/@codemirror/view/dist/index.js:9451:27)
+    at file:///private/tmp/project-mind-review-combined/node_modules/@codemirror/view/dist/index.js:8183:34
+    at Array.map (<anonymous>)
+    at EditorView.measure (file:///private/tmp/project-mind-review-combined/node_modules/@codemirror/view/dist/index.js:8181:42)
+
+ ✓ src/components/document/ProjectFileContent.test.tsx > mounts Markdown text and controls before images settle, and reveals each completed image independently 121ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > keeps Markdown text visible and reports an asynchronous image failure locally 52ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > does not continue image reads after its Markdown document has unmounted 27ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > rejects asynchronous initial images if the original Markdown version changes while reading them 39ms
+ ✓ src/components/document/ProjectFileContent.test.tsx > renders embedded Markdown data images without external resource requests 23ms
+ ✓ src/components/document/ProjectFileOffice.test.tsx > revalidates a clean Office tab against an externally registered version 110ms
+ ✓ src/components/document/ProjectFileOffice.test.tsx > keeps an unsaved Office draft and its baseline when an external version arrives 58ms
+ ✓ src/components/document/ProjectFileOffice.test.tsx > closing a hidden edited Office tab commits its fixed baseline; reopening reads the new File version 56ms
+ ✓ src/components/document/ProjectFileOffice.test.tsx > keeps the working session across hiding and showing an edited tab 34ms
+ ✓ src/components/document/ProjectFileOffice.test.tsx > flushes Office edits before default external open 36ms
+ ✓ src/components/document/ProjectFileOffice.test.tsx > flushes Office edits before selected external open 49ms
+ ✓ src/components/document/ProjectFileOffice.test.tsx > keeps the latest Office draft when saving before a version switch fails 62ms
+ ✓ src/components/document/ProjectFileOffice.test.tsx > reads current working bytes independently of archived hash and keeps its session for own save invalidation 33ms
+ ✓ src/components/document/ProjectFileOffice.test.tsx > updates archived history metadata without reopening the live working editor 31ms
+ ✓ src/components/document/ProjectFileOffice.test.tsx > publishes only a verified immutable source after a native no-change save: verified 25ms
+ ✓ src/components/document/ProjectFileOffice.test.tsx > publishes only a verified immutable source after a native no-change save: pending 26ms
+ ✓ src/components/document/ProjectFileOffice.test.tsx > publishes only a verified immutable source after a native no-change save: missing 24ms
+ ✓ src/components/document/ProjectFileOffice.test.tsx > publishes only a verified immutable source after a native no-change save: mismatch 23ms
+
+ Test Files  2 passed (2)
+      Tests  147 passed (147)
+   Start at  01:08:57
+   Duration  8.21s (transform 1.04s, setup 122ms, import 1.51s, tests 5.90s, environment 552ms)
+

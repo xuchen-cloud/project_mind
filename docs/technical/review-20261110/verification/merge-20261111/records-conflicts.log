@@ -1,0 +1,245 @@
+
+ RUN  v4.1.2 /private/tmp/project-mind-review-combined
+
+ ✓ src/components/rich-editor/RichEditor.test.tsx > validates an immediate canonical Record save after mounting  118ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > validates an immediate canonical Record save after mounting <p></p> 35ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > validates an immediate canonical Record save after mounting <p>Existing</p> 30ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > validates an immediate canonical Record save after mounting <p data-block-id="eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee">Existing</p> 28ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > restores a paused canonical Record's undo history and selection into a new editor 159ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > saves only the editor receiving the keyboard event with two editable pages 58ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > reveals source blocks by stable identity without writing or dirtying the editor 30ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > keeps canonical block anchors when the Record editor commits ordinary text changes 52ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > passes Record cut metadata through the editor's existing clipboard handling 63ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > keeps selected Record content when a menu cut cannot write the clipboard 67ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > receives a clean foreign Record update while keeping the caret and refuses to overwrite a draft 75ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor links > keeps hyperlinks in editor content and applies the rich editor link class 25ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor tables > inserts a selected table size and reveals the table toolbar 166ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor tables > adds rows from the contextual table toolbar 72ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor tables > renders the table toolbar inside the editor frame above the active table 42ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor tables > shows a compact table action for focused bare editors 35ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor tables > hides the compact table action when tables are disabled 9ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor tables > supports resizing the whole table with the corner handle 214ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor tables > uses a compact minimum width for table columns 52ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor tables > keeps an explicitly wide page table inside its managed scroll wrapper 39ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor tables > pastes html tables from clipboard rich content 206ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor images > preserves newer blurred edits when a pending save echoes an older snapshot 187ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor images > preserves newer blurred edits when a completed save echoes an older snapshot 168ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor images > keeps an image answer job alive when saving nearby edits echoes committed content 238ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor images > renders image resize controls and updates width 194ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor images > keeps inserted managed images as file-backed refs while preserving the file path 207ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor images > clamps managed image display width to the editor surface during window resizing 65ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor images > does not rewrite the image source during resize-only width syncs 43ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor images > keeps managed images responsive on window resize even without ResizeObserver support 51ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor images > keeps embedded file-inserted images in the save payload and after reopening 88ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor images > keeps embedded data-url images in the save payload and after reopening 97ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor images > opens an image context menu and updates width from a preset 251ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor images > runs image skills from the image context menu through the unified editor skill job 519ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor images > does not replace saved edits when an image skill session starts with a stale controlled html prop 121ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor images > does not replace saved edits after inserting an image answer while the controlled prop is stale 153ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor images > resolves legacy asset-only image markup for Windows image AI requests 67ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor images > keeps delayed concurrent image jobs attached to their own sessions 164ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor images > keeps Windows IME input and surrounding content intact when an image answer result is malformed 342ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor images > accepts a plain-text answer from the image free prompt 162ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor images > rolls back a streamed image preview before a dirty Workspace switch 143ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor images > retries a failed image answer, inserts the answer, and cancels on unmount 158ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor images > keeps a streamed image answer insertable when the enqueue snapshot arrives late 223ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor images > copies the original image bytes from the image context menu 59ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor images > disables reveal location when the image has no source path 43ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor images > deletes an image from the context menu 57ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor images > repairs stale image src values from the stored path when loading html 25ms
+stderr | src/components/rich-editor/RichEditor.test.tsx > RichEditor images > opens the image browser on double click and keeps saved annotation previews after reopening
+flushSync was called from inside a lifecycle method. React cannot flush when React is already rendering. Consider moving this call to a scheduler task or micro task.
+
+stderr | src/components/rich-editor/RichEditor.test.tsx > RichEditor images > opens the image browser on double click and keeps saved annotation previews after reopening
+A props object containing a "key" prop is being spread into JSX:
+  let props = {key: someKey, ref: ..., onClick: ..., draggable: ..., onDragEnd: ..., x: ..., y: ..., width: ..., fontSize: ..., rotation: ..., fontFamily: ..., fontStyle: ..., fill: ..., text: ..., padding: ..., wrap: ..., onDblClick: ..., onTransformEnd: ...};
+  <Text {...props} />
+React keys must be passed directly to JSX without using spread:
+  let props = {ref: ..., onClick: ..., draggable: ..., onDragEnd: ..., x: ..., y: ..., width: ..., fontSize: ..., rotation: ..., fontFamily: ..., fontStyle: ..., fill: ..., text: ..., padding: ..., wrap: ..., onDblClick: ..., onTransformEnd: ...};
+  <Text key={someKey} {...props} />
+
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor images > blocks a previously opened annotation Portal from writing while editing is held 136ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor images > opens the image browser on double click and keeps saved annotation previews after reopening 314ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor images > falls back to the displayed thumbnail when the image browser cannot load the original asset 42ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor images > shows an explicit image browser failure when both original and thumbnail fail 50ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor images > normalizes mixed inline image HTML into explicit Markdown block boundaries 25ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor images > reads pasted images from clipboard items when files are empty 26ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor images > inserts a pasted image into an empty editor without requiring seed text 180ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor images > imports pasted html data-url images through the clipboard handler 206ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor images > preserves heic format metadata for pasted html data-url images 214ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor images > prefers meaningful keyboard-paste HTML over a flattened bitmap representation 61ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor images > preserves safe keyboard-paste text when an HTML image cannot be persisted 39ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor internal references > opens the picker on [[ and inserts an internal reference token 352ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor internal references > opens the picker on fullwidth 【【 and still inserts the normalized internal reference token 369ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor internal references > marks unresolved internal references as broken when clicking them 61ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor tag mentions > opens the picker on # and inserts a tag mention chip token 221ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor tag mentions > creates a new tag from # input and inserts it as a chip 231ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > does nothing quietly for an empty desktop clipboard 76ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > treats semantically empty HTML as an empty clipboard without feedback 60ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > falls back to text when clipboard HTML cannot be read 126ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > keeps Paste disabled in a read-only RichEditor 52ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > aborts with feedback when the captured paste target is replaced before completion 127ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > shows one failure message for a native image read failure on an otherwise empty clipboard 62ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > rejects an ephemeral blob image instead of treating it as a successful paste 87ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > keeps an asynchronous paste bound to the selection captured at invocation 75ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > inserts at the right-click position when it is outside the current selection 68ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > reports a native image paste when managed persistence fails 59ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > persists a native RGBA image with stable metadata that survives reopening 251ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > prefers a native bitmap over text when 'clipboard HTML is image-only' 79ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > prefers a native bitmap over text when 'clipboard HTML is unavailable' 64ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > preserves safe rich HTML when an embedded image import throws 73ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > imports ordered HTML images as one undoable and redoable paste 246ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > prefers meaningful rich HTML and keeps its Markdown semantics 237ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > normalizes external checkbox-list HTML into semantic task items 252ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > pastes an HTML table through the supported table model 249ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > normalizes Windows CRLF Markdown through the existing paste rules 236ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > normalizes unsupported rich HTML styling without losing semantic text 245ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > pastes directly through the desktop clipboard bridge without opening the native Paste prompt 77ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > shows the redesigned text menu for a non-collapsed text selection 233ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > shows the text menu without the AI group for plain cursor context 58ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > applies a fourth-level heading from the block shortcuts 212ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > enables file insertion from the context menu when project file handlers are available 229ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > opens attachment references with a single click 57ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > opens legacy attachment file hrefs with a single click 42ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > shows attachment context actions for reveal, rename, and star 106ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > shows the active block selection in the featured submenu 64ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > places clipboard actions before selection actions in the selected text menu 40ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > keeps images, references, and contacts in the move-to-record selection payload 63ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > restores the remembered text selection when the browser clears it before right click 62ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > shows configured AI skills in the dedicated AI menu even before the capability is ready 59ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > submits prompt overrides from the AI menu with Enter 127ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > applies automatic AI edits and keeps an optional answer available 218ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > rejects an automatic AI Answer that contains no visible content 149ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > discards an invisible automatic AI Answer while keeping its visible Modification 178ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > renders inline rewrite suggestions in the editor and accepts the streamed result 168ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > preserves authored empties through a terminal heading preview (stable=false, 接受) 119ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > preserves authored empties through a terminal heading preview (stable=true, 接受) 127ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > preserves authored empties through a terminal heading preview (stable=false, 撤销) 119ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > preserves authored empties through a terminal heading preview (stable=true, 撤销) 123ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > keeps the original AI Modification visible until streamed Markdown is complete and visible 90ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > preserves selected rich text formatting while streaming and accepting modify results 127ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > streams markdown answers and inserts them as rich editor blocks 112ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > keeps AI Answer loading until streamed Markdown contains visible content 95ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > shows the table menu inside a table and applies row insertion 76ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > prefers the text menu over the table menu when text is selected inside a cell 125ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > copies ordered lists as readable plain text when execCommand falls back 61ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > copies mixed text and images as html with inlined image data 43ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > upgrades native copy events to original image bytes when async clipboard is available 93ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > prefers original file bytes when copy falls back to async clipboard writes 75ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > lazy-mounts image sources until they enter the viewport 33ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > keeps the real image source mounted after it has entered the viewport 27ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > captures tab inside list items so focus stays in the editor 46ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > does not let a stale controlled html echo overwrite newer typing 235ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > returns the latest immutable committed snapshot without waiting for save timers 52ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > appends a minutes snapshot to the editable body without replacing existing content 25ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > returns appended minutes after canonical Record blocks receive their stable identities 37ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > reports a rejected minutes insertion without changing canonical Record content 25ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > keeps managed image identity metadata in the committed snapshot 24ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor context menus > undoes the latest edit in one step after a saved-content echo changes metadata 778ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor focus and blur persistence > focuses the editor surface when autoFocus is enabled 27ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor focus and blur persistence > persists on blur and notifies the caller after a successful save 126ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor focus and blur persistence > does not duplicate a forced controller save when the editor blurs during record switching 158ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor focus and blur persistence > makes a concurrent controller save wait for the active save cycle 70ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor focus and blur persistence > settles a queued save when composition blocks its continuation after saved 85ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor focus and blur persistence > settles a queued save when composition blocks its continuation after unknown native result 81ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor focus and blur persistence > keeps the undo history after autosave normalizes the saved snapshot 743ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor focus and blur persistence > does not notify blur persistence when saving fails 115ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor focus and blur persistence > persists on window blur without notifying blur persistence 99ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor focus and blur persistence > skips window-blur persistence while an image picker is in flight 198ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor focus and blur persistence > flushes unsaved edits on pagehide for lock/sleep/quit lifecycles 81ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor focus and blur persistence > runs the mod-enter callback when pressing Ctrl/Cmd + Enter 14ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor focus and blur persistence > opens in-editor search with Ctrl/Cmd+F and navigates matches 225ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor focus and blur persistence > replaces the current match and all remaining matches 516ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor focus and blur persistence > allows search in read-only editors without replacement controls 156ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor fixed File references > reads actual version/hash bytes before adding canonical metadata 170ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor fixed File references > keeps later typing when a fixed File read completes late 236ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor fixed File references > does not retarget delayed bytes after editor identity changes 187ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor fixed File references > reports read budgets and leaves the typed trigger without a fake fixed ref 185ms
+ ✓ src/components/rich-editor/RichEditor.test.tsx > RichEditor fixed File references > does not attach any File evidence just by rendering or saving ordinary editor text 50ms
+ ✓ src/components/rich-editor/MermaidRecordRoundtrip.test.ts > keeps workspace Record Mermaid language and source across canonical save, HTML projection, reopen, edit and Markdown export 125ms
+ ✓ src/components/rich-editor/MermaidRecordRoundtrip.test.ts > keeps project Record Mermaid language and source across canonical save, HTML projection, reopen, edit and Markdown export 78ms
+stderr | src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > subscribes to Tauri window drag-drop events and forwards dropped paths
+The current testing environment is not configured to support act(...)
+
+stderr | src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > subscribes to Tauri window drag-drop events and forwards dropped paths
+The current testing environment is not configured to support act(...)
+
+stderr | src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > shares one native subscription in StrictMode and filters subscribers by enabled state and position
+The current testing environment is not configured to support act(...)
+
+stderr | src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > shares one native subscription in StrictMode and filters subscribers by enabled state and position
+The current testing environment is not configured to support act(...)
+
+stderr | src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > shares one native subscription in StrictMode and filters subscribers by enabled state and position
+The current testing environment is not configured to support act(...)
+
+stderr | src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > shares one native subscription in StrictMode and filters subscribers by enabled state and position
+The current testing environment is not configured to support act(...)
+
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > subscribes to Tauri window drag-drop events and forwards dropped paths 25ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > keeps pending native registration across unmount and reuses it with the latest subscriber 2ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > shares one native subscription in StrictMode and filters subscribers by enabled state and position 3ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > reports native installation failure without retrying on component churn 55ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > reports a subscriber failure while still delivering to another subscriber 5ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > does not subscribe outside the Tauri runtime 2ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > converts physical coordinates to CSS pixels before hit-testing and dropping 1ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > reports CSS hover positions only inside the active region and clears them on leave 1ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > dispatches the drop before clearing hover, then awaits its asynchronous result 1ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > keeps the native subscription while using updated hover, hit-test and drop callbacks 4ms
+stderr | src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > keeps hover-driven React rerenders from interrupting the native drag session
+The current testing environment is not configured to support act(...)
+
+stderr | src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > keeps hover-driven React rerenders from interrupting the native drag session
+The current testing environment is not configured to support act(...)
+
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > reports a drop throw while clearing both hover signals 1ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > reports a drop reject while clearing both hover signals 1ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > keeps hover-driven React rerenders from interrupting the native drag session 1ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > clears hover and removes the subscriber on disable, ignoring subsequent native events 1ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > clears hover and removes the subscriber on unmount, ignoring subsequent native events 1ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > leaves native registration window-owned when it resolves after unmount 1ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > does not clear a newer drag when an earlier drop finishes 1ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > does not call updated or unmounted handlers when an earlier drop finishes 1ms
+ × src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > ignores a disposed subscription failure without clearing a newer drag 4ms
+   → expected last "vi.fn()" call to have been called with [ { x: 30, y: 40 } ]
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > clears an outside drop without forwarding paths 1ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > clears an empty drop without forwarding paths 1ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > delivers only one drop per drag even while pending, after completion, or after leave 1ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > allows the next drag after a new enter event 1ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > allows the next drag after a new over event 1ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > does not retry a failed throw until the user drags in again 1ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > does not retry a failed reject until the user drags in again 1ms
+ ✓ src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > ignores native events after disable commits but before passive cleanup 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/hooks/useWindowFileDrop.test.tsx > useWindowFileDrop > ignores a disposed subscription failure without clearing a newer drag
+AssertionError: expected last "vi.fn()" call to have been called with [ { x: 30, y: 40 } ]
+
+- Expected
++ Received
+
+  [
+-   {
+-     "x": 30,
+-     "y": 40,
+-   },
++   null,
+  ]
+
+ ❯ src/hooks/useWindowFileDrop.test.tsx:446:29
+    444|       fail(new Error("Old listener unavailable"));
+    445|     });
+    446|     expect(onHoverPosition).toHaveBeenLastCalledWith({ x: 30, y: 40 });
+       |                             ^
+    447|     expect(onHoverChange).toHaveBeenLastCalledWith(true);
+    448|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 2 passed (3)
+      Tests  1 failed | 172 passed (173)
+   Start at  01:06:45
+   Duration  21.09s (transform 395ms, setup 165ms, import 638ms, tests 19.31s, environment 808ms)
+

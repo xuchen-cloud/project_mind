@@ -1,0 +1,32 @@
+[
+  {
+    "file": "records-types.log",
+    "source": "/tmp/project-mind-merge-records-types.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "file": "records-conflicts.log",
+    "source": "/tmp/project-mind-merge-records-conflicts.log",
+    "sha256": "a347953f120f7da3f88f21be98200e09d89ede9f508ce7147c5220bb93715a39"
+  },
+  {
+    "file": "records-drop-final.log",
+    "source": "/tmp/project-mind-merge-records-drop-final.log",
+    "sha256": "0e784c229007b3898673359c4c349286e944d0cdf651cd5f13ef121e69af7941"
+  },
+  {
+    "file": "records-results.json",
+    "source": "/tmp/project-mind-merge-records-results.json",
+    "sha256": "a3b698b6ab5cc957e425b433fdf08401ff2082bdbab83f4a0486e19bc933401b"
+  },
+  {
+    "file": "office-filecontent.log",
+    "source": "/tmp/project-mind-merge-office-filecontent.log",
+    "sha256": "c5b6330e212eb1fca456a33b0afe1ad7a5350216882cbf84f753b6c2c8cabec6"
+  },
+  {
+    "file": "final-types.log",
+    "source": "/tmp/project-mind-merge-final-types.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+]

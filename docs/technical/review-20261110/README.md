@@ -13,3 +13,5 @@
 用户追加的统一告警清理见 [构建验证](verification/warnings/README.md)：固定原生快照已达到生产/测试编译 0 warnings，相关 722 测试通过；全 targets 检查为 0 warnings，权限 caller 修复已复核；第三方体积提示单独保留。
 
 用户追加的三类 WaveDrom 图表移除见 [功能移除与组合检查](verification/wavedrom/README.md)：旧围栏保留普通代码，最终 Markdown 82/82、Record worker 6/6、原生 Record 71/71，shipping 的 eval 提示已消失；总体集成与平台状态仍按上述边界跟踪。
+
+2026-11-11 用户改为要求先合并本批全部成果、再由独立会话整体审查。最终提交清单、冲突处理和保留问题见 [合并交付记录](merge-delivery-20261111.md)；此前草稿等待说明为历史状态，未验收项目并未因此记为通过。
