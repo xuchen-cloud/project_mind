@@ -72,6 +72,26 @@ function renderWithProviders(ui: React.ReactElement) {
 }
 
 describe("ProjectSidebar", () => {
+  it("observes a list mounted after initial expansion so filtered selections cannot return", async () => {
+    useUiStore.setState({ projectSidebarCollapsed: true, projectSidebarTab: "files" });
+    const documents = [1, 2, 3].map(id => buildDocument({ id, name: `file-${id}.txt`, baseName: `file-${id}.txt`, managedPath: `/files/file-${id}.txt` }));
+    const component = (query: string) => <ProjectSidebar project={{ id: 1, name: "Alpha", rootPath: "/files" }}
+      documents={documents} fileFilter={{ query, tagId: null }} onOpenProject={() => undefined} />;
+    const view = renderWithProviders(component(""));
+    expect(screen.queryByRole("button", { name: /^file-1.txt/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "展开项目侧边栏" }));
+    const first = screen.getByRole("button", { name: /^file-1.txt/ });
+    const second = screen.getByRole("button", { name: /^file-2.txt/ });
+    fireEvent.click(first, { ctrlKey: true });fireEvent.click(second, { ctrlKey: true });
+    expect(first).toHaveAttribute("aria-pressed", "true");
+    expect(second).toHaveAttribute("aria-pressed", "true");
+    view.rerender(component("file-3"));
+    await waitFor(() => expect(screen.queryByRole("button", { name: /^file-1.txt/ })).not.toBeInTheDocument());
+    view.rerender(component(""));
+    expect(screen.getByRole("button", { name: /^file-1.txt/ })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: /^file-2.txt/ })).toHaveAttribute("aria-pressed", "false");
+  });
+
   it.each([1, null])("selects a visible range and toggles individual Files before one Trash confirmation (owner=%s)", async owner => {
     const documents = [1, 2, 3, 4].map(id => buildDocument({ id, projectId: owner, name: `file-${id}.txt`, baseName: `file-${id}.txt`, managedPath: `/files/file-${id}.txt` }));
     fileOpenMocks.resolve.mockImplementation(async (_binding, object) => ({ state: "ready", relativePath: `file-${object.id}.txt` }));

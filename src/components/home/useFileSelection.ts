@@ -82,18 +82,24 @@ export function useFileSelection(scope: string, root: RefObject<HTMLElement | nu
   useLayoutEffect(() => {
     update({ scope, selected: emptySelection });
     controlPrimary.current = undefined;
+    return () => {
+      controlPrimary.current = undefined;
+      state.current = { scope, selected: emptySelection };
+    };
+  }, [scope, update]);
+
+  // A resident sidebar can initially render without its list root. Observe the
+  // actual committed node, including a later expansion, on every commit.
+  useLayoutEffect(() => {
+    prune();
     const observer = new MutationObserver(prune);
     if (root.current) observer.observe(root.current, { childList: true, subtree: true, attributes: true,
       attributeFilter: ["hidden", "inert", "aria-hidden", "style", "class", "data-file-selection-key", "data-file-selection-path", "data-file-selection-kind", "data-file-selection-id"] });
     for (let node = root.current?.parentElement; node; node = node.parentElement) {
       observer.observe(node, { attributes: true, attributeFilter: ["hidden", "inert", "aria-hidden", "style", "class"] });
     }
-    return () => {
-      observer.disconnect();
-      controlPrimary.current = undefined;
-      state.current = { scope, selected: emptySelection };
-    };
-  }, [scope, root, prune, update]);
+    return () => { observer.disconnect(); };
+  });
 
   const onClick = useCallback((item: FileSelectionItem, event: ClickModifiers): boolean => {
     // Row controls keep their own editing, menu and link behavior.
