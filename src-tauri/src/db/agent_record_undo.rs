@@ -57,7 +57,8 @@ pub(super) fn read_entry(conn: &Connection, id: &str) -> AgentResult<(OperationE
         r.get::<_,Option<String>>(7)?, r.get::<_,Option<String>>(8)?, r.get::<_,String>(9)?,
         r.get::<_,Option<String>>(10)?, r.get::<_,String>(11)?, r.get::<_,String>(12)?
     ))).optional().map_err(io_error)?.ok_or_else(||AgentError::new(ErrorCode::NotFound,"Operation receipt not found"))?;
-    let object: ObjectRef = decode(&r.4)?;
+    let historical: ObjectRef = decode(&r.4)?;
+    let object = super::record_owner_moves::resolve_receipt_object(conn, &historical)?;
     let recovery = if matches!(
         r.3.as_str(),
         "record.create" | "todo.create" | "file.create"

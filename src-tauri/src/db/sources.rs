@@ -26,6 +26,14 @@ impl Database {
         operation: &str,
     ) -> AgentResult<ObjectRef> {
         object.key()?;
+        if object.kind == ObjectKind::Record {
+            if object.workspace_id != binding.workspace_id {
+                return Err(AgentError::new(ErrorCode::ScopeDenied, "Source is outside this Workspace"));
+            }
+            let actual = super::record_owner_moves::resolve_object(&self.conn, object)?;
+            request.authorize_object(binding, &actual, &actual, operation)?;
+            return Ok(actual);
+        }
         request.authorize(binding, &object.scope, operation)?;
         if object.workspace_id != binding.workspace_id {
             return Err(AgentError::new(

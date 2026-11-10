@@ -121,10 +121,15 @@ fn denied() -> AgentError {
 }
 #[derive(Clone)]
 struct Resolved {
+    id: i64,
     scope: Option<Scope>,
     kind: Option<ObjectKind>,
 }
 fn resolve(conn: &Connection, kind: &str, id: i64) -> AgentResult<Option<Resolved>> {
+    if matches!(kind, "note" | "workspace_record") {
+        return Ok(super::record_owner_moves::resolve_legacy(conn, kind, id)?
+            .map(|target| Resolved { id: target.record_id, scope: Some(target.scope), kind: Some(ObjectKind::Record) }));
+    }
     let (sql, object_kind) = match kind {
         // Historical note:<id> tokens always denote Project Records. They must
         // never be guessed as Workspace Records with a colliding numeric ID.
@@ -153,6 +158,7 @@ fn resolve(conn: &Connection, kind: &str, id: i64) -> AgentResult<Option<Resolve
         .optional()
         .map_err(io_error)?
         .map(|project| Resolved {
+            id,
             scope: if kind == "contact" {
                 None
             } else {
@@ -172,7 +178,7 @@ pub(super) fn resolve_reference_object(
             workspace_id: workspace_id.into(),
             scope: resolved.scope?,
             kind: resolved.kind?,
-            id: id.to_string(),
+            id: resolved.id.to_string(),
         })
     }))
 }
@@ -285,7 +291,7 @@ pub(super) fn validate_references(
                     workspace_id: workspace_id.into(),
                     scope: target_scope.clone(),
                     kind,
-                    id: reference.id.to_string(),
+                    id: target.id.to_string(),
                 };
                 let (locator, revision) = if let Some(source) = &reference.source_ref {
                     if source.object != object {
@@ -337,3 +343,26 @@ pub(super) fn write_reference_edges(
 #[cfg(test)]
 #[path = "record_references_tests.rs"]
 mod tests;
+
+/// Move rejects every invalid current reference, without retained-history exemptions.
+pub(super) fn validate_move_references(conn: &Connection, scope: &Scope, document: &Value, workspace_id: &str) -> AgentResult<()> {
+    let mut errors = Vec::new();
+    for reference in references(document)? {
+        let node = match reference.kind {
+            "tag" => json!({"type":"tagMention","attrs":{"tagId":reference.id}}),
+            "contact" => json!({"type":"contactMention","attrs":{"contactId":reference.id}}),
+            kind => json!({"type":"internalReference","attrs":{"refKind":kind,"refId":reference.id,"sourceRef":reference.source_ref}}),
+        };
+        if let Err(error) = validate_references(conn, scope, &node, &HashSet::new(), workspace_id) {
+            if !matches!(error.code, ErrorCode::ScopeDenied | ErrorCode::NotFound) {
+                return Err(error);
+            }
+            errors.push(json!({"kind":reference.kind,"id":reference.id,"blockId":reference.block_id,"code":error.code,"message":error.message,"details":error.details}));
+        }
+    }
+    if !errors.is_empty() {
+        return Err(AgentError::new(ErrorCode::ScopeDenied, "请先处理这些无法在目标位置引用的内容，再移动记录")
+            .with_details(json!({"references":errors})));
+    }
+    Ok(())
+}

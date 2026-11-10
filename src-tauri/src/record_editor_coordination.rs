@@ -28,6 +28,8 @@ pub(crate) struct RecordEditorFlushRequest {
     pub target: RecordTarget,
     pub editor_id: String,
     pub flush_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner_move_request_id: Option<String>,
     #[serde(skip)]
     pub window: String,
 }
@@ -59,6 +61,7 @@ struct Pending {
 struct Registry {
     editors: BTreeMap<String, Registered>,
     pending: HashMap<String, Pending>,
+    owner_moves: HashMap<String, String>,
 }
 struct CutCredit {
     binding: WorkspaceBinding,
@@ -87,7 +90,89 @@ fn key(binding: &WorkspaceBinding, target: &RecordTarget) -> AgentResult<String>
 fn valid_editor_id(id: &str) -> bool {
     id.len() == 32 && id.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
+pub(crate) struct RecordOwnerMoveSeal {
+    coordinator: Arc<RecordEditorCoordinator>,
+    key: String,
+    request_id: String,
+}
+impl Drop for RecordOwnerMoveSeal {
+    fn drop(&mut self) {
+        let mut registry = crate::lock_mutex(&self.coordinator.registry);
+        if registry.owner_moves.get(&self.key) == Some(&self.request_id) {
+            registry.owner_moves.remove(&self.key);
+        }
+    }
+}
 impl RecordEditorCoordinator {
+    pub(crate) fn seal_owner_move(
+        self: &Arc<Self>,
+        binding: &WorkspaceBinding,
+        target: &RecordTarget,
+        request_id: &str,
+    ) -> AgentResult<RecordOwnerMoveSeal> {
+        if request_id.is_empty() || request_id.len() > 128 {
+            return Err(AgentError::new(
+                ErrorCode::InvalidArgument,
+                "Invalid move request identity",
+            ));
+        }
+        let key = key(binding, target)?;
+        let mut registry = crate::lock_mutex(&self.registry);
+        if registry.owner_moves.contains_key(&key) {
+            return Err(AgentError::new(
+                ErrorCode::EditorBusy,
+                "此记录正在移动，请等待操作结束",
+            ));
+        }
+        registry.owner_moves.insert(key.clone(), request_id.into());
+        Ok(RecordOwnerMoveSeal {
+            coordinator: self.clone(),
+            key,
+            request_id: request_id.into(),
+        })
+    }
+    /// A new editor during a move barrier must be flushed by a fresh attempt.
+    pub(crate) fn move_registration_stamp(
+        &self,
+        binding: &WorkspaceBinding,
+        target: &RecordTarget,
+    ) -> AgentResult<Vec<String>> {
+        let registry = crate::lock_mutex(&self.registry);
+        Self::move_stamp(&registry, binding, target)
+    }
+    fn move_stamp(
+        registry: &Registry,
+        binding: &WorkspaceBinding,
+        target: &RecordTarget,
+    ) -> AgentResult<Vec<String>> {
+        let key = target.key()?;
+        let mut stamp = Vec::new();
+        for (id, editor) in &registry.editors {
+            if editor.binding == *binding && editor.target.key()? == key {
+                stamp.push(format!("{}:{}", id, editor.window));
+            }
+        }
+        stamp.sort();
+        Ok(stamp)
+    }
+    pub(crate) fn with_move_registration_stamp<T>(
+        &self,
+        binding: &WorkspaceBinding,
+        target: &RecordTarget,
+        stamp: &[String],
+        action: impl FnOnce() -> AgentResult<T>,
+    ) -> AgentResult<T> {
+        let registry = crate::lock_mutex(&self.registry);
+        if Self::move_stamp(&registry, binding, target)? != stamp {
+            return Err(AgentError::new(
+                ErrorCode::EditorBusy,
+                "记录编辑窗口发生变化，请重新保存后移动",
+            ));
+        }
+        // Retain registration identity only across the synchronous native commit.
+        // Cleanup keeps the old target; no stale draft is retargeted to the new owner.
+        action()
+    }
     pub(crate) fn register_cut(
         &self,
         binding: &WorkspaceBinding,
@@ -147,6 +232,15 @@ impl RecordEditorCoordinator {
         window: &str,
         input: &RecordEditorRegistration,
     ) -> AgentResult<()> {
+        self.register_checked(binding, window, input, || Ok(()))
+    }
+    pub(crate) fn register_checked(
+        &self,
+        binding: &WorkspaceBinding,
+        window: &str,
+        input: &RecordEditorRegistration,
+        check_current: impl FnOnce() -> AgentResult<()>,
+    ) -> AgentResult<()> {
         input.target.key()?;
         if !valid_editor_id(&input.editor_id) {
             return Err(AgentError::new(
@@ -155,6 +249,16 @@ impl RecordEditorCoordinator {
             ));
         }
         let mut registry = crate::lock_mutex(&self.registry);
+        if registry
+            .owner_moves
+            .contains_key(&key(binding, &input.target)?)
+        {
+            return Err(AgentError::new(
+                ErrorCode::EditorBusy,
+                "此记录正在移动，暂时不能打开新的编辑器",
+            ));
+        }
+        check_current()?;
         if registry
             .editors
             .get(&input.editor_id)
@@ -276,6 +380,10 @@ impl RecordEditorCoordinator {
                     target: target.clone(),
                     editor_id: editor_id.clone(),
                     flush_id: format!("{:032x}", rand::random::<u128>()),
+                    owner_move_request_id: registry
+                        .owner_moves
+                        .get(&key(binding, target)?)
+                        .cloned(),
                     window: editor.window.clone(),
                 };
                 requests.push(request.clone());

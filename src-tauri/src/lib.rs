@@ -17,6 +17,7 @@ mod ai_network;
 mod db;
 mod models;
 mod record_documents;
+mod record_owner_moves;
 mod record_document_worker;
 mod source_extraction_worker;
 mod source_search_index;

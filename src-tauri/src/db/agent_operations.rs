@@ -161,6 +161,7 @@ impl Database {
         let result_json = serde_json::to_string(&result)
             .map_err(|_| AgentError::new(ErrorCode::IoFailed, "Invalid operation result"))?;
         tx.execute("INSERT INTO agent_operation_receipts(request_id,caller_id,payload_hash,operation,state,result_json,created_at) VALUES (?1,?2,?3,?4,'committed',?5,?6)", params![request_id,caller_id,hash,operation,result_json,now]).map_err(io_error)?;
+        super::record_owner_moves::receipt_committed(tx, caller_id, request_id, operation, &result_json, self.native_workspace_id.as_deref())?;
         super::agent_outputs::agent_output_record_committed(
             tx,
             caller_id,
@@ -225,6 +226,13 @@ impl Database {
     ) -> AgentResult<Option<ObjectRef>> {
         use crate::agent::models::ObjectKind;
         object.key()?;
+        if object.kind == ObjectKind::Record {
+            return match super::record_owner_moves::resolve_object(&self.conn, object) {
+                Ok(actual) => Ok(Some(ObjectRef { workspace_id: workspace_id.into(), ..actual })),
+                Err(error) if error.code == ErrorCode::NotFound => Ok(None),
+                Err(error) => Err(error),
+            };
+        }
         let numeric_id = || {
             object
                 .id

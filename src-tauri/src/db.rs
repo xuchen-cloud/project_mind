@@ -49,6 +49,9 @@ pub(crate) mod memory_service;
 mod agent_instructions;
 mod record_documents;
 mod record_read;
+mod record_owner_moves;
+#[cfg(test)]
+mod record_owner_moves_tests;
 mod record_references;
 mod workspace_record_references;
 mod sources;
@@ -5326,6 +5329,9 @@ impl Database {
         &self,
         input: InternalReferenceResolveInput,
     ) -> Result<Option<InternalReferenceResolveResult>> {
+        if matches!(input.kind.trim(), "note" | "workspace_record") {
+            return self.record_move_reference_route(input.kind.trim(), input.id);
+        }
         if input.kind.trim() == "todo" && self.conn.query_row("SELECT EXISTS(SELECT 1 FROM todos WHERE id=?1)", [input.id], |row| row.get::<_,bool>(0))? {
             agent_todo_undo::require_todo_visible(&self.conn, input.id).map_err(todo_revision_error)?;
         }
@@ -5528,8 +5534,12 @@ impl Database {
                 })
             },
         )?;
-        note.content_html =
-            self.hydrate_project_rich_text_html(note.project_id, &note.content_html)?;
+        let target = crate::record_documents::RecordTarget { scope: crate::agent::models::Scope::Project { project_id: note.project_id }, record_id: note.id };
+        note.content_html = if self.record_move_retained_assets(&target).map_err(|e|anyhow!(e.message))?.is_empty() {
+            self.hydrate_project_rich_text_html(note.project_id, &note.content_html)?
+        } else {
+            self.hydrate_workspace_rich_text_html(&note.content_html)
+        };
         Ok(note)
     }
 

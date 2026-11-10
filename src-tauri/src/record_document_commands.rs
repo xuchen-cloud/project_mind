@@ -29,7 +29,7 @@ pub(crate) fn record_cut_register(
     input: RecordCommandInput<RecordCutInput>,
 ) -> ApiResponse<()> {
     let result = (|| {
-        let request = gui_request(&state, &input, &input.data.target.scope, &["record.read"])?;
+        let request = gui_record_request(&state, &input, &input.data.target, &["record.read"])?;
         let utility = AppDocumentUtility(state.app_handle.clone());
         RecordDocumentService::new(&*state, &utility).authorize_target(
             &request,
@@ -49,7 +49,7 @@ pub(crate) fn record_cut_claim(
     input: RecordCommandInput<RecordCutInput>,
 ) -> ApiResponse<bool> {
     let result = (|| {
-        let request = gui_request(&state, &input, &input.data.target.scope, &["record.read"])?;
+        let request = gui_record_request(&state, &input, &input.data.target, &["record.read"])?;
         let utility = AppDocumentUtility(state.app_handle.clone());
         RecordDocumentService::new(&*state, &utility).authorize_target(
             &request,
@@ -70,16 +70,19 @@ pub(crate) fn record_editor_register(
     input: RecordCommandInput<RecordEditorRegistration>,
 ) -> ApiResponse<()> {
     let result = (|| {
-        let request = gui_request(&state, &input, &input.data.target.scope, &["record.read"])?;
+        let request = gui_record_request(&state, &input, &input.data.target, &["record.read"])?;
         let utility = AppDocumentUtility(state.app_handle.clone());
         RecordDocumentService::new(&*state, &utility).authorize_target(
             &request,
             &input.data.target,
             "record.read",
         )?;
-        state
-            .record_editors
-            .register(&request.binding, window.label(), &input.data)
+        state.record_editors.register_checked(&request.binding, window.label(), &input.data, || {
+            crate::record_document_service::BoundRecordStore::with_current(&*state, |binding, db| {
+                request.authorize(binding, &db.record_resolve_location(&input.data.target)?.target.scope, "record.read")?;
+                db.record_require_current_location(&input.data.target)
+            })
+        })
     })();
     ApiResponse::from_result(input.request_id, result)
 }
@@ -111,7 +114,7 @@ pub(crate) async fn record_editors_flush(
     input: RecordCommandInput<RecordTarget>,
 ) -> Result<ApiResponse<RecordEditorState>, String> {
     let result = async {
-        let request = gui_request(&state, &input, &input.data.scope, &["record.read"])?;
+        let request = gui_record_request(&state, &input, &input.data, &["record.read"])?;
         let utility = AppDocumentUtility(state.app_handle.clone());
         let service = RecordDocumentService::new(&*state, &utility);
         service
@@ -129,6 +132,20 @@ pub(crate) struct RecordCommandInput<T> {
     binding: WorkspaceBinding,
     request_id: String,
     data: T,
+}
+fn gui_record_request<T>(
+    state: &AppState,
+    input: &RecordCommandInput<T>,
+    target: &RecordTarget,
+    operations: &[&str],
+) -> AgentResult<RequestContext> {
+    let actual = crate::record_document_service::BoundRecordStore::with_current(state, |binding, db| {
+        if *binding != input.binding {
+            return Err(AgentError::new(ErrorCode::WorkspaceChanged, "Workspace binding is no longer current"));
+        }
+        Ok(db.record_resolve_location(target)?.target)
+    })?;
+    gui_request(state, input, &actual.scope, operations)
 }
 fn gui_request<T>(
     state: &AppState,
@@ -202,7 +219,7 @@ pub(crate) async fn record_editor_get(
     input: RecordCommandInput<RecordTarget>,
 ) -> Result<ApiResponse<RecordEditorState>, String> {
     let result = async {
-        let request = gui_request(&state, &input, &input.data.scope, &["record.read"])?;
+        let request = gui_record_request(&state, &input, &input.data, &["record.read"])?;
         let utility = AppDocumentUtility(state.app_handle.clone());
         RecordDocumentService::new(&*state, &utility)
             .editor_get(&request, &input.data)
@@ -223,10 +240,10 @@ pub(crate) async fn record_body_save(
     input: RecordCommandInput<RecordBodySave>,
 ) -> Result<ApiResponse<RecordEditorSaveResult>, String> {
     let result = async {
-        let request = gui_request(
+        let request = gui_record_request(
             &state,
             &input,
-            &input.data.target.scope,
+            &input.data.target,
             &["record.read", "record.write", "record.metadata.write"],
         )?;
         let utility = AppDocumentUtility(state.app_handle.clone());
@@ -291,7 +308,7 @@ pub(crate) fn record_metadata_get(
     input: RecordCommandInput<RecordTarget>,
 ) -> ApiResponse<RecordMetadata> {
     let result = (|| {
-        let request = gui_request(&state, &input, &input.data.scope, &["record.read"])?;
+        let request = gui_record_request(&state, &input, &input.data, &["record.read"])?;
         let utility = AppDocumentUtility(state.app_handle.clone());
         RecordDocumentService::new(&*state, &utility).metadata_get(&request, &input.data)
     })();
@@ -303,10 +320,10 @@ pub(crate) fn record_metadata_apply(
     input: RecordCommandInput<RecordMetadataApply>,
 ) -> ApiResponse<RecordMetadataApplyResult> {
     let result = (|| {
-        let request = gui_request(
+        let request = gui_record_request(
             &state,
             &input,
-            &input.data.metadata.target.scope,
+            &input.data.metadata.target,
             &["record.read", "record.metadata.write"],
         )?;
         let utility = AppDocumentUtility(state.app_handle.clone());
@@ -335,10 +352,10 @@ pub(crate) fn record_metadata_update(
     input: RecordCommandInput<RecordMetadataUpdate>,
 ) -> ApiResponse<RecordMetadata> {
     let result = (|| {
-        let request = gui_request(
+        let request = gui_record_request(
             &state,
             &input,
-            &input.data.target.scope,
+            &input.data.target,
             &["record.metadata.write"],
         )?;
         let utility = AppDocumentUtility(state.app_handle.clone());
@@ -354,7 +371,7 @@ pub(crate) fn record_checkpoint(
     input: RecordCommandInput<RecordCheckpointInput>,
 ) -> ApiResponse<RecordCheckpointResult> {
     let result = (|| {
-        let request = gui_request(&state, &input, &input.data.target.scope, &["record.write"])?;
+        let request = gui_record_request(&state, &input, &input.data.target, &["record.write"])?;
         let utility = AppDocumentUtility(state.app_handle.clone());
         RecordDocumentService::new(&*state, &utility).checkpoint(&request, &input.data)
     })();
@@ -373,7 +390,7 @@ pub(crate) fn record_versions_list(
     input: RecordCommandInput<VersionListInput>,
 ) -> ApiResponse<RecordVersionPage> {
     let result = (|| {
-        let request = gui_request(&state, &input, &input.data.target.scope, &["record.read"])?;
+        let request = gui_record_request(&state, &input, &input.data.target, &["record.read"])?;
         let utility = AppDocumentUtility(state.app_handle.clone());
         RecordDocumentService::new(&*state, &utility).versions_list(
             &request,
@@ -396,7 +413,7 @@ pub(crate) async fn record_version_get(
     input: RecordCommandInput<VersionGetInput>,
 ) -> Result<ApiResponse<RecordVersion>, String> {
     let result = async {
-        let request = gui_request(&state, &input, &input.data.target.scope, &["record.read"])?;
+        let request = gui_record_request(&state, &input, &input.data.target, &["record.read"])?;
         let utility = AppDocumentUtility(state.app_handle.clone());
         RecordDocumentService::new(&*state, &utility)
             .version_get(&request, &input.data.target, &input.data.version_id)
@@ -418,7 +435,7 @@ pub(crate) async fn record_versions_compare(
     input: RecordCommandInput<VersionCompareInput>,
 ) -> Result<ApiResponse<RecordVersionDifference>, String> {
     let result = async {
-        let request = gui_request(&state, &input, &input.data.target.scope, &["record.read"])?;
+        let request = gui_record_request(&state, &input, &input.data.target, &["record.read"])?;
         let utility = AppDocumentUtility(state.app_handle.clone());
         RecordDocumentService::new(&*state, &utility)
             .versions_compare(
@@ -438,7 +455,7 @@ pub(crate) fn record_version_capacity(
     input: RecordCommandInput<RecordTarget>,
 ) -> ApiResponse<RecordVersionCapacity> {
     let result = (|| {
-        let request = gui_request(&state, &input, &input.data.scope, &["record.read"])?;
+        let request = gui_record_request(&state, &input, &input.data, &["record.read"])?;
         let utility = AppDocumentUtility(state.app_handle.clone());
         RecordDocumentService::new(&*state, &utility).capacity(&request, &input.data)
     })();
@@ -456,7 +473,7 @@ pub(crate) async fn record_version_preview(
     input: RecordCommandInput<VersionGetInput>,
 ) -> Result<ApiResponse<RecordVersionPreview>, String> {
     let result = async {
-        let request = gui_request(&state, &input, &input.data.target.scope, &["record.read"])?;
+        let request = gui_record_request(&state, &input, &input.data.target, &["record.read"])?;
         let utility = AppDocumentUtility(state.app_handle.clone());
         let (version, html) = RecordDocumentService::new(&*state, &utility)
             .version_preview(&request, &input.data.target, &input.data.version_id)
@@ -472,10 +489,10 @@ pub(crate) async fn record_version_restore(
     input: RecordCommandInput<RecordRestoreInput>,
 ) -> Result<ApiResponse<RecordEditorSaveResult>, String> {
     let result = async {
-        let request = gui_request(
+        let request = gui_record_request(
             &state,
             &input,
-            &input.data.target.scope,
+            &input.data.target,
             &["record.read", "record.restore"],
         )?;
         let utility = AppDocumentUtility(state.app_handle.clone());
