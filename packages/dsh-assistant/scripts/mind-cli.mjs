@@ -49,6 +49,13 @@ export function installMindCli(ctx, context, cli, bridge) {
       const binding = registry.forAgent(assembly.agent).cli;
       return binding ? bindingPrompt(binding) : '';
     } : bindingPrompt(cli), interpolate: false });
+    // DSH assembles sections before every model step, including resumed Sessions.
+    scope.systemPrompt.section({ name: 'mind:session-files', order: scope.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_SUFFIX'), text: assembly => {
+      if (!assembly.agent) return '';
+      const sessionContext = registry ? registry.forAgent(assembly.agent) : context;
+      const scratch = path.join(sessionContext.directory, '.mind-tmp', assembly.agent.session.id);
+      return `Create intermediate scripts, temporary test files, and temporary data only in the hidden Session scratch directory ${JSON.stringify(scratch)}; create it on demand within the current execution permissions. Keep tool working directories aligned with the task so relative paths retain their meaning, and use explicit scratch paths. Use the normal Project/Workspace folder only for requested final deliverables or files the user explicitly asks to retain; promote such files from scratch when ready. Leave existing user files in place. The .project-mind directory is reserved for application metadata.`;
+    }, interpolate: false });
     const shell = scope.shell;
     const original = shell.execute;
     const active = new Set();

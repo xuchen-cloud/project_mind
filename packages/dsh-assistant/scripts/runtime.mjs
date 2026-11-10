@@ -23,7 +23,8 @@ import { bundledSkillEnvironment, prepareBundledSkills } from './skills.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const embedded = process.argv.includes('--embedded');
-const args = process.argv.slice(2).filter(arg => arg !== '--embedded');
+const historyOnly = embedded && process.argv.includes('--history-only');
+const args = process.argv.slice(2).filter(arg => !['--embedded', '--history-only'].includes(arg));
 let input;
 let sharedModel;
 let context;
@@ -39,21 +40,26 @@ if (embedded) {
     input.once('close', () => reject(new Error('Main application closed before AI configuration')));
   });
   configuration = JSON.parse(frame);
-  sharedModel = readSharedModel(frame);
+  if (historyOnly !== (configuration.historyOnly === true)) throw new Error('Invalid history runtime configuration');
+  if (!historyOnly) sharedModel = readSharedModel(frame);
   context = await readContext(frame);
-  cli = await readMindCli(frame, context);
-  sourceBridge = createSourceBridge(input, line => process.stdout.write(line));
+  if (!historyOnly) {
+    cli = await readMindCli(frame, context);
+    sourceBridge = createSourceBridge(input, line => process.stdout.write(line));
+  }
 }
 Object.assign(process.env, assistantEnvironment());
-await prepareBundledSkills();
-Object.assign(process.env, bundledSkillEnvironment());
+if (!historyOnly) {
+  await prepareBundledSkills();
+  Object.assign(process.env, bundledSkillEnvironment());
+}
 const home = process.env.DSH_HOME;
 if (embedded) await prepareCurrentRuntime({ home, contexts: configuration.contexts ?? [context] });
 const cwd = embedded ? home : path.join(home, 'workspace');
 await mkdir(cwd, { recursive: true });
 process.chdir(cwd);
 const environment = loadLayeredEnv('mind-dsh', cwd);
-const releaseProxy = await installProxyFromEnvironment(environment, message => process.stderr.write(`${message}\n`));
+const releaseProxy = historyOnly ? async () => {} : await installProxyFromEnvironment(environment, message => process.stderr.write(`${message}\n`));
 const sharedProfile = embedded && process.env.PROJECT_MIND_DSH_PROFILE_DIR;
 if (sharedProfile && !path.isAbsolute(sharedProfile)) throw new Error('Main assistant profile directory must be absolute');
 const dir = sharedProfile || path.join(home, 'profiles', 'assistant');
@@ -65,7 +71,11 @@ const resolution = await createRuntimeResolution({ installAnchor, profile });
 const overlays = loadOverlayPatches('mind-dsh', path.join(root, 'config', 'desktop.patch.yml'));
 const extraPatch = process.env.PROJECT_MIND_DSH_PATCH;
 if (extraPatch) overlays.push(...loadOverlayPatches('mind-dsh', path.resolve(extraPatch)));
-if (embedded) overlays.push(...sharedModelPatches(sharedModel));
+if (embedded && !historyOnly) overlays.push(...sharedModelPatches(sharedModel));
+if (historyOnly) overlays.push(
+  { id: 'web-runtime', config: { printUrl: false, openBrowser: false, surfaceContext: true, trustedHosts: [] } },
+  ...['llm-deepseek', 'llm-deepseek-account', 'session-title-llm'].map(id => ({ id, disabled: true })),
+);
 const profileContext = { name: 'assistant', dir, patchPath: profile.patchPath, installAnchor, cwd, home, startedBundles: profile.layers.map(layer => layer.packageName), overlays, telemetryDisabledEnv: '1' };
 const config = path.join(dir, 'cordis.yml');
 await writeFile(config, '[]\n');
@@ -93,7 +103,7 @@ try {
     host.provide(DSH_LAUNCH_ENVIRONMENT_KEY, environment);
     await installProcessOwnership(host);
     await host.plugin(PluginPackages, { resolution });
-    if (embedded) {
+    if (embedded && !historyOnly) {
       installSharedCredential(host, sharedModel);
       mindCli = installMindCli(host, {
         forSession: (...args) => ctx.mindContexts.forSession(...args),
@@ -112,15 +122,17 @@ try {
     for (const registered of configuration.contexts ?? []) {
       if (registered.kind !== context.kind || registered.id !== context.id) await contexts.register(registered);
     }
-    installStableSessionFork(ctx, contexts);
-    installContextStreams(ctx, contexts);
-    installSessionReferenceScope(ctx, contexts);
-    {
-      await installSourceService(ctx, contexts, sourceBridge);
-      await installOfficeService(ctx, contexts, sourceBridge);
-      await installOfficeSelectionService(ctx, contexts, sourceBridge);
+    if (!historyOnly) {
+      installStableSessionFork(ctx, contexts);
+      installContextStreams(ctx, contexts);
+      installSessionReferenceScope(ctx, contexts);
+      {
+        await installSourceService(ctx, contexts, sourceBridge);
+        await installOfficeService(ctx, contexts, sourceBridge);
+        await installOfficeSelectionService(ctx, contexts, sourceBridge);
+      }
+      await installScheduledTasks(ctx, contexts, home);
     }
-    await installScheduledTasks(ctx, contexts, home);
   }
   for (const listener of readyListeners) listener();
   if (process.send) process.send({ type: 'ready', port: ctx.webServer.port });

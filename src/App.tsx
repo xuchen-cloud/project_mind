@@ -50,7 +50,7 @@ import {
   useRecordSaveStatus,
 } from "./lib/record-save-runtime";
 import { queryKeys } from "./lib/queryKeys";
-import { prefetchProjectPageData } from "./lib/project-prefetch";
+import { prefetchProjectPageData, scheduleSessionSummariesPrefetch } from "./lib/project-prefetch";
 import { scheduleRecordFocusPageModulesPreload } from "./routes/record-focus-modules";
 import {
   getCurrentWindowLabel,
@@ -196,6 +196,8 @@ export function WorkspaceLayout({
   const location = useLocation();
   const params = useParams();
   const queryClient = useQueryClient();
+  const cancelSessionHoverPrefetch = useRef<(() => void) | null>(null);
+  const cancelSessionPrefetch = useRef<() => void>(() => {});
   const todoModule = useMemo(
     () => createTodoModule({ queryClient, transport: productionTodoTransport }),
     [queryClient],
@@ -590,6 +592,7 @@ export function WorkspaceLayout({
         showDshBusyFeedback();
         return null;
       }
+      cancelSessionPrefetch.current();
       const snapshot = await projectMindApi.workspaceOpen({ rootPath });
       await applyWorkspaceStatus(snapshot, true);
       setCreateProjectOpen(false);
@@ -658,6 +661,7 @@ export function WorkspaceLayout({
         return;
       }
       await desktopApi.destroyOtherWorkspaceWindows();
+      cancelSessionPrefetch.current();
       const snapshot = await projectMindApi.workspaceClose();
       await applyWorkspaceStatus(snapshot, true);
       setCreateWorkspaceOpen(false);
@@ -700,6 +704,7 @@ export function WorkspaceLayout({
         showDshBusyFeedback();
         return;
       }
+      cancelSessionPrefetch.current();
       const snapshot = await projectMindApi.workspaceCreate({
         rootPath: createWorkspaceRoot.trim(),
       });
@@ -762,8 +767,19 @@ export function WorkspaceLayout({
     ],
   );
 
+  const sessionPrefetchWorkspaceRoot = currentWorkspace?.rootPath;
+  useEffect(() => {
+    if (!sessionPrefetchWorkspaceRoot) return;
+    const recent = openProjectIds.filter(id => id !== activeProjectId).slice(-2).reverse();
+    const cancel = scheduleSessionSummariesPrefetch(queryClient, sessionPrefetchWorkspaceRoot, [activeProjectId, null, ...recent]);
+    cancelSessionPrefetch.current = () => { cancel(); cancelSessionHoverPrefetch.current?.(); };
+    return () => cancelSessionPrefetch.current();
+  }, [queryClient, sessionPrefetchWorkspaceRoot, workspaceStatusQuery.dataUpdatedAt, activeProjectId, openProjectIds]);
+
   const prefetchProject = useCallback(
     (projectId: number) => {
+      cancelSessionHoverPrefetch.current?.();
+      if (sessionPrefetchWorkspaceRoot) cancelSessionHoverPrefetch.current = scheduleSessionSummariesPrefetch(queryClient, sessionPrefetchWorkspaceRoot, [projectId]);
       if (residentProjectIds.includes(projectId)) {
         return;
       }
@@ -774,7 +790,7 @@ export function WorkspaceLayout({
         // Prefetch failures are surfaced by the destination page query.
       });
     },
-    [queryClient, residentProjectIds, todoModule],
+    [queryClient, residentProjectIds, todoModule, sessionPrefetchWorkspaceRoot],
   );
 
   const openProjectInNewWindow = useCallback(

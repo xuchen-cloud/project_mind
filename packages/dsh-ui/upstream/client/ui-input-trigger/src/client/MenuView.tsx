@@ -13,7 +13,7 @@
  * header pinned above the scrolling list.
  */
 import { MenuSurface } from '@deepseek-ai/dsh-client-ui-primitives'
-import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from 'react'
 import clsx from 'clsx'
 import { IconChevronRightOutlineRegular, ReferenceIconRegular, useAnchoredMaxHeight } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
@@ -55,19 +55,28 @@ export function MenuView({ menu, headers, onPick, onCrumb, onHover, onDismiss, t
   )
   const listRef = useRef<HTMLDivElement>(null)
   const viewportRef = useRef<HTMLDivElement>(null)
-  const [hasOverflowBelow, setHasOverflowBelow] = useState(false)
-  // The list is bottom-anchored above the composer; clamp the design cap to
-  // the space above it, re-measured on every store update (the anchor moves
-  // when the composer grows).
+  const edgesRef = useRef<HTMLDivElement>(null)
+  const rowsRef = useRef<HTMLDivElement>(null)
+  // The list is bottom-anchored above the composer.
   const maxHeight = useAnchoredMaxHeight(listRef, MAX_HEIGHT, state, TOP_MARGIN)
   const updateOverflowHint = useCallback(() => {
     const viewport = viewportRef.current
-    setHasOverflowBelow(viewport !== null
-      && viewport.scrollTop + viewport.clientHeight < viewport.scrollHeight - 1)
+    const frame = edgesRef.current
+    if (!viewport || !frame) return
+    const max = Math.max(0, viewport.scrollHeight - viewport.clientHeight)
+    const distance = Math.min(max, Math.max(0, viewport.scrollTop))
+    const fade = Math.min(64, max / 2)
+    frame.style.setProperty('--trigger-edge-top', String(fade > 0 ? Math.min(1, distance / fade) : 0))
+    frame.style.setProperty('--trigger-edge-bottom', String(fade > 0 ? Math.min(1, (max - distance) / fade) : 0))
   }, [])
-  useLayoutEffect(() => {
-    updateOverflowHint()
-  }, [state, maxHeight, updateOverflowHint])
+  useLayoutEffect(() => { updateOverflowHint() }, [state, maxHeight, updateOverflowHint])
+  useEffect(() => {
+    if (!state.open || !viewportRef.current || !rowsRef.current) return
+    const observer = new ResizeObserver(updateOverflowHint)
+    observer.observe(viewportRef.current)
+    observer.observe(rowsRef.current)
+    return () => { observer.disconnect() }
+  }, [state.open, updateOverflowHint])
   const highlight = state.open ? state.highlight : null
   // Focus stays in the textarea (combobox pattern), so the browser never
   // scrolls the active option into view on keyboard moves — do it here.
@@ -99,7 +108,6 @@ export function MenuView({ menu, headers, onPick, onCrumb, onHover, onDismiss, t
       className={css.menu}
       style={{ maxHeight }}
       data-trigger-menu=""
-      data-overflow-below={hasOverflowBelow || undefined}
     >
       {state.groups.map((group) => {
         const trail = crumbs.get(group.source)
@@ -126,6 +134,7 @@ export function MenuView({ menu, headers, onPick, onCrumb, onHover, onDismiss, t
           </nav>
         )
       })}
+      <div ref={edgesRef} className={css.viewportFrame}>
       <div
         ref={viewportRef}
         className={css.viewport}
@@ -134,6 +143,7 @@ export function MenuView({ menu, headers, onPick, onCrumb, onHover, onDismiss, t
         aria-activedescendant={highlight !== null ? optionId(highlight.source, highlight.index) : undefined}
         onScroll={updateOverflowHint}
       >
+        <div ref={rowsRef}>
         {state.groups.map(group => (group.status === 'ready' && group.items.length === 0)
           ? null
           : (
@@ -216,6 +226,8 @@ export function MenuView({ menu, headers, onPick, onCrumb, onHover, onDismiss, t
                 })}
             </Fragment>
           ))}
+        </div>
+      </div>
       </div>
     </MenuSurface>
   )

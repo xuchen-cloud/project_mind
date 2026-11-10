@@ -34,6 +34,9 @@ mod cli;
 #[path = "dsh_boot.rs"]
 mod boot;
 
+#[path = "dsh_history.rs"]
+pub(crate) mod history;
+
 #[cfg(test)]
 #[path = "dsh_workspace_tests.rs"]
 mod workspace_tests;
@@ -100,16 +103,17 @@ impl ScopedRuntimes {
             }
             self.generation += 1;
             self.host_identity = Some(host.identity.clone());
-            self.scopes.insert(None, RuntimeState { process: Some(process), identity: Some(host.identity), generation: self.generation, ..Default::default() });
+            self.scopes.insert(None, RuntimeState { process: Some(process), identity: Some(host.identity), execution_ready: true, generation: self.generation, ..Default::default() });
         }
         self.scopes.entry(project_id).or_insert_with(|| RuntimeState { generation: self.generation, ..Default::default() });
         let inner = self.scope_mut(project_id)?;
-        if inner.identity.as_ref() != Some(&target.identity) {
+        if !inner.execution_ready || inner.identity.as_ref() != Some(&target.identity) {
             let process = inner.process.as_mut().ok_or(TRANSPORT_ERROR)?;
             cli::register_context(app, process, &target.identity).await?;
             let current = Configuration::resolve(app, project_id)?;
             if current.identity != target.identity { return Err("助手范围已变化，请重新打开助手".into()); }
             inner.identity = Some(target.identity);
+            inner.execution_ready = true;
         }
         Ok(inner)
     }
@@ -117,15 +121,15 @@ impl ScopedRuntimes {
     async fn ensure_scope(&mut self, app: &tauri::AppHandle, project_id: Option<i64>, pending: bool) -> Result<&mut RuntimeState, String> {
         // Reads and stopping an existing Session keep using its admitted host.
         // Only explicit start rechecks changed credentials while work is active.
-        let reusable = if self.scopes.contains_key(&project_id) {
+        let reusable = if !history::is_history(self.host_identity.as_ref()) && self.scopes.contains_key(&project_id) {
             let scope = self.scope_mut(project_id)?;
-            scope.check_ready(app).and_then(|_| {
+            if !scope.execution_ready { false } else { scope.check_ready(app).and_then(|_| {
                 let state = app.state::<crate::AppState>();
                 let current = crate::lock_mutex(&state.current_workspace);
                 let runtime = current.as_ref().ok_or("请先打开工作区")?;
                 let mut db = crate::lock_mutex(&runtime.db);
                 scope.identity.as_ref().ok_or(TRANSPORT_ERROR)?.validate_context(&mut db, &runtime.paths.root_path)
-            }).is_ok()
+            }).is_ok() }
         } else { false };
         if reusable { return self.scope_mut(project_id); }
         self.ensure_ready(app, project_id, pending).await
@@ -156,6 +160,7 @@ impl ScopedRuntimes {
 struct RuntimeState {
     process: Option<AssistantProcess>,
     identity: Option<Identity>,
+    execution_ready: bool,
     generation: u64,
     connections: HashMap<String, NativeConnection>,
 }
@@ -1286,6 +1291,13 @@ pub(crate) fn assistant_script_command(
 }
 
 fn runtime_command(app: &tauri::AppHandle, config: &Configuration) -> Result<Command, String> {
+    let mut command = workspace_runtime_command(app, &config.identity)?;
+    crate::ai_network::configure_node(&mut command, &config.profile.base_url, &config.profile.network)
+        .map_err(|_| "无法应用 AI 网络设置，请检查代理配置")?;
+    Ok(command)
+}
+
+fn workspace_runtime_command(app: &tauri::AppHandle, identity: &Identity) -> Result<Command, String> {
     let mut command = assistant_script_command(app, "runtime.mjs")?;
     #[cfg(unix)]
     command.env("PROJECT_MIND_DSH_PROCESS_HELPER", std::env::current_exe().map_err(|_| "无法定位助手进程保护程序")?);
@@ -1300,18 +1312,12 @@ fn runtime_command(app: &tauri::AppHandle, config: &Configuration) -> Result<Com
     let data_root = assistant_data_root()?;
     command.env(
         "PROJECT_MIND_DSH_USER_DATA",
-        workspace_runtime_home(&config.identity.workspace_id)?,
+        workspace_runtime_home(&identity.workspace_id)?,
     );
     command.env(
         "PROJECT_MIND_DSH_PROFILE_DIR",
-        workspace_profile_directory(&data_root, &config.identity.workspace_id)?,
+        workspace_profile_directory(&data_root, &identity.workspace_id)?,
     );
-    crate::ai_network::configure_node(
-        &mut command,
-        &config.profile.base_url,
-        &config.profile.network,
-    )
-    .map_err(|_| "无法应用 AI 网络设置，请检查代理配置")?;
     Ok(command)
 }
 
