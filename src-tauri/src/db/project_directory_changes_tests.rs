@@ -236,6 +236,50 @@ fn count(f: &Fixture, table: &str) -> i64 {
         .unwrap()
 }
 
+#[test]
+fn g13_directory_changes_preserve_history_after_file_owner_move() {
+    let mut f = fixture(true);
+    let (object, _) = rich_file(&f);
+    let prepared = prepare(&f, "folder");
+    let before = versions(&f, &object);
+    let destination = f.db.project_create(ProjectCreateInput {
+        name: "Moved file owner".into(),
+        summary: None,
+        status: None,
+    }).unwrap().id;
+    let mut request = f.request.clone();
+    request.request_id = "directory-file-owner-move".into();
+    request.scope_grant.project_ids.push(destination);
+    request.scope_grant.operations.push("file.move".into());
+    let id = object.id.parse().unwrap();
+    let baseline = f.db.file_owner_move_baseline(&request, &f.binding, id, f.owner).unwrap();
+    f.db.file_owner_move(&request, &f.binding, &crate::db::file_owner_move::FileOwnerMove {
+        document_id: id,
+        source_owner: f.owner,
+        target_owner: Some(destination),
+        expected_version: baseline.expected_version,
+        expected_working_revision: baseline.expected_working_revision,
+        expected_hash: baseline.expected_hash,
+    }).unwrap();
+    assert!(f.db.project_directory_change_prepare(&f.binding, f.owner, "folder").is_err());
+    for name in [Some("renamed"), None] {
+        let change = input(&f, &prepared, name, "stale-directory-after-move");
+        assert!(f.db.project_directory_change_with(&change, |_| panic!("retained history must not reach Trash")).is_err());
+    }
+    assert!(f.root.join("folder").exists());
+    assert!(!f.root.join("renamed").exists());
+    f.request = request;
+    let moved = ObjectRef {
+        scope: crate::agent::models::Scope::Project { project_id: destination },
+        ..object
+    };
+    // Moving can archive the saved working head; every earlier version stays byte-exact.
+    let after = versions(&f, &moved);
+    for version in before {
+        assert!(after.contains(&version));
+    }
+}
+
 fn reopen(f: &mut Fixture) {
     // Release the old connection before opening a replacement.
     let replacement = Database::open(&f.db_path, &f.workspace, None).unwrap();

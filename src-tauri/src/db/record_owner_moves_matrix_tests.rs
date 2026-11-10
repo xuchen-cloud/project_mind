@@ -946,6 +946,9 @@ async fn g13_resource_subdirectory_and_single_file_guard_retains_foreign_record_
     )
     .unwrap();
     save_document(&db, &a.target, document).await;
+    let directory = db
+        .project_directory_change_prepare(&r.binding, Some(1), "resources/sub")
+        .unwrap();
     r.request_id = "resource-subpath".into();
     db.record_owner_move(
         &r,
@@ -960,6 +963,24 @@ async fn g13_resource_subdirectory_and_single_file_guard_retains_foreign_record_
     assert!(!dir.path().join("renamed-resource-owner").exists());
     assert!(db.project_delete(crate::models::ProjectDeleteInput { project_id: 1 }).is_err());
     assert!(db.project_record(1).is_ok());
+    assert!(db
+        .project_directory_change_prepare(&r.binding, Some(1), "resources/sub")
+        .is_err());
+    for name in [Some("renamed".to_owned()), None] {
+        let change = crate::db::project_directory_changes::DirectoryChangeInput {
+            binding: r.binding.clone(),
+            project_id: Some(1),
+            relative_path: directory.relative_path.clone(),
+            token: directory.token.clone(),
+            confirmed: name.is_none().then_some(true),
+            name,
+            request_id: "blocked-retained-record-resources".into(),
+        };
+        assert!(db
+            .project_directory_change_with(&change, |_| panic!("retained resources must not reach Trash"))
+            .is_err());
+    }
+    assert!(resources.exists());
     // Both reachable file rename/trash and parent directory rename/trash must be blocked.
     assert!(db
         .record_owner_require_unshared_root(&resources.join("图片.png"), Some(1))
