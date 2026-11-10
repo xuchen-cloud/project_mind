@@ -7,6 +7,7 @@ import { ask, open, save } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { readImage, readText } from "@tauri-apps/plugin-clipboard-manager";
 import { getErrorMessage } from "../lib/errors";
+import { holdQuickNotes } from "../lib/quick-note-transfer";
 import type { VoiceSessionSnapshot, VoiceSettings } from "../lib/voice-types";
 import type { FaceVerticalMetrics } from "../lib/office-types";
 import type { EditorRemoteImage, FetchEditorRemoteImageInput } from "../lib/editor-remote-image-types";
@@ -35,6 +36,7 @@ interface PickFileOptions {
 interface WorkspaceLifecycleFlushRequest {
   requestId: string;
   requesterLabel: string;
+  holdQuickNotes?: boolean;
 }
 
 interface WorkspaceLifecycleFlushResponse {
@@ -48,8 +50,31 @@ const WORKSPACE_LIFECYCLE_FLUSH_REQUEST_EVENT =
   "workspace-lifecycle:flush-request";
 const WORKSPACE_LIFECYCLE_FLUSH_RESPONSE_EVENT =
   "workspace-lifecycle:flush-response";
+const WORKSPACE_LIFECYCLE_RELEASE_EVENT = "workspace-lifecycle:release-quick-notes";
 const WORKSPACE_LIFECYCLE_FLUSH_TIMEOUT_MS = 30_000;
 let workspaceLifecycleRequestSequence = 0;
+let windowClose: { releases: Set<() => Promise<void>> } | null = null;
+const remoteQuickNoteHolds = new Map<string, { requesterLabel: string; release: () => void }>();
+let remoteReleaseListener: Promise<unknown> | null = null;
+
+function releaseRemoteQuickNotes(request: WorkspaceLifecycleFlushRequest) {
+  const held = remoteQuickNoteHolds.get(request.requestId);
+  if (held?.requesterLabel !== request.requesterLabel) return;
+  remoteQuickNoteHolds.delete(request.requestId);
+  held.release();
+}
+
+// A window lifetime listener survives App callback re-registration while held.
+function listenForQuickNoteRelease() {
+  if (!remoteReleaseListener) {
+    remoteReleaseListener = listen<WorkspaceLifecycleFlushRequest>(WORKSPACE_LIFECYCLE_RELEASE_EVENT,
+      ({ payload }) => releaseRemoteQuickNotes(payload)).catch((error) => {
+      remoteReleaseListener = null;
+      throw error;
+    });
+  }
+  return remoteReleaseListener;
+}
 
 async function otherProjectWindows() {
   const currentLabel = webviewWindow.getCurrentWebviewWindow().label;
@@ -214,15 +239,20 @@ export const desktopApi = {
 
   async listenForCloseRequest(onClose: () => Promise<boolean>) {
     const currentWindow = getCurrentWindow();
-    let closing = false;
     const requestClose = async () => {
-      if (closing) return;
-      closing = true;
+      if (windowClose) return;
+      const context = { releases: new Set<() => Promise<void>>() };
+      windowClose = context;
+      const release = holdQuickNotes();
       try {
         if (!(await onClose())) return;
         if (isProjectWindow()) await currentWindow.destroy();
         else await invoke("app_exit");
-      } finally { closing = false; }
+      } finally {
+        await Promise.allSettled([...context.releases].map(stop => stop()));
+        release();
+        windowClose = null;
+      }
     };
     const unlistenClose = await currentWindow.onCloseRequested(async (event) => {
       event.preventDefault();
@@ -235,10 +265,14 @@ export const desktopApi = {
   },
 
   async listenForWorkspaceLifecycleFlush(onFlush: () => Promise<void>) {
+    await listenForQuickNoteRelease();
     const currentWindow = webviewWindow.getCurrentWebviewWindow();
     return currentWindow.listen<WorkspaceLifecycleFlushRequest>(
       WORKSPACE_LIFECYCLE_FLUSH_REQUEST_EVENT,
       async ({ payload }) => {
+        if (payload.holdQuickNotes && !remoteQuickNoteHolds.has(payload.requestId)) {
+          remoteQuickNoteHolds.set(payload.requestId, { requesterLabel: payload.requesterLabel, release: holdQuickNotes() });
+        }
         let response: WorkspaceLifecycleFlushResponse;
         try {
           await onFlush();
@@ -248,6 +282,7 @@ export const desktopApi = {
             ok: true,
           };
         } catch (error) {
+          releaseRemoteQuickNotes(payload);
           response = {
             requestId: payload.requestId,
             windowLabel: currentWindow.label,
@@ -256,13 +291,11 @@ export const desktopApi = {
           };
         }
 
-        const requester = await webviewWindow.WebviewWindow.getByLabel(
-          payload.requesterLabel,
-        );
-        await requester?.emit(
-          WORKSPACE_LIFECYCLE_FLUSH_RESPONSE_EVENT,
-          response,
-        );
+        try {
+          const requester = await webviewWindow.WebviewWindow.getByLabel(payload.requesterLabel);
+          if (!requester) throw new Error("关闭请求窗口已不存在");
+          await requester.emit(WORKSPACE_LIFECYCLE_FLUSH_RESPONSE_EVENT, response);
+        } catch (error) { releaseRemoteQuickNotes(payload); throw error; }
       },
     );
   },
@@ -282,6 +315,12 @@ export const desktopApi = {
       Date.now(),
       workspaceLifecycleRequestSequence,
     ].join("-");
+    const closeContext = windowClose;
+    if (closeContext) closeContext.releases.add(async () => {
+      await Promise.allSettled(targets.map(target => target.emit(WORKSPACE_LIFECYCLE_RELEASE_EVENT, {
+        requestId, requesterLabel: currentWindow.label,
+      })));
+    });
     const pendingLabels = new Set(targets.map((target) => target.label));
     const failures: string[] = [];
     let resolveResponses!: () => void;
@@ -323,6 +362,7 @@ export const desktopApi = {
           target.emit(WORKSPACE_LIFECYCLE_FLUSH_REQUEST_EVENT, {
             requestId,
             requesterLabel: currentWindow.label,
+            ...(closeContext ? { holdQuickNotes: true } : {}),
           } satisfies WorkspaceLifecycleFlushRequest),
         ),
       );

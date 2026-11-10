@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 
 const buildMode = vi.hoisted(() => ({ debug: true }));
 vi.mock("./lib/build-mode", () => ({ get isDebugBuild() { return buildMode.debug; } }));
 
+import { registerProjectContentCloseGuard } from "./lib/project-content-lifecycle";
 import { SettingsRouteBridge } from "./components/settings/SettingsDialog";
 import {
   PROJECT_RECORD_FOCUS_SAVE_REQUEST_EVENT,
@@ -19,7 +20,7 @@ import { RecordSaveCoordinator, RecordSaveFailure, projectRecordSaveKey } from "
 import { queryKeys } from "./lib/queryKeys";
 import { fixtureEditorState } from "./test/recordDocumentFixture";
 import type { RecordTarget } from "./lib/record-document-types";
-import type { ProjectPageData, WorkspacePageData } from "./lib/types";
+import type { ProjectPageData, ProjectUpdateInput, WorkspacePageData } from "./lib/types";
 import { fileDocumentApi } from "./services/fileDocumentApi";
 import { projectFileApi } from "./services/projectFileApi";
 import { openProjectFilePreview, useProjectFileNavigation } from "./lib/project-file-navigation";
@@ -1980,7 +1981,18 @@ describe("WorkspaceLayout", () => {
     await waitFor(() => expect(document.querySelector(`[data-project-resident-id="${initialProjectId}"]`)).not.toBeNull());
     const projectA = document.querySelector(`[data-project-resident-id="${initialProjectId}"]`);
 
-    return { router, coordinator, projectA };
+    // Model the native database: every successful write is visible to the
+    // production mutation's following projectPageGet/projectsList refetches.
+    const persistProjectUpdate = async (input: ProjectUpdateInput) => {
+      const page = projectPages.get(input.projectId)!;
+      const project = { ...page.project, quickNote: input.quickNote,
+        quickNoteMarkdown: input.quickNoteMarkdown ?? input.quickNote,
+        quickNoteHtml: input.quickNoteHtml ?? `<p>${input.quickNote}</p>` };
+      projectPages.set(input.projectId, { ...page, project });
+      projects[projects.findIndex(item => item.id === input.projectId)] = project;
+      return project;
+    };
+    return { router, coordinator, projectA, persistProjectUpdate };
   }
 
   it("confirms and closes a deleted Record through the real content tab and navigation blocker", async () => {
@@ -2089,12 +2101,16 @@ describe("WorkspaceLayout", () => {
     expect(desktopApi.openFile).not.toHaveBeenCalled();
   });
 
+  let quickNoteGeometryPrepared = false;
   async function editResidentQuickNote(project: Element, text: string) {
-    const rect = new DOMRect(0, 0, 240, 24);
-    const descriptor = Object.getOwnPropertyDescriptor(Range.prototype, "getClientRects");
-    Object.defineProperty(Range.prototype, "getClientRects", { configurable: true,
-      value: () => ({ 0: rect, length: 1, item: () => rect, [Symbol.iterator]: function* () { yield rect; } }) });
-    onTestFinished(() => { if (descriptor) Object.defineProperty(Range.prototype, "getClientRects", descriptor); else Reflect.deleteProperty(Range.prototype, "getClientRects"); });
+    if (!quickNoteGeometryPrepared) {
+      quickNoteGeometryPrepared = true;
+      const rect = new DOMRect(0, 0, 240, 24);
+      const descriptor = Object.getOwnPropertyDescriptor(Range.prototype, "getClientRects");
+      Object.defineProperty(Range.prototype, "getClientRects", { configurable: true,
+        value: () => ({ 0: rect, length: 1, item: () => rect, [Symbol.iterator]: function* () { yield rect; } }) });
+      onTestFinished(() => { quickNoteGeometryPrepared = false; if (descriptor) Object.defineProperty(Range.prototype, "getClientRects", descriptor); else Reflect.deleteProperty(Range.prototype, "getClientRects"); });
+    }
     let surface!: HTMLElement;
     await waitFor(() => { surface = project.querySelector<HTMLElement>(".home-quick-note .ProseMirror")!; expect(surface).toHaveAttribute("contenteditable", "true"); });
     act(() => {
@@ -2115,7 +2131,7 @@ describe("WorkspaceLayout", () => {
     let reject!: (reason: Error) => void;
     vi.mocked(projectMindApi.projectUpdate).mockReturnValue(new Promise((_done, fail) => { reject = fail; }));
     fireEvent.click(screen.getByRole("button", { name: "关闭 Project 1" }));
-    await waitFor(() => expect(projectMindApi.projectUpdate).toHaveBeenCalledWith(expect.objectContaining({ projectId: 1, quickNoteMarkdown: expect.stringContaining("UNSAVED CLOSE") })));
+    await waitFor(() => expect(projectMindApi.projectUpdate).toHaveBeenCalledWith(expect.objectContaining({ projectId: 1, quickNoteMarkdown: expect.stringContaining("UNSAVED CLOSE") }), expect.objectContaining({ client: expect.any(QueryClient) })));
     expect(projectA).toBeInTheDocument();
     await act(async () => reject(new Error("QuickNote disk full")));
     await waitFor(() => expect(screen.getByText("项目内容尚不能关闭")).toBeInTheDocument());
@@ -2126,12 +2142,103 @@ describe("WorkspaceLayout", () => {
     await waitFor(() => expect(projectA).not.toBeInTheDocument());
   }, 15_000);
 
+  it.each(["close", "detach"] as const)("saves actual QuickNote input made during a delayed content guard before %s", async (action) => {
+    const { projectA } = await renderResidentProjectFixture();
+    const surface = await editResidentQuickNote(projectA!, " BEFORE GUARD");
+    vi.mocked(projectMindApi.projectUpdate).mockImplementation(async input => ({
+      id: 1, name: "Project 1", kind: "normal", status: "active", rootPath: "/tmp/project-1",
+      quickNote: input.quickNote, quickNoteMarkdown: input.quickNoteMarkdown, quickNoteHtml: input.quickNoteHtml,
+      isArchived: false, createdAt: "", updatedAt: "",
+    }));
+    let release!: () => void;
+    const prepare = vi.fn(() => new Promise<void>(resolve => { release = resolve; }));
+    const stop = registerProjectContentCloseGuard({ workspaceRoot: "/tmp/workspace", projectId: 1, prepare });
+    onTestFinished(stop);
+    if (action === "close") fireEvent.click(screen.getByRole("button", { name: "关闭 Project 1" }));
+    else {
+      fireEvent.contextMenu(screen.getByRole("tab", { name: "Project 1" }));
+      fireEvent.click(await screen.findByRole("menuitem", { name: "在新窗口中打开" }));
+    }
+    await waitFor(() => expect(prepare).toHaveBeenCalledOnce());
+    expect(projectA).toBeInTheDocument();
+    await editResidentQuickNote(projectA!, " AFTER GUARD");
+    expect(projectA!.querySelector(".home-quick-note .ProseMirror")).toBe(surface);
+    await act(async () => release());
+    await waitFor(() => expect(projectA).not.toBeInTheDocument());
+    expect(projectMindApi.projectUpdate).toHaveBeenCalledWith(expect.objectContaining({ projectId: 1,
+      quickNoteMarkdown: expect.stringContaining("AFTER GUARD") }), expect.objectContaining({ client: expect.any(QueryClient) }));
+    if (action === "detach") expect(desktopApi.openProjectWindow).toHaveBeenCalledWith(expect.objectContaining({ projectId: 1 }));
+  }, 15000);
+
+  it("captures actual QuickNote input while opening a detached window before removing its source", async () => {
+    const { projectA } = await renderResidentProjectFixture();
+    const surface = await editResidentQuickNote(projectA!, " BEFORE WINDOW");
+    vi.mocked(projectMindApi.projectUpdate).mockImplementation(async input => ({
+      id: 1, name: "Project 1", kind: "normal", status: "active", rootPath: "/tmp/project-1",
+      quickNote: input.quickNote, quickNoteMarkdown: input.quickNoteMarkdown, quickNoteHtml: input.quickNoteHtml,
+      isArchived: false, createdAt: "", updatedAt: "",
+    }));
+    let opened!: () => void;
+    vi.mocked(desktopApi.openProjectWindow).mockImplementationOnce(() => new Promise<void>(resolve => { opened = resolve; }));
+    fireEvent.contextMenu(screen.getByRole("tab", { name: "Project 1" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "在新窗口中打开" }));
+    await waitFor(() => expect(desktopApi.openProjectWindow).toHaveBeenCalledOnce());
+    await editResidentQuickNote(projectA!, " AFTER WINDOW");
+    expect(projectA!.querySelector(".home-quick-note .ProseMirror")).toBe(surface);
+    await act(async () => opened());
+    await waitFor(() => expect(projectA).not.toBeInTheDocument());
+    expect(projectMindApi.projectUpdate).toHaveBeenCalledWith(expect.objectContaining({ projectId: 1,
+      quickNoteMarkdown: expect.stringContaining("AFTER WINDOW") }), expect.objectContaining({ client: expect.any(QueryClient) }));
+  }, 15000);
+
+  it("keeps a reactivated QuickNote and its new input when an old LRU save resolves", async () => {
+    const { router, projectA, persistProjectUpdate } = await renderResidentProjectFixture();
+    const surface = await editResidentQuickNote(projectA!, " BEFORE LRU");
+    let finish!: () => void;
+    vi.mocked(projectMindApi.projectUpdate).mockImplementation(persistProjectUpdate);
+    vi.mocked(projectMindApi.projectUpdate).mockImplementationOnce(input => new Promise(resolve => {
+      finish = () => { void persistProjectUpdate(input).then(resolve); };
+    }));
+    for (const id of [2, 3, 4, 5, 6]) await act(() => router.navigate(`/projects/${id}`));
+    await waitFor(() => expect(projectMindApi.projectUpdate).toHaveBeenCalledWith(expect.objectContaining({ projectId: 1,
+      quickNoteMarkdown: expect.stringContaining("BEFORE LRU") }), expect.objectContaining({ client: expect.any(QueryClient) })));
+    expect(surface).toHaveAttribute("contenteditable", "false");
+    await act(() => router.navigate("/projects/1"));
+    await editResidentQuickNote(projectA!, " AFTER LRU");
+    await act(async () => finish());
+    expect(projectA).toBeInTheDocument();
+    expect(projectA!.querySelector(".home-quick-note .ProseMirror")).toBe(surface);
+    expect(surface).toHaveAttribute("contenteditable", "true");
+    expect(surface).toHaveTextContent("AFTER LRU");
+  }, 15000);
+
+  it("saves actual QuickNote input made while other windows are flushing before accepting exit", async () => {
+    const { projectA } = await renderResidentProjectFixture();
+    const surface = await editResidentQuickNote(projectA!, " BEFORE OTHER WINDOWS");
+    vi.mocked(projectMindApi.projectUpdate).mockImplementation(async input => ({
+      id: 1, name: "Project 1", kind: "normal", status: "active", rootPath: "/tmp/project-1",
+      quickNote: input.quickNote, quickNoteMarkdown: input.quickNoteMarkdown, quickNoteHtml: input.quickNoteHtml,
+      isArchived: false, createdAt: "", updatedAt: "",
+    }));
+    let release!: () => void;
+    vi.mocked(desktopApi.flushOtherWorkspaceWindows).mockImplementationOnce(() => new Promise<void>(resolve => { release = resolve; }));
+    await waitFor(() => expect(desktopApi.listenForCloseRequest).toHaveBeenCalled());
+    const close = vi.mocked(desktopApi.listenForCloseRequest).mock.calls.at(-1)![0];
+    const closing = close();
+    await waitFor(() => expect(desktopApi.flushOtherWorkspaceWindows).toHaveBeenCalledOnce());
+    await editResidentQuickNote(projectA!, " AFTER OTHER WINDOWS");
+    await act(async () => { release(); expect(await closing).toBe(true); });
+    expect(projectA!.querySelector(".home-quick-note .ProseMirror")).toBe(surface);
+    expect(projectMindApi.projectUpdate).toHaveBeenCalledWith(expect.objectContaining({ projectId: 1,
+      quickNoteMarkdown: expect.stringContaining("AFTER OTHER WINDOWS") }), expect.objectContaining({ client: expect.any(QueryClient) }));
+  }, 15000);
+
   it("retains a failed QuickNote through sixth-Project Overview eviction and retries from the same editor", async () => {
     const { router, projectA } = await renderResidentProjectFixture();
     const surface = await editResidentQuickNote(projectA!, " UNSAVED LRU");
     vi.mocked(projectMindApi.projectUpdate).mockRejectedValue(new Error("QuickNote disk full"));
     for (const id of [2, 3, 4, 5, 6]) await act(() => router.navigate(`/projects/${id}`));
-    await waitFor(() => expect(projectMindApi.projectUpdate).toHaveBeenCalledWith(expect.objectContaining({ projectId: 1, quickNoteMarkdown: expect.stringContaining("UNSAVED LRU") })));
+    await waitFor(() => expect(projectMindApi.projectUpdate).toHaveBeenCalledWith(expect.objectContaining({ projectId: 1, quickNoteMarkdown: expect.stringContaining("UNSAVED LRU") }), expect.objectContaining({ client: expect.any(QueryClient) })));
     expect(surface).toBeInTheDocument();
     expect(surface).toHaveTextContent("UNSAVED LRU");
     await act(() => router.navigate("/projects/1"));

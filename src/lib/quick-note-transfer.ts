@@ -85,12 +85,25 @@ export class QuickNoteTransferSession<Value, Record> {
 }
 
 export interface QuickNoteScope { workspaceRoot: string; projectId: number | null }
-const quickNoteFlushers = new Map<string, { flush: () => Promise<void>; scope?: QuickNoteScope }>();
+const quickNoteFlushers = new Map<string, { flush: () => Promise<void>; scope?: QuickNoteScope; assertSaved?: () => void; hold?: (held: boolean) => void }>();
+let closeHolds = 0;
 
-export function registerQuickNoteFlusher(identity: string, flush: () => Promise<void>, scope?: QuickNoteScope) {
-  const entry = { flush, scope };
+export function registerQuickNoteFlusher(identity: string, flush: () => Promise<void>, scope?: QuickNoteScope, assertSaved?: () => void, hold?: (held: boolean) => void) {
+  const entry = { flush, scope, assertSaved, hold };
   quickNoteFlushers.set(identity, entry);
-  return () => { if (quickNoteFlushers.get(identity) === entry) quickNoteFlushers.delete(identity); };
+  if (closeHolds) hold?.(true);
+  return () => { if (quickNoteFlushers.get(identity) === entry) { quickNoteFlushers.delete(identity); if (closeHolds) hold?.(false); } };
+}
+
+/** Keep this window's QuickNotes non-interactive through native shutdown. */
+export function holdQuickNotes() {
+  if (++closeHolds === 1) for (const entry of quickNoteFlushers.values()) entry.hold?.(true);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    if (--closeHolds === 0) for (const entry of quickNoteFlushers.values()) entry.hold?.(false);
+  };
 }
 
 /** Finish autosaves/publication before changing the active Workspace database. */
@@ -98,4 +111,13 @@ export async function flushQuickNotes(scope?: QuickNoteScope) {
   await Promise.all([...quickNoteFlushers.values()]
     .filter(entry => !scope || (entry.scope?.workspaceRoot === scope.workspaceRoot && entry.scope.projectId === scope.projectId))
     .map(entry => entry.flush()));
+}
+
+/** Recheck synchronously at the caller's destructive boundary, after its awaits. */
+export function assertQuickNotesSaved(scope?: QuickNoteScope) {
+  for (const entry of quickNoteFlushers.values()) {
+    if (!scope || (entry.scope?.workspaceRoot === scope.workspaceRoot && entry.scope.projectId === scope.projectId)) {
+      entry.assertSaved?.();
+    }
+  }
 }

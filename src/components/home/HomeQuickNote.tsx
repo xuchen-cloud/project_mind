@@ -1,7 +1,7 @@
 import { HomeSaveIndicator } from "./HomeSaveIndicator";
 import { useHomeHeadingMotion } from "./useHomeHeadingMotion";
 import { useHomeModal } from "./useHomeModal";
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { ChevronDown, Expand, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { QuickNoteTransferSession, registerQuickNoteFlusher, type QuickNoteScope, type QuickNoteTransferContext, type QuickNoteTransferTarget } from "../../lib/quick-note-transfer";
 import type { RichEditorController, RichEditorPersistState, RichEditorValue } from "../rich-editor";
@@ -62,6 +62,7 @@ export function HomeQuickNote(props: Props) {
   const [appendOpen, setAppendOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
+  const [closeHeld, setCloseHeld] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshFailed, setRefreshFailed] = useState(false);
   const [status, setStatus] = useState<RichEditorPersistState>("idle");
@@ -82,7 +83,7 @@ export function HomeQuickNote(props: Props) {
     setBusy: (value) => { editorRef.current?.setEditable(!value); if (mounted.current) { setBusy(value); latest.current.onBusyChange?.(value); } },
   }), [identity]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const unregister = registerQuickNoteFlusher(identity, async () => {
       const editor = editorRef.current;
       // Hidden pages are read-only for interaction, but still own their draft.
@@ -91,7 +92,15 @@ export function HomeQuickNote(props: Props) {
         await editor?.save({ allowReadOnly: true });
         await session.flush();
       } while (editor?.hasUnsavedCommittedContent());
-    }, props.scope);
+    }, props.scope, () => {
+      if (editorRef.current?.hasUnsavedCommittedContent()) {
+        throw new Error("QuickNote 仍有未保存的修改，请重试关闭");
+      }
+    }, (held) => {
+      if (sectionRef.current) sectionRef.current.inert = held;
+      setCloseHeld(held);
+      editorRef.current?.setEditable(!held);
+    });
     return unregister;
   }, [identity, session, props.scope?.workspaceRoot, props.scope?.projectId]);
 
@@ -206,7 +215,7 @@ export function HomeQuickNote(props: Props) {
       <header className="home-quick-note__header"><strong>QuickNote</strong><span className="home-quick-note__save">
         <HomeSaveIndicator state={status} showError={false} />
       </span><button ref={expandRef} type="button" className="home-quick-note__icon-button" aria-label={expanded ? "收起 QuickNote" : "展开 QuickNote"} onClick={() => expanded ? closeExpanded() : (setCollapsedHeight(panelRef.current?.offsetHeight ?? 0), setExpanded(true))}>{expanded ? <X size={16} /> : <Expand size={16} />}</button></header>
-      <div className={`home-quick-note__editor${toolsExpanded ? " is-tools-expanded" : ""}`}>{renderEditor({ controllerRef: editorRef, onChange: (value) => setIsEmpty(!value.markdown.trim()), onSave: (value) => session.save(value), onPersistStateChange: setStatus, readOnly: busy, toolbarExtras: (<button type="button" className="home-quick-note__tools-toggle" aria-label={toolsExpanded ? "收起格式工具" : "更多格式工具"} aria-expanded={toolsExpanded} onMouseDown={(event) => event.preventDefault()} onClick={() => setToolsExpanded(!toolsExpanded)}>{toolsExpanded ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}</button>) })}</div>
+      <div className={`home-quick-note__editor${toolsExpanded ? " is-tools-expanded" : ""}`}>{renderEditor({ controllerRef: editorRef, onChange: (value) => setIsEmpty(!value.markdown.trim()), onSave: (value) => session.save(value), onPersistStateChange: setStatus, readOnly: busy || closeHeld, toolbarExtras: (<button type="button" className="home-quick-note__tools-toggle" aria-label={toolsExpanded ? "收起格式工具" : "更多格式工具"} aria-expanded={toolsExpanded} onMouseDown={(event) => event.preventDefault()} onClick={() => setToolsExpanded(!toolsExpanded)}>{toolsExpanded ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}</button>) })}</div>
 
       <footer className="home-quick-note__footer">{refreshFailed ? <span className="home-quick-note__error" role="status">记录已保存，请刷新列表。</span> : null}{error ? <span className="home-quick-note__error" role="alert" title={error}>发布失败，草稿已保留。</span> : null}<div className={`home-quick-note__split${menuOpen ? " is-menu-open" : ""}`}><button type="button" aria-label="保存为记录" disabled={busy || isEmpty} onClick={() => void transfer({ kind: "new" })}><span className="home-quick-note__send-label" aria-hidden="true">保存为记录</span><svg className="home-quick-note__send-icon" width="18" height="14" viewBox="0 0 32 26" fill="none" aria-hidden="true"><path fill="currentColor" d="M0 0 32 13 0 10V0Z" /><path fill="currentColor" d="M0 16 32 13 0 26V16Z" /></svg></button><button type="button" disabled={busy} aria-label="更多转存方式" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}><ChevronDown size={14} /></button></div></footer>
       {menuOpen ? <div className="home-quick-note__append"><button type="button" onClick={() => { setMenuOpen(false); setAppendOpen(true); }}>追加到记录…</button></div> : null}

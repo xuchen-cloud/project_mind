@@ -2810,7 +2810,7 @@ export function RichEditor({
 
   const handleAnnotationSave = useCallback(
     (nextAnnotationState: string | null) => {
-      if (!editor || !annotationDialog) {
+      if (!editor || !annotationDialog || readOnly || !editor.isEditable) {
         return;
       }
 
@@ -2819,7 +2819,7 @@ export function RichEditor({
       });
       setAnnotationDialog(null);
     },
-    [annotationDialog, editor],
+    [annotationDialog, editor, readOnly],
   );
 
   const handleEditorDoubleClick = useCallback(

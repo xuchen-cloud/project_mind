@@ -2607,6 +2607,26 @@ describe("RichEditor images", () => {
     });
   });
 
+  it("blocks a previously opened annotation Portal from writing while editing is held", async () => {
+    const controllerRef = { current: null as RichEditorController | null };
+    const { container } = render(<RichEditor variant="toolbar" controllerRef={controllerRef}
+      defaultHtml={'<p><img src="data:image/png;base64,AA==" alt="Held image"></p>'} />);
+    await waitFor(() => expect(controllerRef.current).not.toBeNull());
+    fireEvent.doubleClick(container.querySelector("img.rich-editor__image")!);
+    const dialog = await screen.findByRole("dialog", { name: "Held image" });
+    const save = within(dialog).getByRole("button", { name: "保存标注" });
+    const before = controllerRef.current!.getCommittedDocumentJson();
+    act(() => controllerRef.current!.setEditable(false));
+    // The retained Portal callback predates the hold, just as it can when a
+    // native close starts before React commits the readOnly prop update.
+    fireEvent.click(save);
+    expect(dialog).toBeInTheDocument();
+    expect(controllerRef.current!.getCommittedDocumentJson()).toEqual(before);
+    act(() => controllerRef.current!.setEditable(true));
+    fireEvent.click(save);
+    await waitFor(() => expect(dialog).not.toBeInTheDocument());
+  });
+
   it("opens the image browser on double click and keeps saved annotation previews after reopening", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

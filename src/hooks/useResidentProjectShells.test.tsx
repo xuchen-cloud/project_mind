@@ -46,3 +46,18 @@ describe("QuickNote eviction barrier", () => {
     expect(result.current).toHaveLength(5);
   });
 });
+
+it("does not evict a reactivated Overview when its previous save finishes", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const prepareEviction = vi.fn((id: number) => id === 1 ? gate : Promise.resolve());
+  const { result, rerender } = renderHook(({ activeProjectId }) => useResidentProjectShells({
+    activeProjectId, enabled: true, hasWorkspace: true, openProjectIds: [1, 2, 3, 4, 5, 6], prepareEviction,
+  }), { initialProps: { activeProjectId: 1 } });
+  for (const activeProjectId of [2, 3, 4, 5, 6]) rerender({ activeProjectId });
+  expect(prepareEviction).toHaveBeenCalledWith(1);
+  rerender({ activeProjectId: 1 });
+  await act(async () => release());
+  expect(result.current).toContain(1);
+  expect(result.current.at(-1)).toBe(1);
+});

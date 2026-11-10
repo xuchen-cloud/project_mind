@@ -40,3 +40,23 @@ it("waits for the target Project QuickNote and retains the Project on failure wi
     expect(other).not.toHaveBeenCalled();
   } finally { stops.forEach(stop => stop()); }
 });
+
+it("flushes a new QuickNote edit after an awaited content guard completes", async () => {
+  let draft = "before";
+  let stored = "";
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const flush = vi.fn(async () => { stored = draft; });
+  const prepare = vi.fn(() => gate);
+  const stops = [registerQuickNoteFlusher("late-input", flush, { workspaceRoot: "/late", projectId: 1 }),
+    registerProjectContentCloseGuard({ workspaceRoot: "/late", projectId: 1, prepare })];
+  try {
+    const closing = prepareProjectContentClose("/late", 1);
+    await vi.waitFor(() => expect(prepare).toHaveBeenCalledOnce());
+    expect(stored).toBe("before");
+    draft = "after";
+    release();
+    await closing;
+    expect(stored).toBe("after");
+  } finally { stops.forEach(stop => stop()); }
+});

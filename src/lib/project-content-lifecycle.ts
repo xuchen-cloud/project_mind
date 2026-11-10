@@ -1,4 +1,4 @@
-import { flushQuickNotes } from "./quick-note-transfer";
+import { assertQuickNotesSaved, flushQuickNotes } from "./quick-note-transfer";
 
 type ProjectCloseGuard = { workspaceRoot: string; projectId: number | null; prepare: () => Promise<void> };
 type WorkspaceRecordCloseGuard = { workspaceRoot: string; recordId: number; prepare: () => Promise<void> };
@@ -15,6 +15,9 @@ export function registerProjectContentCloseGuard(guard: ProjectCloseGuard) {
 export async function prepareProjectContentClose(workspaceRoot: string, projectId: number | null) {
   await flushQuickNotes({ workspaceRoot, projectId });
   await projects.get(key(workspaceRoot, projectId))?.prepare();
+  // Other content guards can wait while the QuickNote remains editable.
+  await flushQuickNotes({ workspaceRoot, projectId });
+  assertQuickNotesSaved({ workspaceRoot, projectId });
 }
 export function registerWorkspaceRecordCloseGuard(guard: WorkspaceRecordCloseGuard) {
   const id = key(guard.workspaceRoot, guard.recordId);
