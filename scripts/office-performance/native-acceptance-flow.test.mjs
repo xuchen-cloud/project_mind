@@ -32,7 +32,7 @@ function fixture({ continuityFails = true, resetFails = false, checkpointFails =
   const file = { name: 'complex.xlsx', object: { id: '1' }, versionNumber: 1 };
   const failure = new Error('continuity painted=false at 18830'), resetError = new Error('real reset failed'), transportError = new Error('checkpoint POST failed');
   const context = vm.createContext({ performance, console, measurements, errors, commands: [], activeMeasurement: undefined,
-    lastSheetCheck: {}, lastTimeout: null, shellReady: 0, scope: 'test-only orchestration', commits: [], harnessRunning: true,
+    lastSheetCheck: {}, lastTimeout: null, visiblePreflight: undefined, shellReady: 0, scope: 'test-only orchestration', commits: [], harnessRunning: true,
     controlStatus: controls, rootElement: {}, document: { visibilityState: 'visible' },
     config: { format: 'xlsx', acceptance: true }, first: file, other: { name: 'simple.xlsx', object: { id: '2' } },
     projectContext: { projectId: 1, binding: {} }, project: { id: 1 }, displayedFile: file,
@@ -115,4 +115,17 @@ test('final reporting includes original row plus a later fatal error without dup
   const f = fixture(); await f.api.navigationAcceptance(f.file);
   f.errors.push('later fatal reset/readback error', f.measurements[0].error);
   assert.equal(f.api.reportBase().errors.length, 2); assert.equal(f.api.reportStatus(), 'error');
+});
+
+
+test('reports preserve visible preflight diagnostics, including failure before visibility', () => {
+  const f = fixture();
+  assert.ok(Object.hasOwn(f.api.reportBase(), 'visiblePreflight'));
+  assert.equal(f.api.reportBase().visiblePreflight, undefined);
+  const preflight = { initialVisibility: 'hidden', visibility: 'visible', waitedMs: 1520 };
+  f.context.visiblePreflight = preflight;
+  assert.equal(f.api.reportBase().visiblePreflight, preflight);
+  f.errors.push('later native readback failed');
+  assert.equal(f.api.reportBase().visiblePreflight, preflight);
+  assert.equal(f.api.reportStatus(), 'error');
 });
