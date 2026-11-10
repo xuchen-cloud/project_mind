@@ -1,0 +1,41 @@
+
+> project-mind-alpha@1.0.0 prepare:dev-runtime
+> node scripts/prepare-desktop-runtime.mjs --development
+
+/Users/xuchen/project_mind/packages/agent-host/runtime/darwin-arm64
+Prepared packaged document utility: darwin-arm64
+Prepared source extraction resources: darwin-arm64
+
+> @project-mind/markdown-editor@0.1.0 verify:vendor
+> node sync-upstream.mjs --check && node build-exports.mjs --check
+
+Verified 93 fixed-source files and generated adapters.
+Verified fixed-source DOCX export bundle (731124 bytes).
+
+> @project-mind/office-html2docx@0.0.0 build
+> node build.mjs
+
+Verified 31 GenOffice files at d32d1711f1bf985430757b8c6b3fbddd3831d946
+
+> @project-mind/office-docx@0.0.0 build
+> node build.mjs
+
+Verified 519 GenOffice files at d32d1711f1bf985430757b8c6b3fbddd3831d946
+
+> @project-mind/office-xlsx@0.1.0 build
+> node scripts/build.mjs
+
+    Finished `release` profile [optimized] target(s) in 0.31s
+
+> @project-mind/office-pptx@0.1.0 build
+> node build.mjs
+
+Extracted 97 document handlers
+Verified 515 GenOffice sources at d32d1711f1bf985430757b8c6b3fbddd3831d946
+Verified 4 Web adaptation sources at 86e288908456be5d3b3cccc97e79708e4adf1bc4
+Desktop development backend resources prepared for aarch64-apple-darwin (darwin-arm64)
+npm notice
+npm notice New major version of npm available! 11.19.0 -> 12.2.2
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.2
+npm notice To update run: npm install -g npm@12.2.2
+npm notice

@@ -1,0 +1,314 @@
+{
+  "runner": {
+    "binary": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+    "config": {
+      "workspaceRoot": "/tmp/project-mind-full-review-20261110/workspace",
+      "format": "docx",
+      "sample": "simple",
+      "run": 1,
+      "width": 980,
+      "setup": false,
+      "visible": true,
+      "acceptance": false,
+      "cycles": 0,
+      "races": false,
+      "reportUrl": "http://127.0.0.1:53032/result"
+    },
+    "attempt": 1,
+    "wallMs": 1690.000458
+  },
+  "scope": "native ProjectFileContent shell (not full application startup)",
+  "config": {
+    "acceptance": false,
+    "cycles": 0,
+    "format": "docx",
+    "races": false,
+    "reportUrl": "http://127.0.0.1:53032/result",
+    "run": 1,
+    "sample": "simple",
+    "setup": false,
+    "visible": true,
+    "width": 980,
+    "workspaceRoot": "/tmp/project-mind-full-review-20261110/workspace"
+  },
+  "visibility": "visible",
+  "shell_ready": {
+    "startTime": 447,
+    "navigation": [
+      {
+        "name": "tauri://localhost/scripts/office-performance/native.html",
+        "entryType": "navigation",
+        "startTime": 0,
+        "duration": 245,
+        "initiatorType": "navigation",
+        "nextHopProtocol": "",
+        "workerStart": 0,
+        "redirectStart": 0,
+        "redirectEnd": 0,
+        "fetchStart": 0,
+        "domainLookupStart": 0,
+        "domainLookupEnd": 0,
+        "connectStart": 0,
+        "connectEnd": 0,
+        "secureConnectionStart": 0,
+        "requestStart": 0,
+        "finalResponseHeadersStart": 0,
+        "firstInterimResponseStart": 0,
+        "responseStart": 0,
+        "responseEnd": 5,
+        "transferSize": 0,
+        "encodedBodySize": 0,
+        "decodedBodySize": 0,
+        "deliveryType": "",
+        "serverTiming": [],
+        "unloadEventStart": 0,
+        "unloadEventEnd": 0,
+        "domInteractive": 5,
+        "domContentLoadedEventStart": 68,
+        "domContentLoadedEventEnd": 68,
+        "domComplete": 245,
+        "loadEventStart": 245,
+        "loadEventEnd": 245,
+        "type": "navigate",
+        "redirectCount": 0
+      }
+    ]
+  },
+  "commands": [
+    {
+      "api": "command",
+      "name": "workspace_open",
+      "startTime": 448,
+      "duration": 807.0000000000002
+    },
+    {
+      "api": "command",
+      "name": "projects_list",
+      "startTime": 1255.0000000000002,
+      "duration": 4
+    },
+    {
+      "api": "command",
+      "name": "record_workspace_binding_get",
+      "startTime": 1259.0000000000002,
+      "duration": 0
+    },
+    {
+      "api": "fileCommand",
+      "name": "project_file_register",
+      "startTime": 1259.0000000000002,
+      "duration": 8.999999999999773
+    },
+    {
+      "api": "fileCommand",
+      "name": "project_file_register",
+      "startTime": 1268,
+      "duration": 3.0000000000002274
+    },
+    {
+      "api": "command",
+      "name": "record_workspace_binding_get",
+      "startTime": 1277.0000000000002,
+      "duration": 3.9999999999997726
+    },
+    {
+      "api": "command",
+      "name": "record_workspace_binding_get",
+      "startTime": 1279.0000000000002,
+      "duration": 3.9999999999997726
+    },
+    {
+      "api": "fileCommand",
+      "name": "project_file_applications",
+      "startTime": 1281
+    },
+    {
+      "api": "fileCommand",
+      "name": "project_file_resolve",
+      "startTime": 1283,
+      "duration": 8
+    },
+    {
+      "api": "command",
+      "name": "file_versions_list",
+      "startTime": 1291,
+      "duration": 2
+    },
+    {
+      "api": "command",
+      "name": "file_working_open",
+      "startTime": 1293,
+      "error": "Error: Current File changed outside this working session; reconcile external content",
+      "duration": 4
+    }
+  ],
+  "errors": [
+    "Error: Current File changed outside this working session; reconcile external content\nve@tauri://localhost/assets/native-page-kK8ypZjB.js:2:31174\nK@tauri://localhost/assets/native-page-kK8ypZjB.js:3:103"
+  ],
+  "measurements": [
+    {
+      "kind": "performance",
+      "name": "cold_open",
+      "file": "simple.docx",
+      "fileId": "2",
+      "startTime": 1271.0000000000002,
+      "duration": 33.99999999999977,
+      "status": "error",
+      "error": "Error: Current File changed outside this working session; reconcile external content\nve@tauri://localhost/assets/native-page-kK8ypZjB.js:2:31174\nK@tauri://localhost/assets/native-page-kK8ypZjB.js:3:103",
+      "diagnostics": {
+        "stage": "renderer readiness",
+        "measurement": {
+          "name": "cold_open",
+          "fileId": "2",
+          "fileName": "simple.docx",
+          "source": false,
+          "editing": false,
+          "expiresAt": 46271,
+          "expired": false
+        },
+        "visibility": "visible",
+        "sheetCheck": {},
+        "pendingCommands": [
+          {
+            "name": "project_file_applications",
+            "elapsed": 24
+          }
+        ],
+        "documents": [
+          {
+            "title": "shell",
+            "visibility": "visible",
+            "readyState": "complete",
+            "mode": {},
+            "surfaces": [],
+            "loading": [],
+            "alerts": [
+              {
+                "text": "Current File changed outside this working session; reconcile external content",
+                "visible": true
+              }
+            ],
+            "fonts": "loaded",
+            "tabs": [],
+            "sheetHost": {
+              "bootstrapObserved": false,
+              "observerInstalled": false,
+              "hostInstalled": false,
+              "runtime": false,
+              "context": false
+            }
+          }
+        ],
+        "errors": []
+      },
+      "resources": [
+        {
+          "document": 0,
+          "url": "tauri://localhost/scripts/office-performance/native.html",
+          "entries": [],
+          "marks": [
+            {
+              "name": "office-component:docx:requested",
+              "entryType": "mark",
+              "startTime": 1278,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:requested",
+              "entryType": "mark",
+              "startTime": 1278,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:ready",
+              "entryType": "mark",
+              "startTime": 1290,
+              "duration": 0
+            },
+            {
+              "name": "office-component:docx:ready",
+              "entryType": "mark",
+              "startTime": 1291,
+              "duration": 0
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "commits": [],
+  "status": "error",
+  "error": "Error: Current File changed outside this working session; reconcile external content\nve@tauri://localhost/assets/native-page-kK8ypZjB.js:2:31174\nK@tauri://localhost/assets/native-page-kK8ypZjB.js:3:103",
+  "diagnostics": {
+    "stage": "report POST",
+    "visibility": "visible",
+    "sheetCheck": {},
+    "pendingCommands": [
+      {
+        "name": "project_file_applications",
+        "elapsed": 65
+      }
+    ],
+    "documents": [
+      {
+        "title": "shell",
+        "visibility": "visible",
+        "readyState": "complete",
+        "mode": {},
+        "surfaces": [],
+        "loading": [],
+        "alerts": [
+          {
+            "text": "Current File changed outside this working session; reconcile external content",
+            "visible": true
+          }
+        ],
+        "fonts": "loaded",
+        "tabs": [],
+        "sheetHost": {
+          "bootstrapObserved": false,
+          "observerInstalled": false,
+          "hostInstalled": false,
+          "runtime": false,
+          "context": false
+        }
+      }
+    ],
+    "errors": [
+      "Error: Current File changed outside this working session; reconcile external content\nve@tauri://localhost/assets/native-page-kK8ypZjB.js:2:31174\nK@tauri://localhost/assets/native-page-kK8ypZjB.js:3:103"
+    ]
+  },
+  "resources": [
+    {
+      "document": 0,
+      "url": "tauri://localhost/scripts/office-performance/native.html",
+      "entries": [],
+      "marks": [
+        {
+          "name": "office-component:docx:requested",
+          "entryType": "mark",
+          "startTime": 1278,
+          "duration": 0
+        },
+        {
+          "name": "office-component:host:requested",
+          "entryType": "mark",
+          "startTime": 1278,
+          "duration": 0
+        },
+        {
+          "name": "office-component:host:ready",
+          "entryType": "mark",
+          "startTime": 1290,
+          "duration": 0
+        },
+        {
+          "name": "office-component:docx:ready",
+          "entryType": "mark",
+          "startTime": 1291,
+          "duration": 0
+        }
+      ]
+    }
+  ]
+}

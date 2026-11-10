@@ -1,0 +1,30 @@
+{
+  "method": "APFS CoW clone of generated runtime caches; original checkout source and index not modified",
+  "source_root": "/Users/xuchen/project_mind",
+  "resources": {
+    "agent-host": {
+      "path": "/Users/xuchen/.codex/worktrees/0f65/project_mind/src-tauri/resources/agent-host/runtime.json",
+      "manifest_sha256": "e416c0ec7500465b4a565b152a70a7dcacad29f8597c3cce3c672893de1db5ba",
+      "receipt": {
+        "target": "darwin-arm64",
+        "nodeVersion": "24.21.0",
+        "nodeChecksum": "e4b5a3af0e05c75de2eae013904145f40fe7fc2a6e6f17510128bf45cca4e79b",
+        "sourceArchive": "node-v24.21.0-darwin-arm64.tar.gz",
+        "sourceArchiveChecksum": "bed7eea5325e1108f32ce5228ddd6a5f0f08a499ee42aa7442aea583702f6057",
+        "workerDistributionChecksum": "478a075633f36a6eb87c66baebe275d57060eb312ebde8c12c2ed263b10391ea",
+        "workerNoticesChecksum": "193ff96c9563291f5a92532d513c1aac1b6202e12b0944a69c5735c9b3e17d22"
+      }
+    },
+    "source-extractor": {
+      "path": "/Users/xuchen/.codex/worktrees/0f65/project_mind/src-tauri/resources/source-extractor/runtime.json",
+      "manifest_sha256": "ddbbd3c8715fcfbd0d1139dc5c43bc6641fe5d894d27b166832e008a61bc28bb",
+      "receipt": {
+        "target": "darwin-arm64",
+        "nodeVersion": "24.21.0",
+        "nodeChecksum": "e4b5a3af0e05c75de2eae013904145f40fe7fc2a6e6f17510128bf45cca4e79b",
+        "sourceDistributionChecksum": "9e471aa5fbcb0dedc97652ea44cf91b14c6a52bbc47b1b96504c295f71c04a19",
+        "sourceEntryChecksum": "78805b6cf1fe8729ba5af39cb4c45072c661214dd397ed217c2ab28d80d9a3d2"
+      }
+    }
+  }
+}

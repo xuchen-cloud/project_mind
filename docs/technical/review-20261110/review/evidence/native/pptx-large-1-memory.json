@@ -1,0 +1,2794 @@
+{
+  "note": "RSS is process resident size, not retained heap. New WebKit candidates can include unrelated processes. No OS caches cleared.",
+  "samples": [
+    {
+      "atMs": 1028.434667,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 145792,
+          "cpu": 107.6,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 29952,
+          "cpu": 2.2,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 14304,
+          "cpu": 0.4,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 225424,
+          "cpu": 104.1,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 2028.7184169999998,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 152080,
+          "cpu": 109,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 38064,
+          "cpu": 1.3,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 14256,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 269824,
+          "cpu": 28.4,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 23003,
+          "ppid": 22987,
+          "rssKiB": 68640,
+          "cpu": 13.4,
+          "command": "/Users/xuchen/project_mind/packages/agent-host/runtime/darwin-arm64/node",
+          "attribution": "direct-child"
+        }
+      ]
+    },
+    {
+      "atMs": 3035.7335420000004,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 175072,
+          "cpu": 108.8,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 39280,
+          "cpu": 0.7,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 14528,
+          "cpu": 0.2,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 624480,
+          "cpu": 102.8,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 3493.459334,
+      "checkpoint": {
+        "kind": "checkpoint",
+        "name": "cold_open",
+        "time": 3129,
+        "evidence": {
+          "kind": "performance",
+          "file": "large.pptx",
+          "fileId": "7",
+          "duration": 1859,
+          "status": "over_budget",
+          "measurementIndex": 0,
+          "commandCount": 6,
+          "mode": "preview",
+          "visibility": "visible"
+        }
+      },
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 176208,
+          "cpu": 104.2,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 89424,
+          "cpu": 26.1,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 16352,
+          "cpu": 0.1,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 727120,
+          "cpu": 129.6,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 3921.941292,
+      "checkpoint": {
+        "kind": "checkpoint",
+        "name": "first_other_file",
+        "time": 3565,
+        "evidence": {
+          "kind": "performance",
+          "file": "simple.pptx",
+          "fileId": "10",
+          "duration": 391,
+          "status": "passed",
+          "measurementIndex": 1,
+          "commandCount": 5,
+          "mode": "preview",
+          "visibility": "visible"
+        }
+      },
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 176512,
+          "cpu": 106.9,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 110320,
+          "cpu": 20.9,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 16672,
+          "cpu": 1.3,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 752160,
+          "cpu": 115,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 4033.8577090000003,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 176528,
+          "cpu": 108.3,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 110432,
+          "cpu": 14.1,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 16704,
+          "cpu": 2,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 752320,
+          "cpu": 75.8,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 23046,
+          "ppid": 22987,
+          "rssKiB": 75088,
+          "cpu": 4.9,
+          "command": "/Users/xuchen/project_mind/packages/agent-host/runtime/darwin-arm64/node",
+          "attribution": "direct-child"
+        }
+      ]
+    },
+    {
+      "atMs": 4280.780584,
+      "checkpoint": {
+        "kind": "checkpoint",
+        "name": "close_reopen",
+        "time": 3926,
+        "evidence": {
+          "kind": "performance",
+          "file": "simple.pptx",
+          "fileId": "10",
+          "duration": 330,
+          "status": "passed",
+          "measurementIndex": 2,
+          "commandCount": 4,
+          "mode": "preview",
+          "visibility": "visible"
+        }
+      },
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 176528,
+          "cpu": 105.3,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 129856,
+          "cpu": 16,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 16752,
+          "cpu": 1,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 779984,
+          "cpu": 98,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 5046.263792,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 176736,
+          "cpu": 111.7,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 150560,
+          "cpu": 1.7,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 16752,
+          "cpu": 0.1,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 1001296,
+          "cpu": 106,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 5172.275541999999,
+      "checkpoint": {
+        "kind": "checkpoint",
+        "name": "switch_file",
+        "time": 4820,
+        "evidence": {
+          "kind": "performance",
+          "file": "large.pptx",
+          "fileId": "7",
+          "duration": 866,
+          "status": "passed",
+          "measurementIndex": 3,
+          "commandCount": 5,
+          "mode": "preview",
+          "visibility": "visible"
+        }
+      },
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 176656,
+          "cpu": 105.8,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 151008,
+          "cpu": 16,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 16784,
+          "cpu": 0.2,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 1016528,
+          "cpu": 145.5,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 5313.077792,
+      "checkpoint": {
+        "kind": "checkpoint",
+        "name": "preview_to_edit",
+        "time": 4953,
+        "evidence": {
+          "kind": "performance",
+          "file": "large.pptx",
+          "fileId": "7",
+          "duration": 108,
+          "status": "passed",
+          "measurementIndex": 4,
+          "commandCount": 0,
+          "mode": "edit",
+          "visibility": "visible"
+        }
+      },
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 176736,
+          "cpu": 102.2,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 153488,
+          "cpu": 12.8,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 16800,
+          "cpu": 1.1,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 1019744,
+          "cpu": 118.2,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 5340.85975,
+      "checkpoint": "final-report",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 177328,
+          "cpu": 102.2,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 153488,
+          "cpu": 12.8,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 16912,
+          "cpu": 1.1,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 1019744,
+          "cpu": 118.2,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 6051.393166999999,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 177328,
+          "cpu": 8.1,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 153504,
+          "cpu": 0.8,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 16912,
+          "cpu": 0.1,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 1019760,
+          "cpu": 9.3,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 7062.082417,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 177328,
+          "cpu": 0.1,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 153504,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 16912,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 1019760,
+          "cpu": 0.4,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 8041.6365,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 177296,
+          "cpu": 0.7,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 153840,
+          "cpu": 1.7,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 16896,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 1009088,
+          "cpu": 30.1,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 9053.825792000001,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 177296,
+          "cpu": 2.9,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 153808,
+          "cpu": 0.3,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 16848,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 1010016,
+          "cpu": 2.8,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 10042.726917,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 177376,
+          "cpu": 6.7,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 156208,
+          "cpu": 14.1,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 16848,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 1010096,
+          "cpu": 14.6,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 11047.353209,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 177424,
+          "cpu": 2.8,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 156656,
+          "cpu": 7.1,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 16784,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 1010720,
+          "cpu": 14.5,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 12056.368125,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 177408,
+          "cpu": 2.8,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 159808,
+          "cpu": 7.9,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 16784,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 1010096,
+          "cpu": 10.2,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 13070.328542000001,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 171200,
+          "cpu": 2.1,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 158160,
+          "cpu": 5.5,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 16720,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 938416,
+          "cpu": 7.6,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 14069.985834000001,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 157952,
+          "cpu": 1,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 148144,
+          "cpu": 13.6,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13456,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 702224,
+          "cpu": 8.1,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 15050.022375,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 157968,
+          "cpu": 1.5,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 144112,
+          "cpu": 3.5,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13456,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 703136,
+          "cpu": 11.4,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 16051.413917,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 158032,
+          "cpu": 1.8,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 148032,
+          "cpu": 19.9,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13456,
+          "cpu": 0.1,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 707488,
+          "cpu": 12.2,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 17076.4555,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 158624,
+          "cpu": 5.7,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 148048,
+          "cpu": 0.9,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13456,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 708128,
+          "cpu": 6.7,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 18075.996,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 158688,
+          "cpu": 11.2,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 148048,
+          "cpu": 0.2,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13456,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 708384,
+          "cpu": 13.5,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 19068.630417,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 158688,
+          "cpu": 5.1,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 148048,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13456,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 708624,
+          "cpu": 4.5,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 20075.9535,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 158688,
+          "cpu": 4.5,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 148096,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13456,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 708640,
+          "cpu": 2.9,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 21065.333833999997,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 158720,
+          "cpu": 2.4,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 144272,
+          "cpu": 13.1,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13456,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 709008,
+          "cpu": 11.1,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 22064.505708999997,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 158624,
+          "cpu": 3.8,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 144352,
+          "cpu": 6.1,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13456,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 709056,
+          "cpu": 13.1,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 23076.485209,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 158816,
+          "cpu": 1.4,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 146752,
+          "cpu": 4.1,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13456,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 710912,
+          "cpu": 5.2,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 24057.552166999998,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 158816,
+          "cpu": 2.2,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 147440,
+          "cpu": 5.7,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13456,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 711024,
+          "cpu": 8.8,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 25062.045458999997,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 158816,
+          "cpu": 2,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 144848,
+          "cpu": 4.7,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13456,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 711040,
+          "cpu": 7.3,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 26054.278209,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 158672,
+          "cpu": 4.7,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 144304,
+          "cpu": 1.6,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13456,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 744592,
+          "cpu": 7.5,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 27054.709042,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 158912,
+          "cpu": 1.7,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 144336,
+          "cpu": 0.3,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13472,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 744784,
+          "cpu": 0.9,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 28110.434917,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 158912,
+          "cpu": 0,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 144224,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13472,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 744784,
+          "cpu": 0.2,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 29059.748166999998,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 158944,
+          "cpu": 0,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 144272,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13472,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 744784,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 30073.035334,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 158944,
+          "cpu": 0,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 144272,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13472,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 744784,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 31065.659874999998,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 159152,
+          "cpu": 0.1,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 144272,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13472,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 744768,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 32075.723041999998,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 159152,
+          "cpu": 0,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 144272,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13472,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 744784,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 33063.936959000006,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 159152,
+          "cpu": 0,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 144272,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13472,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 744592,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 34080.771,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 159056,
+          "cpu": 0,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 144272,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13472,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 744496,
+          "cpu": 0.1,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 35077.223209,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 159056,
+          "cpu": 0,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 144144,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13472,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 744496,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 36080.53775,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 158288,
+          "cpu": 0.1,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 144144,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13472,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 744496,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 37083.932042,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 158288,
+          "cpu": 0,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 144144,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13472,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 744352,
+          "cpu": 0.4,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 38071.749834,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 158288,
+          "cpu": 0,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 144144,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13472,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 744256,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 39068.9675,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 158288,
+          "cpu": 0,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 144144,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13472,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 744256,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 40077.334625,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 158288,
+          "cpu": 0,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 144144,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13456,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 744256,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 41071.221084000004,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 158272,
+          "cpu": 0,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 144128,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13456,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 744256,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 42085.24925,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 158176,
+          "cpu": 0,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 144128,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13456,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 744256,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 43087.04075,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 158176,
+          "cpu": 0,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 144128,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13456,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 744256,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 44082.715042,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 158176,
+          "cpu": 0,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 144128,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13456,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 744256,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 45088.447875000005,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 158176,
+          "cpu": 0,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 144128,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13456,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 744256,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 46082.340709000004,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 158176,
+          "cpu": 0,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 144128,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13456,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 744256,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 47081.491625,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 158352,
+          "cpu": 1.7,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 144144,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13488,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 744384,
+          "cpu": 0.5,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 48095.932875000006,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 158352,
+          "cpu": 0.6,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 144160,
+          "cpu": 0.1,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13488,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 744432,
+          "cpu": 0.2,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 49102.483,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 158352,
+          "cpu": 1.9,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 144160,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13488,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 744432,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 50083.369334,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 154272,
+          "cpu": 1,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 144512,
+          "cpu": 1.2,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13488,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 744496,
+          "cpu": 0.3,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 51089.259167000004,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 154256,
+          "cpu": 0,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 144512,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13488,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 744496,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 52093.984834,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 154256,
+          "cpu": 0,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 144512,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13488,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 744496,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 53096.982,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 154256,
+          "cpu": 0,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 144512,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13488,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 744496,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 54079.100084000005,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 154256,
+          "cpu": 0,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 144512,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13488,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 744496,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 55078.946292,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 154160,
+          "cpu": 0,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 144512,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13488,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 744496,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 56089.117834000004,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 156416,
+          "cpu": 9.1,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 138912,
+          "cpu": 0.4,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13360,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 672336,
+          "cpu": 6.2,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 57097.105625000004,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 156496,
+          "cpu": 0.3,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 113504,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13232,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 547456,
+          "cpu": 0.1,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 58092.384000000005,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 156496,
+          "cpu": 0,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 113504,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13232,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 547456,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 59104.370500000005,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 156512,
+          "cpu": 1.2,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 113504,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13232,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 547472,
+          "cpu": 0.6,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 60092.944709,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 156672,
+          "cpu": 5.4,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 113696,
+          "cpu": 1.6,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13232,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 548080,
+          "cpu": 16.5,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 61102.781292,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 156672,
+          "cpu": 4,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 113696,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13232,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 557776,
+          "cpu": 13.6,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 62097.614917,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 159440,
+          "cpu": 6.9,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 113408,
+          "cpu": 0.7,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13232,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 558464,
+          "cpu": 4.8,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 63099.362,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 159488,
+          "cpu": 5.1,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 113440,
+          "cpu": 0.3,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13232,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 559568,
+          "cpu": 5.6,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 64116.105959,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 159568,
+          "cpu": 3.4,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 115472,
+          "cpu": 1.3,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13232,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 566800,
+          "cpu": 7.1,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    },
+    {
+      "atMs": 65105.987875,
+      "checkpoint": "interval",
+      "processes": [
+        {
+          "pid": 22987,
+          "ppid": 22974,
+          "rssKiB": 159568,
+          "cpu": 1.9,
+          "command": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+          "attribution": "native-host"
+        },
+        {
+          "pid": 22988,
+          "ppid": 1,
+          "rssKiB": 116960,
+          "cpu": 0.9,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22989,
+          "ppid": 1,
+          "rssKiB": 13232,
+          "cpu": 0,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.Networking.xpc/Contents/MacOS/com.apple.WebKit.Networking",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        },
+        {
+          "pid": 22990,
+          "ppid": 1,
+          "rssKiB": 567344,
+          "cpu": 5.2,
+          "command": "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent",
+          "attribution": "new-WebKit-candidate; not guaranteed attribution"
+        }
+      ]
+    }
+  ]
+}

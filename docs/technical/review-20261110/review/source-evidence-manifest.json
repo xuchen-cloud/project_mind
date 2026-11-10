@@ -1,0 +1,42 @@
+[
+  {
+    "source": "evidence/frontend-probes/block-validation.test.tsx",
+    "archive": "evidence/frontend-probes/block-validation.test.tsx.txt",
+    "sha256": "265cd4b1a2147a9ea3262b958e79d2f63f7acdd716eadf4ff1dc3814d9783b87"
+  },
+  {
+    "source": "evidence/frontend-probes/file-version.test.tsx",
+    "archive": "evidence/frontend-probes/file-version.test.tsx.txt",
+    "sha256": "6a8d88f131be189671e4f0ed283715c626247276e329381d756fa2147f86c01e"
+  },
+  {
+    "source": "evidence/frontend-probes/nonretryable-head.test.mts",
+    "archive": "evidence/frontend-probes/nonretryable-head.test.mts.txt",
+    "sha256": "764830c18eff3c40238eae515b75b647cdfadf290ef6cf09284b76af4a58808e"
+  },
+  {
+    "source": "evidence/frontend-probes/quick-note.test.tsx",
+    "archive": "evidence/frontend-probes/quick-note.test.tsx.txt",
+    "sha256": "24c23f3ea325741694795090e332984a920d5359ac9fdf6a7125cb5d2a949503"
+  },
+  {
+    "source": "evidence/frontend-probes/record-load-race.test.tsx",
+    "archive": "evidence/frontend-probes/record-load-race.test.tsx.txt",
+    "sha256": "146ec9a9189e07e6b123986ecc6891d35e292429ac75bbce5f21f3c50fdc4341"
+  },
+  {
+    "source": "evidence/frontend-probes/vitest.config.mts",
+    "archive": "evidence/frontend-probes/vitest.config.mts.txt",
+    "sha256": "859f4cb85839f10897244ec8219e8e1f6953821ab62c472cc1d54b4d6fc915c7"
+  },
+  {
+    "source": "evidence/native-probes/fence_probe.rs",
+    "archive": "evidence/native-probes/fence_probe.rs.txt",
+    "sha256": "aa9fee4cef8517b3b5f05f70d6b18e838422535dabfa36281ea353fa07fb07cb"
+  },
+  {
+    "source": "evidence/native-probes/voice_sql_probe.py",
+    "archive": "evidence/native-probes/voice_sql_probe.py.txt",
+    "sha256": "ac203538fa7a8d5d66c7f3d80e54f7c06917798effbc1c3c996c64e0e4d8ce99"
+  }
+]

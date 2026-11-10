@@ -1,0 +1,113 @@
+[
+  {
+    "format": "docx",
+    "status": "over_budget",
+    "measurements": [
+      {
+        "name": "cold_open",
+        "durationMs": 1725,
+        "status": "over_budget"
+      },
+      {
+        "name": "first_other_file",
+        "durationMs": 820.0000000000005,
+        "status": "passed"
+      },
+      {
+        "name": "close_reopen",
+        "durationMs": 687.9999999999995,
+        "status": "passed"
+      },
+      {
+        "name": "switch_file",
+        "durationMs": 878.9999999999991,
+        "status": "passed"
+      },
+      {
+        "name": "preview_to_edit",
+        "durationMs": 168,
+        "status": "passed"
+      }
+    ],
+    "workingOpenMs": [
+      917,
+      498.00000000000045,
+      434.99999999999955,
+      500
+    ]
+  },
+  {
+    "format": "xlsx",
+    "status": "over_budget",
+    "measurements": [
+      {
+        "name": "cold_open",
+        "durationMs": 6151.000000000001,
+        "status": "over_budget"
+      },
+      {
+        "name": "first_other_file",
+        "durationMs": 607,
+        "status": "passed"
+      },
+      {
+        "name": "close_reopen",
+        "durationMs": 529,
+        "status": "passed"
+      },
+      {
+        "name": "switch_file",
+        "durationMs": 3159,
+        "status": "over_budget"
+      },
+      {
+        "name": "preview_to_edit",
+        "durationMs": 159,
+        "status": "passed"
+      }
+    ],
+    "workingOpenMs": [
+      3886,
+      192,
+      145.9999999999991,
+      571
+    ]
+  },
+  {
+    "format": "pptx",
+    "status": "over_budget",
+    "measurements": [
+      {
+        "name": "cold_open",
+        "durationMs": 1859,
+        "status": "over_budget"
+      },
+      {
+        "name": "first_other_file",
+        "durationMs": 391,
+        "status": "passed"
+      },
+      {
+        "name": "close_reopen",
+        "durationMs": 330,
+        "status": "passed"
+      },
+      {
+        "name": "switch_file",
+        "durationMs": 866,
+        "status": "passed"
+      },
+      {
+        "name": "preview_to_edit",
+        "durationMs": 108,
+        "status": "passed"
+      }
+    ],
+    "workingOpenMs": [
+      791,
+      144,
+      135,
+      440.0000000000009
+    ]
+  }
+]

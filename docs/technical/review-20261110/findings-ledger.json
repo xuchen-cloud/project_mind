@@ -1,0 +1,167 @@
+{
+  "baseline": "fe9fe9c188f05c23bae369074446e38c0859a0c8",
+  "count": 16,
+  "priorities": {
+    "P1": 8,
+    "P2": 8
+  },
+  "scope": "Baseline product findings only; G12 observer, document gaps and new requirements are tracked separately.",
+  "findings": [
+    {
+      "id": "F1",
+      "priority": "P1",
+      "group": "records",
+      "issue": 302,
+      "state": "implementation_in_progress",
+      "verifiedHead": null,
+      "pr": null
+    },
+    {
+      "id": "F2",
+      "priority": "P1",
+      "group": "records",
+      "issue": 302,
+      "state": "implementation_in_progress",
+      "verifiedHead": null,
+      "pr": null
+    },
+    {
+      "id": "F3",
+      "priority": "P1",
+      "group": "records",
+      "issue": 302,
+      "state": "implementation_in_progress",
+      "verifiedHead": null,
+      "pr": null
+    },
+    {
+      "id": "F4",
+      "priority": "P1",
+      "group": "records",
+      "issue": 302,
+      "state": "implementation_in_progress",
+      "verifiedHead": null,
+      "pr": null
+    },
+    {
+      "id": "F5",
+      "priority": "P2",
+      "group": "records",
+      "issue": 302,
+      "state": "implementation_in_progress",
+      "verifiedHead": null,
+      "pr": null
+    },
+    {
+      "id": "F6",
+      "priority": "P2",
+      "group": "records",
+      "issue": 302,
+      "state": "implementation_in_progress",
+      "verifiedHead": null,
+      "pr": null
+    },
+    {
+      "id": "N1",
+      "priority": "P1",
+      "group": "native",
+      "issue": 306,
+      "state": "merged_common_fix",
+      "verifiedHead": "04506b4951c5941e14664ffaaa1aee8dcb694976",
+      "pr": 310,
+      "mergeCommit": "54e9315e98c06ef80bb238240b018cc278c6ebaa",
+      "platform": "macOS; Windows acceptance separate and open"
+    },
+    {
+      "id": "N2",
+      "priority": "P1",
+      "group": "native",
+      "issue": 306,
+      "state": "merged_common_fix",
+      "verifiedHead": "04506b4951c5941e14664ffaaa1aee8dcb694976",
+      "pr": 310,
+      "mergeCommit": "54e9315e98c06ef80bb238240b018cc278c6ebaa",
+      "platform": "macOS; Windows acceptance separate and open"
+    },
+    {
+      "id": "N3",
+      "priority": "P2",
+      "group": "native",
+      "issue": 306,
+      "state": "merged_common_fix",
+      "verifiedHead": "04506b4951c5941e14664ffaaa1aee8dcb694976",
+      "pr": 310,
+      "mergeCommit": "54e9315e98c06ef80bb238240b018cc278c6ebaa",
+      "platform": "macOS; Windows acceptance separate and open"
+    },
+    {
+      "id": "N4",
+      "priority": "P2",
+      "group": "native",
+      "issue": 306,
+      "state": "merged_common_fix",
+      "verifiedHead": "04506b4951c5941e14664ffaaa1aee8dcb694976",
+      "pr": 310,
+      "mergeCommit": "54e9315e98c06ef80bb238240b018cc278c6ebaa",
+      "platform": "macOS; Windows acceptance separate and open"
+    },
+    {
+      "id": "PERF1",
+      "priority": "P1",
+      "group": "office",
+      "issue": 303,
+      "state": "implementation_in_progress",
+      "verifiedHead": null,
+      "pr": null
+    },
+    {
+      "id": "PERF2",
+      "priority": "P2",
+      "group": "office",
+      "issue": 303,
+      "state": "implementation_in_progress",
+      "verifiedHead": null,
+      "pr": null
+    },
+    {
+      "id": "PERF3",
+      "priority": "P2",
+      "group": "office",
+      "issue": 303,
+      "state": "implementation_in_progress",
+      "verifiedHead": null,
+      "pr": null
+    },
+    {
+      "id": "PERF4",
+      "priority": "P2",
+      "group": "office",
+      "issue": 303,
+      "state": "implementation_in_progress",
+      "verifiedHead": null,
+      "pr": null
+    },
+    {
+      "id": "S1",
+      "priority": "P1",
+      "group": "assistant",
+      "issue": 305,
+      "state": "code_verified_platform_pending",
+      "verifiedHead": "c81bb16621e3147d51a93c431e41ae69d2137e83",
+      "pr": 311,
+      "mergeCommit": null,
+      "platform": "macOS/Chrome verified; Windows WebView2 required and not run"
+    },
+    {
+      "id": "S2",
+      "priority": "P2",
+      "group": "assistant",
+      "issue": 305,
+      "state": "code_verified_platform_pending",
+      "verifiedHead": "c81bb16621e3147d51a93c431e41ae69d2137e83",
+      "pr": 311,
+      "mergeCommit": null,
+      "platform": "macOS/Chrome verified; Windows WebView2 required and not run"
+    }
+  ]
+}

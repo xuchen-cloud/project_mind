@@ -1,0 +1,65 @@
+(node:21190) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v4.1.2 /private/tmp/project-mind-review-01a
+
+(node:21192) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+stdout | block-validation.test.tsx > block current schema accepts editor and canonical roundtrip: paragraph
+paragraph <p data-block-id="39496dfd4b240f5c989a0298eac24738">hello</p><p data-block-id="66b4813bc081a33e0ce9165b824f34c3">world</p>
+
+stdout | block-validation.test.tsx > block current schema accepts editor and canonical roundtrip: line-break
+line-break <p data-block-id="62b253ec80ff54a81f0a9dedf4f3674f">hello<br>world</p>
+
+stdout | block-validation.test.tsx > block current schema accepts editor and canonical roundtrip: empty-paragraph
+empty-paragraph <p data-block-id="d8e50fcb5ec3175847ae1e7e513282a9">hello</p><p data-block-id="aef0b0db56d403c1e0b2da6d67f5e0a1"></p><p data-block-id="c3ed8642c672226c8b644bf6beba64fe">world</p>
+
+stdout | block-validation.test.tsx > block current schema accepts editor and canonical roundtrip: bold-image
+bold-image <p data-block-id="111bbe6c168ecc549ca89c790ff295e3"><strong>hello</strong></p><img class="rich-editor__image" data-block-id="07a39a0c1f8f00a5ab23125f42cf32fa" src="https://example.com/a.png"><p data-block-id="cd115746e0301de3bd2b62c73b153e20"></p>
+
+stdout | block-validation.test.tsx > block current schema accepts editor and canonical roundtrip: list
+list <ul data-block-id="f13ba4511dca5ffd1b20b4804e2d501a"><li data-block-id="1489f9163680a4b6b40aae55b1f49af9"><p data-block-id="8c046e79c5a1a0b0a5ddc8b769b56c44">hello</p></li><li data-block-id="6deecd330d9b64db091fc21f7f24d789"><p data-block-id="7ae11d018294cada1a1d0119305f982f">world</p></li></ul><p data-block-id="cb39513140370f8aa88c2e51ffc4390e"></p>
+
+stdout | block-validation.test.tsx > block current schema accepts editor and canonical roundtrip: table
+table <div class="tableWrapper"><table data-block-id="1d10fda402223036ff45094a5a5adb67" style="min-width: 96px" data-style-derived="true"><colgroup><col style="min-width: 48px"><col style="min-width: 48px"></colgroup><tbody><tr data-block-id="1c20830444abf38bd0cb3ba6dc1dcf6c"><td data-block-id="7b09817075396d430f65e6a7784516a2" colspan="1" rowspan="1"><p data-block-id="d9da2be126df9259575f4b123870cebe">a</p></td><td data-block-id="ee1acae48e4fe6a6a8388e980250c4a7" colspan="1" rowspan="1"><p data-block-id="a363a31eb448b4fdd411b60d13118aa3">b</p></td></tr></tbody></table></div><p data-block-id="2eaf890be85da20bcff0fb381c89fdf8"></p>
+
+······x
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  block-validation.test.tsx > block current schema accepts editor and canonical roundtrip: code
+AssertionError: expected { type: 'doc', …(1) } to deeply equal { type: 'doc', …(1) }
+
+- Expected
++ Received
+
+@@ -1,11 +1,11 @@
+  {
+    "content": [
+      {
+        "attrs": {
+          "blockId": "928e9a5bb72f0473de085afb290794a7",
+-         "language": "ts",
++         "language": null,
+          "languageExplicit": true,
+        },
+        "content": [
+          {
+            "text": "hello
+
+ ❯ block-validation.test.tsx:23:19
+     21|  const projection=serializeRecordDocument(doc,recordDocumentSchema);
+     22|  const reparsed=parseRecordHtml(projection.html,recordDocumentSchema);
+     23|  expect(reparsed).toEqual(doc);
+       |                   ^
+     24|  console.log(_label,projection.html);
+     25|  }finally{editor.destroy();}
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 6 passed (7)
+   Start at  19:07:31
+   Duration  566ms (transform 102ms, setup 45ms, import 176ms, tests 112ms, environment 175ms)
+

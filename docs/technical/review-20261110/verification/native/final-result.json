@@ -1,0 +1,119 @@
+{
+  "head": "04506b4951c5941e14664ffaaa1aee8dcb694976",
+  "exit_code": 0,
+  "suite_count": 17,
+  "passed": 290,
+  "failed": 0,
+  "ignored_selection_count": 14,
+  "real_office_working": true,
+  "suites": [
+    {
+      "suite": "db::file_working::tests",
+      "passed": 20,
+      "failed": 0,
+      "ignored": 1
+    },
+    {
+      "suite": "db::voice_session_contention_tests",
+      "passed": 8,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "suite": "workspace_commit_fence::tests",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "suite": "db::project_directory_files",
+      "passed": 80,
+      "failed": 0,
+      "ignored": 1
+    },
+    {
+      "suite": "db::file_versions::tests",
+      "passed": 21,
+      "failed": 0,
+      "ignored": 1
+    },
+    {
+      "suite": "file_version_service::tests",
+      "passed": 50,
+      "failed": 0,
+      "ignored": 3
+    },
+    {
+      "suite": "file_office::tests",
+      "passed": 17,
+      "failed": 0,
+      "ignored": 4
+    },
+    {
+      "suite": "db::file_imports::",
+      "passed": 18,
+      "failed": 0,
+      "ignored": 1
+    },
+    {
+      "suite": "db::file_metadata::",
+      "passed": 5,
+      "failed": 0,
+      "ignored": 1
+    },
+    {
+      "suite": "db::file_deletions::",
+      "passed": 6,
+      "failed": 0,
+      "ignored": 1
+    },
+    {
+      "suite": "db::file_relocations::",
+      "passed": 6,
+      "failed": 0,
+      "ignored": 1
+    },
+    {
+      "suite": "db::agent_file_undo",
+      "passed": 19,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "suite": "db::agent_creation_batches::tests",
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "suite": "voice::runtime::tests",
+      "passed": 19,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "suite": "db::tests::voice_session",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "suite": "project_file_maintenance::tests",
+      "passed": 14,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "suite": "real Office working save / reopen / archive",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    }
+  ],
+  "platform": {
+    "os": "26.5.2",
+    "arch": "arm64"
+  },
+  "log_sha256": "c99d48f96112bf762b357c54bbb093668c6a122c57ddadd4c01fd0503499b0ee",
+  "note": "Regular selections report 14 ignored items; one real Office working test was explicitly run and passes. Other ignored items include subprocess fixtures exercised by parent tests and two optional legacy real-format tests."
+}

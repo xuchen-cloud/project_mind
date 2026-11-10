@@ -1,0 +1,432 @@
+PREPARED_COW src-tauri/resources/source-extractor
+PREPARED_COW src-tauri/resources/agent-host
+PREPARED_COW src-tauri/resources/office-editor
+PREPARED_COW packages/agent-host/runtime/darwin-arm64
+PREPARED_COW packages/agent-host/dist
+VERIFIED_HEAD 04506b4951c5941e14664ffaaa1aee8dcb694976
+   Compiling project_mind_alpha v1.0.0 (/Users/xuchen/.codex/worktrees/0f65/project_mind/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 42.91s
+
+=== SUITE db::file_working::tests ===
+
+running 21 tests
+test db::file_working::tests::activity_extends_deadline_and_close_restart_catches_up_once ... ok
+test db::file_working::tests::agent_current_file_read_obtains_a_fixed_checkpoint_without_write_permission ... ok
+test db::file_working::tests::explicit_source_read_checkpoints_pending_content_but_background_plans_do_not ... ok
+test db::file_working::tests::external_overwrite_keeps_one_readable_last_saved_recovery_copy ... ok
+test db::file_working::tests::legacy_managed_copy_retains_file_identity_live_location_and_existing_history ... ok
+test db::file_working::tests::native_close_waits_for_actual_working_save_already_in_commit ... ok
+test db::file_working::tests::native_committed_journal_cleanup_replays_receipt_after_external_change ... ok
+test db::file_working::tests::native_conflicting_working_journal_isolates_file_and_preserves_recovery ... ok
+test db::file_working::tests::native_external_write_after_durable_journal_keeps_actual_save_uncommitted ... ok
+test db::file_working::tests::native_global_recovery_cannot_clean_other_journals_after_workspace_close ... ok
+test db::file_working::tests::native_global_working_recovery_does_not_hide_invalid_journal ... ok
+test db::file_working::tests::native_project_root_changes_cannot_orphan_an_isolated_working_journal ... ok
+test db::file_working::tests::native_same_bytes_replacement_reopens_with_new_revision_and_rejects_old_session ... ok
+test db::file_working::tests::native_working_waiting_on_real_file_lease_does_not_block_workspace_close ... ok
+test db::file_working::tests::repeated_working_saves_keep_fixed_base_and_only_idle_archive_adds_history ... ok
+test db::file_working::tests::schema_39_upgrade_adds_working_storage_without_changing_existing_versions ... ok
+test db::file_working::tests::sigkill_working_replacement_recovers_before_and_after_atomic_receipt ... ok
+test db::file_working::tests::working_cas_receipts_noop_and_external_changes_preserve_content ... ok
+test db::file_working::tests::working_open_reports_original_content_without_new_history ... ok
+test db::file_working::tests::working_save_crash_child ... ignored, child process for actual abrupt save interruption
+test db::file_working::tests::working_sessions_keep_native_owner_generation_and_ai_handoff_boundaries ... ok
+
+test result: ok. 20 passed; 0 failed; 1 ignored; 0 measured; 1721 filtered out; finished in 9.58s
+
+
+=== SUITE db::voice_session_contention_tests ===
+
+running 8 tests
+test db::voice_session_contention_tests::another_connection_winning_admission_keeps_one_recording_owner ... ok
+test db::voice_session_contention_tests::exhausted_writer_wait_leaves_no_draft_and_allows_explicit_retry ... ok
+test db::voice_session_contention_tests::existing_writer_can_commit_before_project_or_workspace_start_reads ... ok
+test db::voice_session_contention_tests::failed_session_insert_rolls_back_both_draft_types_and_can_retry ... ok
+test db::voice_session_contention_tests::nonexistent_project_leaves_no_draft ... ok
+test db::voice_session_contention_tests::project_read_cannot_be_overtaken_by_an_independent_writer ... ok
+test db::voice_session_contention_tests::request_replay_after_another_connection_wins_admission ... ok
+test db::voice_session_contention_tests::workspace_control_has_no_project_read_upgrade ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 1734 filtered out; finished in 0.54s
+
+
+=== SUITE workspace_commit_fence::tests ===
+
+running 1 test
+test workspace_commit_fence::tests::workspace_commit_fence_settles_entered_commit_before_close ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1741 filtered out; finished in 0.06s
+
+
+=== SUITE db::project_directory_files ===
+
+running 81 tests
+test db::project_directory_files::tests::directory_discovery_keeps_oversized_file_visible_and_continues_without_rewriting ... ok
+test db::project_directory_files::tests::directory_discovery_resumes_past_many_known_paths_to_find_a_new_folder ... ok
+test db::project_directory_files::tests::directory_file_atomic_replacement_cannot_claim_another_files_physical_identity ... ok
+test db::project_directory_files::tests::directory_file_atomic_replacement_rejects_stale_save_baseline ... ok
+test db::project_directory_files::tests::directory_file_budgets_preserve_identity_without_faking_initial_versions ... ok
+test db::project_directory_files::tests::directory_file_bulk_registration_does_not_read_every_registered_identity ... ok
+test db::project_directory_files::tests::directory_file_claims_detect_unregistered_external_hard_link_identities ... ok
+test db::project_directory_files::tests::directory_file_claims_preserve_case_aliases_after_external_replacement ... ok
+test db::project_directory_files::tests::directory_file_concurrent_registration_keeps_one_identity ... ok
+test db::project_directory_files::tests::directory_file_delete_unmanages_without_deleting_user_live_bytes_or_snapshots ... ok
+test db::project_directory_files::tests::directory_file_existing_metadata_rename_preserves_history_and_applies_tags_atomically ... ok
+test db::project_directory_files::tests::directory_file_external_edits_and_atomic_replacement_keep_old_snapshots ... ok
+test db::project_directory_files::tests::directory_file_external_move_is_ambiguous_and_crossproject_physical_ownership_is_rejected ... ok
+test db::project_directory_files::tests::directory_file_failed_move_does_not_retry_or_apply_metadata_on_resolve ... ok
+test db::project_directory_files::tests::directory_file_fixed_bytes_reject_forged_owner_hash_and_missing_snapshot ... ok
+test db::project_directory_files::tests::directory_file_fixed_reference_blocks_deletion_and_retains_exact_history ... ok
+test db::project_directory_files::tests::directory_file_gui_registration_rejects_changed_bytes_and_stale_preflight ... ok
+test db::project_directory_files::tests::directory_file_gui_registration_snapshots_external_bytes_and_replays_without_live_writes ... ok
+test db::project_directory_files::tests::directory_file_gui_registration_sql_failure_preserves_live_and_history_then_retries ... ok
+test db::project_directory_files::tests::directory_file_model_source_ref_matches_actual_fixed_history_and_enforces_source_policy ... ok
+test db::project_directory_files::tests::directory_file_move_and_rename_keep_identity_versions_and_recover_intent ... ok
+test db::project_directory_files::tests::directory_file_open_local_uses_only_ready_live_file_and_ignores_preview_budget ... ok
+test db::project_directory_files::tests::directory_file_project_delete_rejects_fixed_references_without_losing_project_or_history ... ok
+test db::project_directory_files::tests::directory_file_project_delete_without_fixed_references_keeps_existing_cleanup_behavior ... ok
+test db::project_directory_files::tests::directory_file_register_is_idempotent_keeps_location_and_reads_binary_snapshot ... ok
+test db::project_directory_files::tests::directory_file_related_resources_resolve_from_actual_parent_with_bound_project_checks ... ok
+test db::project_directory_files::tests::directory_file_restore_a15_creates_new_head_at_original_location_and_keeps_immutable_history ... ok
+test db::project_directory_files::tests::directory_file_restore_crash_process_fixture ... ignored, subprocess-only fixture started by directory restore crash tests
+test db::project_directory_files::tests::directory_file_restore_failed_sql_commit_restores_original_live_and_can_retry ... ok
+test db::project_directory_files::tests::directory_file_restore_process_crashes_never_overwrite_foreign_live_files ... ok
+test db::project_directory_files::tests::directory_file_restore_process_crashes_recover_all_durable_boundaries_and_retry_once ... ok
+test db::project_directory_files::tests::directory_file_restore_process_kill_during_sql_transaction_recovers_and_retries_once ... ok
+test db::project_directory_files::tests::directory_file_retained_agent_json_sources_protect_fixed_history_without_head_edges ... ok
+test db::project_directory_files::tests::directory_file_same_bytes_replacement_keeps_registered_snapshot_path ... ok
+test db::project_directory_files::tests::directory_file_scan_is_resumable_reports_exclusions_errors_and_cancellation ... ok
+test db::project_directory_files::tests::directory_file_version_zero_replacement_requires_confirmation_before_initial_snapshot ... ok
+test db::project_directory_files::tests::directory_file_version_zero_same_physical_file_can_recover_under_budget ... ok
+test db::project_directory_files::tests::directory_scan_cursor_uses_utf8_order_for_non_bmp_filenames ... ok
+test db::project_directory_files::tests::directory_scan_deep_tree_preserves_all_paths_with_bounded_open_fds ... ok
+test db::project_directory_files::tests::directory_scan_event_path_does_not_enumerate_unrelated_wide_directories ... ok
+test db::project_directory_files::tests::directory_scan_exhausted_buffers_release_real_directory_fds ... ok
+test db::project_directory_files::tests::directory_scan_failure_does_not_starve_later_files ... ok
+test db::project_directory_files::tests::directory_scan_fd_budget_aborts_cursor_without_retaining_partial_frames ... ok
+test db::project_directory_files::tests::directory_scan_open_fd_budget_fails_explicitly_and_releases_frames ... ok
+test db::project_directory_files::tests::directory_scan_retained_cursor_rejects_other_modes_scope_and_replays ... ok
+test db::project_directory_files::tests::directory_scan_wide_directory_has_a_real_enumeration_budget_and_reads_once ... ok
+test db::project_directory_files::tests::directory_scan_yields_on_directory_only_trees ... ok
+test db::project_directory_files::tests::ds_store_automatic_scan_excludes_root_and_nested_metadata_keeps_ordinary_files ... ok
+test db::project_directory_files::tests::ds_store_explicit_scan_excludes_root_and_nested_metadata_keeps_ordinary_files ... ok
+test db::project_directory_files::tests::ds_store_filter_keeps_ordinary_files_registerable ... ok
+test db::project_directory_files::tests::ds_store_project_page_hides_legacy_nested_record_and_retains_file_and_version ... ok
+test db::project_directory_files::tests::ds_store_project_page_hides_legacy_root_record_and_retains_file_and_version ... ok
+test db::project_directory_files::tests::ds_store_register_rejects_nested_metadata ... ok
+test db::project_directory_files::tests::ds_store_register_rejects_root_metadata ... ok
+test db::project_directory_files::tests::hidden_native_automatic_scan_excludes_files_and_directory_descendants ... ok
+test db::project_directory_files::tests::hidden_native_explicit_scan_excludes_files_and_directory_descendants ... ok
+test db::project_directory_files::tests::hidden_native_project_page_hides_legacy_directory_descendant_and_retains_record_and_version ... ok
+test db::project_directory_files::tests::hidden_native_project_page_hides_legacy_file_and_retains_record_and_version ... ok
+test db::project_directory_files::tests::hidden_native_register_and_import_reject_file_and_directory_descendant ... ok
+test db::project_directory_files::tests::hidden_project_page_hides_legacy_env_and_preserves_record_and_version ... ok
+test db::project_directory_files::tests::hidden_project_page_hides_legacy_hidden_directory_descendant_and_preserves_record_and_version ... ok
+test db::project_directory_files::tests::hidden_register_and_import_reject_dot_files_and_hidden_directory_descendants ... ok
+test db::project_directory_files::tests::imported_file_legacy_registration_accepts_absent_identity_record ... ok
+test db::project_directory_files::tests::imported_file_legacy_registration_freezes_new_version_and_retains_unknown_history_after_reopen ... ok
+test db::project_directory_files::tests::imported_file_legacy_registration_preserves_snapshot_budget_and_pending_move_intents ... ok
+test db::project_directory_files::tests::imported_file_legacy_registration_rechecks_stale_version_and_hash_under_file_lock ... ok
+test db::project_directory_files::tests::imported_file_legacy_registration_rejects_foreign_physical_owner_and_forged_scope ... ok
+test db::project_directory_files::tests::imported_file_legacy_registration_rejects_known_identity_or_registered_history ... ok
+test db::project_directory_files::tests::imported_file_legacy_registration_requires_exact_confirmation_and_current_path ... ok
+test db::project_directory_files::tests::imported_file_location_changed_before_first_snapshot_keeps_registered_head ... ok
+test db::project_directory_files::tests::imported_file_location_does_not_adopt_replacement_even_with_same_hash ... ok
+test db::project_directory_files::tests::imported_file_location_first_resolve_freezes_managed_copy_and_adopted_head ... ok
+test db::project_directory_files::tests::imported_file_location_legacy_identity_is_registered_automatically ... ok
+test db::project_directory_files::tests::legacy_auto_registration_discovery_migrates_multiple_pages_once ... ok
+test db::project_directory_files::tests::legacy_auto_registration_keeps_content_conflicts_and_foreign_ownership_blocked ... ok
+test db::project_directory_files::tests::legacy_auto_registration_resolves_current_path_and_preserves_history ... ok
+test db::project_directory_files::tests::legacy_auto_registration_supports_workspace_files_and_missing_paths ... ok
+test db::project_directory_files::tests::temporary_automatic_scan_excludes_editor_files_and_keeps_business_files ... ok
+test db::project_directory_files::tests::temporary_explicit_scan_excludes_editor_files_and_keeps_business_files ... ok
+test db::project_directory_files::tests::temporary_legacy_missing_record_is_hidden_without_deleting_record_or_versions ... ok
+test db::project_directory_files::tests::temporary_register_and_import_reject_files_but_accept_directory_descendants ... ok
+
+test result: ok. 80 passed; 0 failed; 1 ignored; 0 measured; 1661 filtered out; finished in 19.69s
+
+
+=== SUITE db::file_versions::tests ===
+
+running 22 tests
+test db::file_versions::tests::file_version_crash_process_fixture ... ignored, subprocess-only crash fixture, exercised by file_version_recovers_every_process_crash_boundary
+test db::file_versions::tests::file_version_database_failure_keeps_head_and_current_bytes_unchanged ... ok
+test db::file_versions::tests::file_version_gui_cas_replay_and_unknown_registration ... ok
+test db::file_versions::tests::file_version_gui_no_change_and_frozen_bytes_fences ... ok
+test db::file_versions::tests::file_version_gui_no_change_ignores_foreign_next_paths_and_counter_limit ... ok
+test db::file_versions::tests::file_version_gui_outbox_failure_rolls_back_and_archive_refuses_commit ... ok
+test db::file_versions::tests::file_version_gui_recovers_process_crashes_and_retry_once ... ok
+test db::file_versions::tests::file_version_gui_rejects_changed_source_and_preserves_unknown_old_hash ... ok
+test db::file_versions::tests::file_version_gui_two_connections_replay_one_version ... ok
+test db::file_versions::tests::file_version_project_writes_wait_and_preserve_authoritative_paths ... ok
+test db::file_versions::tests::file_version_recovers_every_process_crash_boundary ... ok
+test db::file_versions::tests::file_version_recovery_preserves_foreign_same_byte_collisions ... ok
+test db::file_versions::tests::file_version_recovery_waits_for_live_staging_lock ... ok
+test db::file_versions::tests::file_version_registered_cas_replay_and_immutable_history ... ok
+test db::file_versions::tests::file_version_registered_concurrent_same_request_has_one_commit ... ok
+test db::file_versions::tests::file_version_registered_never_promotes_unknown_existing_bytes ... ok
+test db::file_versions::tests::file_version_registered_no_change_has_receipt_without_version_or_event ... ok
+test db::file_versions::tests::file_version_registered_preserves_external_edit_after_journal_preparation ... ok
+test db::file_versions::tests::file_version_registered_recovers_process_crashes_and_retry_once ... ok
+test db::file_versions::tests::file_version_registered_rejects_changed_bytes_baseline_scope_and_generation ... ok
+test db::file_versions::tests::file_version_registered_sql_failure_rolls_back_and_same_request_retries ... ok
+test db::file_versions::tests::file_version_registered_staging_bounds_and_hash_fail_before_mutation ... ok
+
+test result: ok. 21 passed; 0 failed; 1 ignored; 0 measured; 1720 filtered out; finished in 18.14s
+
+
+=== SUITE file_version_service::tests ===
+
+running 53 tests
+test file_version_service::tests::file_create_upload_has_no_placeholder_and_replays_after_stage_expiry ... ok
+test file_version_service::tests::file_gui_history_restore_ignores_ai_exclusion_while_model_restore_stays_denied ... ok
+test file_version_service::tests::file_patch_crash_process_fixture ... ignored, child process fixture invoked by File patch crash parent
+test file_version_service::tests::file_patch_service_checks_real_owner_write_grant_archive_exclusion_and_generation ... ok
+test file_version_service::tests::file_patch_service_commits_exact_source_and_preserves_registered_history ... ok
+test file_version_service::tests::file_patch_service_concurrent_same_request_returns_one_version ... ok
+test file_version_service::tests::file_patch_service_late_same_request_replays_after_snapshot_metadata_changed ... ok
+test file_version_service::tests::file_patch_service_no_change_has_stable_receipt_without_outbox_or_journal ... ok
+test file_version_service::tests::file_patch_service_outbox_failure_restores_original_then_retries_once ... ok
+test file_version_service::tests::file_patch_service_prepared_close_or_exclusion_rolls_back_and_replay_checks_fence ... ok
+test file_version_service::tests::file_patch_service_recovers_six_actual_process_kills_and_retries_once ... ok
+test file_version_service::tests::file_patch_service_rejects_unknown_or_external_bytes_and_non_utf8_or_wrong_format ... ok
+test file_version_service::tests::file_patch_service_replays_original_receipt_after_later_version_and_rejects_equal_output_different_patch ... ok
+test file_version_service::tests::file_patch_service_stale_version_and_hash_do_not_modify_current_bytes ... ok
+test file_version_service::tests::file_preflight_does_not_register_unknown_legacy_bytes ... ok
+test file_version_service::tests::file_preflight_hash_releases_db_and_refuses_archive_during_io ... ok
+test file_version_service::tests::file_preflight_rejects_changed_selected_bytes ... ok
+test file_version_service::tests::file_preflight_rejects_native_delete_and_rename_after_hash ... ok
+test file_version_service::tests::file_preflight_rejects_physical_changes_and_freezes_real_hashes ... ok
+test file_version_service::tests::file_preflight_rejects_rebound_managed_parent_after_hash ... ok
+test file_version_service::tests::file_preflight_rejects_same_bytes_from_foreign_physical_file ... ok
+test file_version_service::tests::file_preflight_rejects_same_workspace_reopen_during_hash ... ok
+test file_version_service::tests::file_restore_binary_history_becomes_new_version_and_preserves_original_paths ... ok
+test file_version_service::tests::file_restore_concurrent_same_request_creates_one_version_and_notification ... ok
+test file_version_service::tests::file_restore_crash_process_fixture ... ignored, child process fixture invoked by File restore recovery parent
+test file_version_service::tests::file_restore_rechecks_scope_archive_exclusion_and_binding_after_snapshot ... ok
+test file_version_service::tests::file_restore_recovers_six_actual_process_kills_without_moving_original_history ... ok
+test file_version_service::tests::file_restore_rejects_unknown_or_changed_historical_bytes_without_new_versions ... ok
+test file_version_service::tests::file_restore_replays_original_receipt_after_later_version_and_rejects_new_payload ... ok
+test file_version_service::tests::file_restore_requires_separate_permission_and_same_bytes_return_no_change ... ok
+test file_version_service::tests::file_restore_resolves_real_version_owner_and_refuses_remote_paths ... ok
+test file_version_service::tests::file_restore_transaction_rejects_late_exclusion_or_lost_history_registration ... ok
+test file_version_service::tests::file_service_commit_preserves_history_and_stable_receipt ... ok
+test file_version_service::tests::file_service_late_request_id_collision_restores_owned_bytes ... ok
+test file_version_service::tests::file_service_never_creates_or_migrates_host_database ... ok
+test file_version_service::tests::file_service_no_change_and_replay_obey_workspace_fence ... ok
+test file_version_service::tests::file_service_prepared_cancel_releases_db_and_project_lock_order ... ok
+test file_version_service::tests::file_service_rejects_same_workspace_reopen_before_connection ... ok
+test file_version_service::tests::file_upload_accepts_one_mib_chunks_and_enforces_manifest_chunk_budget ... ok
+test file_version_service::tests::file_upload_begin_payload_conflicts_and_path_parameters_are_rejected ... ok
+test file_version_service::tests::file_upload_binary_chunks_seal_commit_same_file_and_replay_after_expiry ... ok
+test file_version_service::tests::file_upload_concurrent_commit_retries_return_one_receipt_and_one_version ... ok
+test file_version_service::tests::file_upload_crash_process_fixture ... ignored, child process fixture invoked by File upload recovery parent
+test file_version_service::tests::file_upload_empty_content_quota_expiry_and_foreign_files_are_preserved ... ok
+test file_version_service::tests::file_upload_expiry_and_caller_scope_fences_never_mutate_file ... ok
+test file_version_service::tests::file_upload_no_change_consumes_stage_once_and_unregistered_or_external_baselines_are_rejected ... ok
+test file_version_service::tests::file_upload_rechecks_expiry_after_file_preparation_and_can_retry_same_commit ... ok
+test file_version_service::tests::file_upload_recovers_eight_upload_and_six_version_actual_process_kills ... ok
+test file_version_service::tests::file_upload_rejects_overflow_chunk_order_incomplete_hash_and_payload_conflicts ... ok
+test file_version_service::tests::file_upload_same_bytes_replaced_by_foreign_inode_are_rejected_and_never_cleaned ... ok
+test file_version_service::tests::file_upload_scope_exclusion_archive_and_generation_changes_are_checked_each_call ... ok
+test file_version_service::tests::file_upload_shared_workspace_reopen_expires_owned_bytes_and_keeps_user_file ... ok
+test file_version_service::tests::file_upload_wrong_declared_hash_expires_without_blocking_later_uploads ... ok
+
+test result: ok. 50 passed; 0 failed; 3 ignored; 0 measured; 1689 filtered out; finished in 45.83s
+
+
+=== SUITE file_office::tests ===
+
+running 21 tests
+test file_office::tests::compact_office_receipt_rehydrates_its_committed_version_after_head_advances ... ok
+test file_office::tests::office_directory_staged_crash_fixture ... ignored, subprocess fixture for Office staged-directory crash recovery
+test file_office::tests::office_directory_staged_recovery_never_overwrites_a_foreign_live_identity ... ok
+test file_office::tests::office_directory_staged_save_recovers_every_durable_boundary_and_replays_once ... ok
+test file_office::tests::office_gui_authority_uses_actual_file_owner_and_cannot_save_with_read_only_grant ... ok
+test file_office::tests::office_gui_save_commits_real_file_version_and_history_keeps_old_bytes ... ok
+test file_office::tests::office_inspection_burst_bounds_loaded_baselines_and_releases_database ... ok
+test file_office::tests::office_real_formats_native_save_reopen_and_retained_history ... ignored, requires staged Office resources and shared pinned Node
+test file_office::tests::office_real_formats_working_saves_share_fixed_base_and_archive_once ... ignored, requires staged Office resources and shared pinned Node
+test file_office::tests::office_real_pptx_native_save_reopen_and_retained_history ... ignored, requires pinned development Node and all staged Office-dist assets
+test file_office::tests::office_recalculate_checks_actual_owner_binding_hash_format_and_value_budget ... ok
+test file_office::tests::office_recalculate_is_read_only_and_accepts_a_read_only_gui_grant ... ok
+test file_office::tests::office_recalculate_rechecks_fixed_version_hash_after_async_computation ... ok
+test file_office::tests::office_recalculate_rechecks_workspace_generation_after_async_computation ... ok
+test file_office::tests::office_save_original_missing_before_save_has_explicit_reason ... ok
+test file_office::tests::office_save_original_missing_does_not_reclassify_generic_snapshot_io ... ok
+test file_office::tests::office_save_original_missing_during_utility_has_explicit_reason ... ok
+test file_office::tests::office_save_preparation_stages_owned_content_without_writing_the_file ... ok
+test file_office::tests::office_save_rejects_external_disk_changes_before_and_during_utility ... ok
+test file_office::tests::office_save_replays_same_receipt_and_rejects_reusing_id_for_different_edits ... ok
+test file_office::tests::office_sql_failure_rolls_back_live_bytes_and_can_retry_same_stage ... ok
+
+test result: ok. 17 passed; 0 failed; 4 ignored; 0 measured; 1721 filtered out; finished in 8.69s
+
+
+=== SUITE db::file_imports:: ===
+
+running 19 tests
+test db::file_imports::tests::agent_file_create_process_crashes_recover_original_request_without_duplicates ... ok
+test db::file_imports::tests::agent_file_create_replays_original_request_after_reopen_and_reauthorizes ... ok
+test db::file_imports::tests::agent_file_create_validates_names_byte_budget_and_rolls_back_outbox_failure ... ok
+test db::file_imports::tests::binary_file_create_preserves_bytes_replays_and_cleans_failed_import ... ok
+test db::file_imports::tests::binary_file_create_process_crashes_recover_original_request_without_duplicates ... ok
+test db::file_imports::tests::file_import_capture_contains_only_committed_actual_file ... ok
+test db::file_imports::tests::file_import_clipboard_outbox_failure_and_existing_source_keep_bytes ... ok
+test db::file_imports::tests::file_import_clipboard_rejects_excluded_names_without_residue ... ok
+test db::file_imports::tests::file_import_concurrent_projects_allocate_unique_authoritative_ids ... ok
+test db::file_imports::tests::file_import_crash_process_fixture ... ignored, subprocess-only fixture exercised by file_import_process_crashes_recover_without_stub_or_duplicate
+test db::file_imports::tests::file_import_database_failure_leaves_no_stub_or_owned_copy ... ok
+test db::file_imports::tests::file_import_does_not_claim_an_existing_history_directory ... ok
+test db::file_imports::tests::file_import_live_staging_recovery_waits_for_namespace_lock ... ok
+test db::file_imports::tests::file_import_process_crashes_recover_without_stub_or_duplicate ... ok
+test db::file_imports::tests::file_import_recovery_preserves_foreign_same_byte_target ... ok
+test db::file_imports::tests::generated_file_create_replays_source_request_despite_changed_generator_bytes ... ok
+test db::file_imports::workspace_scope_tests::workspace_file_agent_creation_is_listed_with_receipt_and_project_isolation ... ok
+test db::file_imports::workspace_scope_tests::workspace_file_import_retains_identity_bytes_versions_and_actual_scope ... ok
+test db::file_imports::workspace_scope_tests::workspace_file_references_are_searchable_resolved_and_scoped ... ok
+
+test result: ok. 18 passed; 0 failed; 1 ignored; 0 measured; 1723 filtered out; finished in 14.70s
+
+
+=== SUITE db::file_metadata:: ===
+
+running 6 tests
+test db::file_metadata::tests::file_metadata_crash_process_fixture ... ignored, subprocess-only fixture started by metadata crash/recovery tests
+test db::file_metadata::tests::file_metadata_outbox_failure_restores_all_versions_and_metadata ... ok
+test db::file_metadata::tests::file_metadata_process_crashes_restore_missing_and_overlapping_versions ... ok
+test db::file_metadata::tests::file_metadata_recovery_preserves_foreign_original_even_with_same_bytes ... ok
+test db::file_metadata::tests::file_metadata_recovery_waits_for_live_file_lock_before_staging_cleanup ... ok
+test db::file_metadata::tests::file_metadata_tags_no_change_and_scope_use_actual_registration ... ok
+
+test result: ok. 5 passed; 0 failed; 1 ignored; 0 measured; 1736 filtered out; finished in 9.52s
+
+
+=== SUITE db::file_deletions:: ===
+
+running 7 tests
+test db::file_deletions::tests::file_delete_committed_cleanup_preserves_replaced_staging ... ok
+test db::file_deletions::tests::file_delete_crash_process_fixture ... ignored, subprocess-only fixture started by File deletion crash tests
+test db::file_deletions::tests::file_delete_outbox_failure_rolls_back_jobs_and_success_tombstone_survives_log_prune ... ok
+test db::file_deletions::tests::file_delete_process_crashes_restore_or_finish_and_preserve_unowned_history ... ok
+test db::file_deletions::tests::file_delete_recovery_never_overwrites_foreign_same_byte_original ... ok
+test db::file_deletions::tests::file_delete_recovery_waits_for_live_staging_lock ... ok
+test db::file_deletions::tests::file_delete_sql_failure_keeps_original_and_historical_bytes ... ok
+
+test result: ok. 6 passed; 0 failed; 1 ignored; 0 measured; 1735 filtered out; finished in 8.76s
+
+
+=== SUITE db::file_relocations:: ===
+
+running 7 tests
+test db::file_relocations::tests::file_relocate_crash_process_fixture ... ignored, subprocess-only fixture started by File relocation recovery tests
+test db::file_relocations::tests::file_relocate_different_or_unregistered_bytes_cannot_replace_version ... ok
+test db::file_relocations::tests::file_relocate_outbox_failure_keeps_missing_state_and_external_edit_is_preserved ... ok
+test db::file_relocations::tests::file_relocate_process_crashes_restore_missing_head_or_commit_identical_version ... ok
+test db::file_relocations::tests::file_relocate_recovery_preserves_foreign_same_byte_copy ... ok
+test db::file_relocations::tests::file_relocate_recovery_waits_for_live_staging_lock ... ok
+test db::file_relocations::tests::file_relocate_same_location_and_bytes_has_no_change ... ok
+
+test result: ok. 6 passed; 0 failed; 1 ignored; 0 measured; 1735 filtered out; finished in 6.44s
+
+
+=== SUITE db::agent_file_undo ===
+
+running 19 tests
+test db::agent_file_undo::tests::creation_batch_retains_conflicting_file_even_when_live_baseline_is_unchanged ... ok
+test db::agent_file_undo::tests::creation_group_receipt_failure_rolls_back_visibility_and_every_original ... ok
+test db::agent_file_undo::tests::creation_group_rejects_manual_metadata_bytes_and_version_without_partial_withdrawal ... ok
+test db::agent_file_undo::tests::creation_group_respects_planner_conflict_for_omitted_native_version ... ok
+test db::agent_file_undo::tests::creation_group_withdraw_restore_keeps_latest_bytes_and_all_versions ... ok
+test db::agent_file_undo::tests::file_creation_withdraw_rejects_metadata_external_bytes_and_incoming_references ... ok
+test db::agent_file_undo::tests::file_creation_withdraw_restore_retains_identity_versions_bytes_and_history_authority ... ok
+test db::agent_file_undo::tests::file_group_undo_net_zero_settles_without_another_version_or_change ... ok
+test db::agent_file_undo::tests::file_group_undo_receipt_hook_failure_rolls_back_the_entire_native_restore ... ok
+test db::agent_file_undo::tests::file_group_undo_rejects_external_later_version_metadata_and_omitted_operations ... ok
+test db::agent_file_undo::tests::file_group_undo_replay_keeps_a_later_manual_version_intact ... ok
+test db::agent_file_undo::tests::file_group_undo_requires_each_original_receipt_authority ... ok
+test db::agent_file_undo::tests::file_group_undo_restores_once_and_all_originals_replay_the_same_receipt ... ok
+test db::agent_file_undo::tests::file_undo_original_authority_survives_real_session_deletion ... ok
+test db::agent_file_undo::tests::file_undo_receipt_failure_rolls_back_original_state_sql_and_managed_bytes ... ok
+test db::agent_file_undo::tests::file_undo_rejects_same_bytes_manual_new_version_and_unregistered_external_bytes ... ok
+test db::agent_file_undo::tests::file_undo_restores_preoperation_bytes_as_new_version_and_replays_actual_receipt ... ok
+test db::agent_file_undo::tests::file_visibility_waits_for_lease_before_workspace_admission ... ok
+test db::agent_file_undo::tests::workspace_file_group_undo_reads_actual_committed_chain ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 1723 filtered out; finished in 13.39s
+
+
+=== SUITE db::agent_creation_batches::tests ===
+
+running 4 tests
+test db::agent_creation_batches::tests::closed_record_todo_cycle_with_update_withdraws_together_and_keeps_versions ... ok
+test db::agent_creation_batches::tests::outside_visible_reference_blocks_dependents_but_independent_creation_succeeds ... ok
+test db::agent_creation_batches::tests::retained_edge_from_previously_withdrawn_source_does_not_block ... ok
+test db::agent_creation_batches::tests::second_receipt_failure_rolls_back_every_candidate_and_outbox ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 1738 filtered out; finished in 0.24s
+
+
+=== SUITE voice::runtime::tests ===
+
+running 19 tests
+test voice::runtime::tests::automatic_suppression_survives_reopen_and_new_session_without_changing_preference ... ok
+test voice::runtime::tests::completed_local_sentence_is_saved_for_captions_and_record_transcript ... ok
+test voice::runtime::tests::disabling_preview_clears_the_provisional_line_without_ending_the_session ... ok
+test voice::runtime::tests::failed_database_save_keeps_a_stopped_session_and_retries_without_recapturing ... ok
+test voice::runtime::tests::idle_check_does_not_recover_or_mutate_a_persisted_session ... ok
+test voice::runtime::tests::lifecycle_wait_releases_shared_storage_and_identity_but_keeps_voice_serial ... ok
+test voice::runtime::tests::live_control_rejects_pending_terminal_save_without_mutating_ending_session ... ok
+test voice::runtime::tests::local_recognition_failure_stays_visible_without_stopping_audio_and_survives_resume ... ok
+test voice::runtime::tests::no_speech_profile_allows_audio_capture_without_recognition ... ok
+test voice::runtime::tests::recovery_after_file_rename_restores_audio_duration_before_resuming ... ok
+test voice::runtime::tests::repeated_terminal_end_does_not_block_workspace_close ... ok
+test voice::runtime::tests::runtime_end_saves_audio_without_waiting_for_slow_live_inference ... ok
+test voice::runtime::tests::shutdown_lease_rejects_start_during_await_and_failed_exit_restores_start ... ok
+test voice::runtime::tests::snapshot_keeps_storage_failure_ahead_of_native_capture_fault ... ok
+test voice::runtime::tests::snapshot_preserves_native_fault_after_raw_writers_stop ... ok
+test voice::runtime::tests::snapshot_reports_stopped_writer_without_inventing_an_io_error ... ok
+test voice::runtime::tests::stale_end_request_keeps_the_owned_session ... ok
+test voice::runtime::tests::stale_live_control_never_changes_manual_preference_or_revision ... ok
+test voice::runtime::tests::stopping_rechecks_native_fault_after_observing_worker_shutdown ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 1723 filtered out; finished in 6.62s
+
+
+=== SUITE db::tests::voice_session ===
+
+running 1 test
+test db::tests::voice_session_persists_settings_record_and_revisioned_lifecycle ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1741 filtered out; finished in 0.05s
+
+
+=== SUITE project_file_maintenance::tests ===
+
+running 14 tests
+test project_file_maintenance::tests::background_discovers_copied_folders_fairly_without_ai_and_idle_passes_do_not_write ... ok
+test project_file_maintenance::tests::directory_hints_merge_exact_branches_and_only_overflow_to_full_scope ... ok
+test project_file_maintenance::tests::driver_catalogue_discovers_new_projects_and_workspace_files_and_removes_archived_watches ... ok
+test project_file_maintenance::tests::driver_finishes_initial_pages_then_never_rescans_static_scopes ... ok
+test project_file_maintenance::tests::driver_native_events_preserve_mid_scan_changes_and_only_wake_the_affected_scope ... ok
+test project_file_maintenance::tests::driver_reinstalls_a_native_watch_after_its_root_disappears_and_returns ... ok
+test project_file_maintenance::tests::driver_reports_each_persistent_directory_failure_once_across_pages_and_scans ... ok
+test project_file_maintenance::tests::empty_directory_events_publish_scope_hints_without_business_writes ... ok
+test project_file_maintenance::tests::event_paths_coalesce_without_marking_the_whole_scope_dirty ... ok
+test project_file_maintenance::tests::reopening_same_workspace_discards_old_project_cursors ... ok
+test project_file_maintenance::tests::root_rename_notifications_only_retire_missing_or_replaced_directories ... ok
+test project_file_maintenance::tests::unavailable_project_does_not_block_discovery_in_other_projects ... ok
+test project_file_maintenance::tests::unopened_scopes_never_watch_or_scan_and_files_are_discovered_on_use ... ok
+test project_file_maintenance::tests::workspace_discovery_uses_only_files_root_and_shared_source_catalogue ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 1728 filtered out; finished in 9.27s
+
+
+=== SUITE real Office working save / reopen / archive ===
+
+running 1 test
+test file_office::tests::office_real_formats_working_saves_share_fixed_base_and_archive_once ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1741 filtered out; finished in 5.72s
+
+NATIVE_RESULT {"head": "04506b4951c5941e14664ffaaa1aee8dcb694976", "executable": "/Users/xuchen/project_mind/src-tauri/target/debug/deps/project_mind_alpha_lib-aba2c528566fbc31", "filters": ["db::file_working::tests", "db::voice_session_contention_tests", "workspace_commit_fence::tests", "db::project_directory_files", "db::file_versions::tests", "file_version_service::tests", "file_office::tests", "db::file_imports::", "db::file_metadata::", "db::file_deletions::", "db::file_relocations::", "db::agent_file_undo", "db::agent_creation_batches::tests", "voice::runtime::tests", "db::tests::voice_session", "project_file_maintenance::tests"], "real_office_working": true, "failed": []}

@@ -1,0 +1,260 @@
+[
+  {
+    "id": "docx-small-a",
+    "format": "docx",
+    "tier": "small",
+    "variant": "a",
+    "path": "/tmp/project-mind-full-review-20261110/fixtures/docx-small-a.docx",
+    "witness": "PERF_docx_small_a",
+    "bytes": 37956,
+    "sha256": "a989e4563681a0609ced6faf7df3bf6bf2d8caaa3e3dda60f4b2404e41c56628",
+    "source": "/Users/xuchen/project_mind/packages/office-docx/test/fixtures/simple.original.docx",
+    "dimensions": {
+      "paragraphs": 10
+    }
+  },
+  {
+    "id": "docx-small-b",
+    "format": "docx",
+    "tier": "small",
+    "variant": "b",
+    "path": "/tmp/project-mind-full-review-20261110/fixtures/docx-small-b.docx",
+    "witness": "PERF_docx_small_b",
+    "bytes": 37956,
+    "sha256": "b2ffc36088e9e55b2693289b8650dae23683d141659becd56becdf58901d33f2",
+    "source": "/Users/xuchen/project_mind/packages/office-docx/test/fixtures/simple.original.docx",
+    "dimensions": {
+      "paragraphs": 10
+    }
+  },
+  {
+    "id": "docx-complex-a",
+    "format": "docx",
+    "tier": "complex",
+    "variant": "a",
+    "path": "/tmp/project-mind-full-review-20261110/fixtures/docx-complex-a.docx",
+    "witness": "PERF_docx_complex_a",
+    "bytes": 40434,
+    "sha256": "58a8bc74bcd1693daf68f1684192070fdb3b6110c6b52b08aa354a1f2dad4fbb",
+    "source": "/Users/xuchen/project_mind/packages/office-docx/test/fixtures/complex.original.docx",
+    "dimensions": {
+      "paragraphs": 16
+    }
+  },
+  {
+    "id": "docx-complex-b",
+    "format": "docx",
+    "tier": "complex",
+    "variant": "b",
+    "path": "/tmp/project-mind-full-review-20261110/fixtures/docx-complex-b.docx",
+    "witness": "PERF_docx_complex_b",
+    "bytes": 40434,
+    "sha256": "1cbe85819040a370525095810ac23effd46bda907439d9683f84a42b143e597e",
+    "source": "/Users/xuchen/project_mind/packages/office-docx/test/fixtures/complex.original.docx",
+    "dimensions": {
+      "paragraphs": 16
+    }
+  },
+  {
+    "id": "docx-large-a",
+    "format": "docx",
+    "tier": "large",
+    "variant": "a",
+    "path": "/tmp/project-mind-full-review-20261110/fixtures/docx-large-a.docx",
+    "witness": "PERF_docx_large_a",
+    "bytes": 42257,
+    "sha256": "b10ab02ee9c762c0f4bc1d41db13c986b0da9c0c7e947cc2aca92ae6c4b12e03",
+    "source": "/Users/xuchen/project_mind/packages/office-docx/test/fixtures/complex.original.docx",
+    "dimensions": {
+      "paragraphs": 516
+    }
+  },
+  {
+    "id": "docx-large-b",
+    "format": "docx",
+    "tier": "large",
+    "variant": "b",
+    "path": "/tmp/project-mind-full-review-20261110/fixtures/docx-large-b.docx",
+    "witness": "PERF_docx_large_b",
+    "bytes": 42258,
+    "sha256": "05c46c1029fd04d7d55e8d083fa868175c3f121784fbd827a5e69255c0ac0ee3",
+    "source": "/Users/xuchen/project_mind/packages/office-docx/test/fixtures/complex.original.docx",
+    "dimensions": {
+      "paragraphs": 516
+    }
+  },
+  {
+    "id": "pptx-small-a",
+    "format": "pptx",
+    "tier": "small",
+    "variant": "a",
+    "path": "/tmp/project-mind-full-review-20261110/fixtures/pptx-small-a.pptx",
+    "witness": "PERF_pptx_small_a",
+    "bytes": 32077,
+    "sha256": "59db583af444ab37e0051e729d621a1ae0bdaaf00f6218db8cb11099e4324d79",
+    "source": "/Users/xuchen/project_mind/packages/genoffice-pptx-validation/simple.original.pptx",
+    "dimensions": {
+      "slides": 3
+    }
+  },
+  {
+    "id": "pptx-small-b",
+    "format": "pptx",
+    "tier": "small",
+    "variant": "b",
+    "path": "/tmp/project-mind-full-review-20261110/fixtures/pptx-small-b.pptx",
+    "witness": "PERF_pptx_small_b",
+    "bytes": 32077,
+    "sha256": "e08eb774e0b368df5b6f699b7ac40728872ca4a3d27e6cd8051bc087a999ecd8",
+    "source": "/Users/xuchen/project_mind/packages/genoffice-pptx-validation/simple.original.pptx",
+    "dimensions": {
+      "slides": 3
+    }
+  },
+  {
+    "id": "pptx-complex-a",
+    "format": "pptx",
+    "tier": "complex",
+    "variant": "a",
+    "path": "/tmp/project-mind-full-review-20261110/fixtures/pptx-complex-a.pptx",
+    "witness": "PERF_pptx_complex_a",
+    "bytes": 45739,
+    "sha256": "8f9a5c05b8e8132f1d8c068bfd2c4c1de181b72b2a2f5e7624313f1f24b37855",
+    "source": "/Users/xuchen/project_mind/packages/genoffice-pptx-validation/complex.original.pptx",
+    "dimensions": {
+      "slides": 3
+    }
+  },
+  {
+    "id": "pptx-complex-b",
+    "format": "pptx",
+    "tier": "complex",
+    "variant": "b",
+    "path": "/tmp/project-mind-full-review-20261110/fixtures/pptx-complex-b.pptx",
+    "witness": "PERF_pptx_complex_b",
+    "bytes": 45739,
+    "sha256": "8059e8be8b6f7c5c152d3f7de3d706bc1920602158a4b199e774af3aaf3ebc71",
+    "source": "/Users/xuchen/project_mind/packages/genoffice-pptx-validation/complex.original.pptx",
+    "dimensions": {
+      "slides": 3
+    }
+  },
+  {
+    "id": "pptx-large-a",
+    "format": "pptx",
+    "tier": "large",
+    "variant": "a",
+    "path": "/tmp/project-mind-full-review-20261110/fixtures/pptx-large-a.pptx",
+    "witness": "PERF_pptx_large_a",
+    "bytes": 99372,
+    "sha256": "a425620dbcf8a75827fd1ceedf64105d181e552346db39056de33c826a56cec3",
+    "source": "/Users/xuchen/project_mind/packages/genoffice-pptx-validation/complex.original.pptx",
+    "dimensions": {
+      "slides": 40
+    }
+  },
+  {
+    "id": "pptx-large-b",
+    "format": "pptx",
+    "tier": "large",
+    "variant": "b",
+    "path": "/tmp/project-mind-full-review-20261110/fixtures/pptx-large-b.pptx",
+    "witness": "PERF_pptx_large_b",
+    "bytes": 99372,
+    "sha256": "9df40d257ffa4cf2c659236f7b5a51753e36e99513885ddc1012d2aa58742762",
+    "source": "/Users/xuchen/project_mind/packages/genoffice-pptx-validation/complex.original.pptx",
+    "dimensions": {
+      "slides": 40
+    }
+  },
+  {
+    "id": "xlsx-small-a",
+    "format": "xlsx",
+    "tier": "small",
+    "variant": "a",
+    "path": "/tmp/project-mind-full-review-20261110/fixtures/xlsx-small-a.xlsx",
+    "witness": "PERF_xlsx_small_a",
+    "bytes": 6377,
+    "sha256": "1eaa44177f599a5f26d1a326cee25abf5aefeb498688447d6e10c0b0213632cd",
+    "source": "/Users/xuchen/project_mind/packages/office-xlsx/tests/fixtures/simple.original.xlsx",
+    "dimensions": {
+      "rows": 8,
+      "formulas": 2
+    }
+  },
+  {
+    "id": "xlsx-small-b",
+    "format": "xlsx",
+    "tier": "small",
+    "variant": "b",
+    "path": "/tmp/project-mind-full-review-20261110/fixtures/xlsx-small-b.xlsx",
+    "witness": "PERF_xlsx_small_b",
+    "bytes": 6377,
+    "sha256": "9d104a8fa10b4711205a235b4e0615eceefc8c8c7f865f4a0c829e12f73c3476",
+    "source": "/Users/xuchen/project_mind/packages/office-xlsx/tests/fixtures/simple.original.xlsx",
+    "dimensions": {
+      "rows": 8,
+      "formulas": 2
+    }
+  },
+  {
+    "id": "xlsx-complex-a",
+    "format": "xlsx",
+    "tier": "complex",
+    "variant": "a",
+    "path": "/tmp/project-mind-full-review-20261110/fixtures/xlsx-complex-a.xlsx",
+    "witness": "PERF_xlsx_complex_a",
+    "bytes": 9296,
+    "sha256": "4a84df393ee0bfbb39c70ade8dd8b28ac4afa8b2be086010b538215930ac7b84",
+    "source": "/Users/xuchen/project_mind/packages/office-xlsx/tests/fixtures/complex.original.xlsx",
+    "dimensions": {
+      "rows": 8,
+      "formulas": 2
+    }
+  },
+  {
+    "id": "xlsx-complex-b",
+    "format": "xlsx",
+    "tier": "complex",
+    "variant": "b",
+    "path": "/tmp/project-mind-full-review-20261110/fixtures/xlsx-complex-b.xlsx",
+    "witness": "PERF_xlsx_complex_b",
+    "bytes": 9296,
+    "sha256": "7d85c69eb64f7568e0963cc700772743331fc3e71b6577af91304c5b19b55797",
+    "source": "/Users/xuchen/project_mind/packages/office-xlsx/tests/fixtures/complex.original.xlsx",
+    "dimensions": {
+      "rows": 8,
+      "formulas": 2
+    }
+  },
+  {
+    "id": "xlsx-large-a",
+    "format": "xlsx",
+    "tier": "large",
+    "variant": "a",
+    "path": "/tmp/project-mind-full-review-20261110/fixtures/xlsx-large-a.xlsx",
+    "witness": "PERF_xlsx_large_a",
+    "bytes": 230963,
+    "sha256": "68f7742c04d71a57dcd1a6fc036ababfa05b2e44128e12bdc7cafb831ecfa9c1",
+    "source": "/Users/xuchen/project_mind/packages/office-xlsx/tests/fixtures/complex.original.xlsx",
+    "dimensions": {
+      "rows": 10008,
+      "formulas": 10002
+    }
+  },
+  {
+    "id": "xlsx-large-b",
+    "format": "xlsx",
+    "tier": "large",
+    "variant": "b",
+    "path": "/tmp/project-mind-full-review-20261110/fixtures/xlsx-large-b.xlsx",
+    "witness": "PERF_xlsx_large_b",
+    "bytes": 230964,
+    "sha256": "74e117c4fafdf3b99b1e0d88747bd2041bad9e898bb54521185d6562c8c7b8d4",
+    "source": "/Users/xuchen/project_mind/packages/office-xlsx/tests/fixtures/complex.original.xlsx",
+    "dimensions": {
+      "rows": 10008,
+      "formulas": 10002
+    }
+  }
+]

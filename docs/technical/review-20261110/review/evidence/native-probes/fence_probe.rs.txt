@@ -1,0 +1,42 @@
+
+#![allow(dead_code)]
+mod agent { pub mod errors {
+    #[derive(Debug)] pub struct AgentError;
+    pub type AgentResult<T> = Result<T, AgentError>;
+    pub enum ErrorCode { WorkspaceChanged, RuntimeUnavailable }
+    impl AgentError { pub fn new(_:ErrorCode,_:&str)->Self { Self } }
+}}
+#[path="/Users/xuchen/project_mind/src-tauri/src/workspace_commit_fence.rs"] mod fence;
+use std::{sync::{Arc,Mutex,mpsc},thread,time::Duration};
+fn main(){
+    let fence=Arc::new(fence::WorkspaceCommitFence::new());
+    let file=Arc::new(Mutex::new(()));
+    let (held_tx,held_rx)=mpsc::channel();
+    let (go_tx,go_rx)=mpsc::channel();
+    let (done_tx,done_rx)=mpsc::channel();
+    let f=fence.clone();let l=file.clone();let done=done_tx.clone();
+    thread::spawn(move||{
+        let _file=l.lock().unwrap(); held_tx.send(()).unwrap();
+        go_rx.recv().unwrap(); let _permit=f.enter().unwrap(); done.send("version commit").unwrap();
+    });
+    held_rx.recv().unwrap();
+    let (working_tx,working_rx)=mpsc::channel();
+    let f=fence.clone();let l=file.clone();let done=done_tx.clone();
+    thread::spawn(move||{
+        let _permit=f.enter().unwrap(); working_tx.send(()).unwrap();
+        let _file=l.lock().unwrap(); done.send("working operation").unwrap();
+    });
+    working_rx.recv().unwrap();
+    let (closing_tx,closing_rx)=mpsc::channel();
+    let f=fence.clone();
+    thread::spawn(move||{
+        closing_tx.send(()).unwrap(); f.invalidate(); done_tx.send("workspace close").unwrap();
+    });
+    closing_rx.recv().unwrap();thread::sleep(Duration::from_millis(200));
+    go_tx.send(()).unwrap();
+    match done_rx.recv_timeout(Duration::from_millis(1000)) {
+        Ok(first)=>println!("Progress occurred: {first}; platform allows reader barging in this interleaving"),
+        Err(_)=>println!("BLOCKED: working owns fence/read and waits File; version owns File and waits fence/read; close waits fence/write (1000ms, no completion)")
+    }
+    std::process::exit(0)
+}

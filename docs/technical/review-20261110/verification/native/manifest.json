@@ -1,0 +1,33 @@
+{
+  "head": "04506b4951c5941e14664ffaaa1aee8dcb694976",
+  "pr": 310,
+  "mergeCommit": "54e9315e98c06ef80bb238240b018cc278c6ebaa",
+  "platform": "macOS 26.5.2 arm64",
+  "windowsVerified": false,
+  "files": [
+    {
+      "file": "final-result.json",
+      "sha256": "91ccd7e2b98b6b9d3a5115fab75fc73da569d21602342c20b32e5aa2f189413c"
+    },
+    {
+      "file": "final-verification-04506b4.log",
+      "sha256": "c99d48f96112bf762b357c54bbb093668c6a122c57ddadd4c01fd0503499b0ee"
+    },
+    {
+      "file": "resource-provenance.json",
+      "sha256": "0027256416ff30a948969287b68f1733c6379b06ac5ac35e9a719769d069943b"
+    },
+    {
+      "file": "reviews-04506b4.md",
+      "sha256": "9031ac739941b320d59e09254ab27d99e2873c1855073897ae9af0be172e8303"
+    },
+    {
+      "file": "reviews-0642da9.md",
+      "sha256": "f6dbd43d5e7a052ab9d660a529fb22f2db7e7d68f1fef0493f477c2715c4143f"
+    },
+    {
+      "file": "reviews-174ce9d.md",
+      "sha256": "045499ad9b61d41c2b50f6e7602348f9b80427b6fe838d54fd3bd282798a7550"
+    }
+  ]
+}

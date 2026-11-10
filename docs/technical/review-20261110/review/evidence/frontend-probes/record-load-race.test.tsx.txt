@@ -1,0 +1,53 @@
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { beforeEach, expect, it, vi } from "vitest";
+import { useCanonicalRecordEditor } from "/Users/xuchen/project_mind/src/hooks/useCanonicalRecordEditor";
+import { agentApi } from "/Users/xuchen/project_mind/src/services/agentApi";
+import { recordDocumentApi } from "/Users/xuchen/project_mind/src/services/recordDocumentApi";
+import { RecordSaveCoordinator, RecordSaveFailure } from "/Users/xuchen/project_mind/src/lib/record-save-coordinator";
+import type { RecordEditorState, RecordTarget } from "/Users/xuchen/project_mind/src/lib/record-document-types";
+import { subscribeRecordHeadChanges, type RecordHeadChanged } from "/Users/xuchen/project_mind/src/lib/record-document-events";
+
+vi.mock("/Users/xuchen/project_mind/src/services/agentApi", () => ({ agentApi: { statusGet: vi.fn() } }));
+vi.mock("/Users/xuchen/project_mind/src/services/recordDocumentApi", () => ({ recordDocumentApi: { editorGet: vi.fn(), checkpoint: vi.fn(), editorRegister: vi.fn(async () => null), editorUnregister: vi.fn(async () => null), editorFlushReply: vi.fn(async () => null) } }));
+vi.mock("/Users/xuchen/project_mind/src/lib/record-document-events", () => ({ subscribeRecordHeadChanges: vi.fn() }));
+let notify: (change: RecordHeadChanged) => void;
+const binding = { workspaceId: "workspace-id", generation: "opened-1" };
+const target: RecordTarget = { scope: { kind: "project", projectId: 1 }, recordId: 7 };
+const document = { type: "doc", content: [{ type: "paragraph", attrs: { blockId: "1".repeat(32) } }] };
+const editor: RecordEditorState = {
+  head: { target, headRevision: 4, editSessionId: null, checkpointDueAt: null,
+    projection: { schemaVersion: 1, document, html: "<p data-block-id='11111111111111111111111111111111'></p>", markdown: "", text: "", bodyHash: "sha256:fixture", codeLanguage: null } },
+  metadata: { title: "Title", tagIds: [], revision: "metadata-1", updatedAt: "now" },
+  record: { id: 7, projectId: 1, title: "Title", contentHtml: "<p></p>", contentMarkdown: "", tags: [], createdAt: "now", updatedAt: "now" },
+};
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(subscribeRecordHeadChanges).mockImplementation(async (listener) => {
+    notify = listener;
+    return () => undefined;
+  });
+  vi.mocked(agentApi.statusGet).mockResolvedValue({ binding, runtimeAvailable: false, bridgeAvailable: false, capabilities: [] });
+  vi.mocked(recordDocumentApi.editorGet).mockResolvedValue(editor);
+});
+
+it('CONFIRM: a save acknowledged during registration hydrates an older body at the newer revision',async()=>{
+ let finishPersist!:()=>void; let finishRegister!:()=>void;
+ const persist=vi.fn(()=>new Promise<any>(resolve=>{finishPersist=()=>resolve({updatedAt:'new',headRevision:5,record:{...editor.record,contentHtml:'<p>newer draft</p>',contentMarkdown:'newer draft'}});}));
+ const coordinator=new RecordSaveCoordinator({workspaceKey:'/workspace',adapter:{persist}});
+ coordinator.submit({scope:'project',workspaceKey:'/workspace',projectId:1,recordId:7,title:'Title',tagIds:[],defaultCodeLanguage:null,
+ committedContent:{html:'<p>newer draft</p>',text:'newer draft',markdown:'newer draft'},
+ canonicalBody:{binding,baseRevision:4,document:{type:'doc',content:[{type:'paragraph',attrs:{blockId:'1'.repeat(32)},content:[{type:'text',text:'newer draft'}]}]},requestId:'pending-save',editSessionId:null,origin:'manual',metadataBase:editor.metadata}});
+ vi.mocked(recordDocumentApi.editorRegister).mockImplementationOnce(()=>new Promise(resolve=>{finishRegister=()=>resolve(null);}));
+ const {result}=renderHook(()=>useCanonicalRecordEditor({target,coordinator,enabled:true}));
+ await waitFor(()=>expect(recordDocumentApi.editorRegister).toHaveBeenCalledOnce());
+ await act(async()=>{finishPersist();await coordinator.flush();});
+ await act(async()=>{finishRegister();});
+ expect(result.current.ready).toBe(true);
+ expect(coordinator.getLatestSnapshot('project:1:7')).toBeNull();
+ expect(result.current.state!.record.contentMarkdown).toBe('');
+ expect(result.current.state!.head.headRevision).toBe(4);
+ // Both focus pages select state.record when the pending snapshot no longer exists.
+ const overwritten=result.current.capture(result.current.state!.head.projection.document)!;
+ expect(overwritten.baseRevision).toBe(5);
+ expect(overwritten.document).toEqual(document);
+});

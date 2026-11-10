@@ -1,0 +1,100 @@
+import {act,render,waitFor,fireEvent} from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import {expect,it,vi,beforeAll} from 'vitest';
+import {HomeQuickNote} from '/Users/xuchen/project_mind/src/components/home/HomeQuickNote';
+import {RichEditor,type RichEditorController} from '/Users/xuchen/project_mind/src/components/rich-editor/RichEditor';
+import {flushQuickNotes} from '/Users/xuchen/project_mind/src/lib/quick-note-transfer';
+
+it('CONFIRM: lifecycle flush acknowledges a hidden failed QuickNote without persisting it',async()=>{
+ const user=userEvent.setup();
+ const controllerRef={current:null as RichEditorController|null};
+ const initial={html:'<p>original</p>',markdown:'original',text:'original'};
+ const persist=vi.fn(async(value:any)=>{throw new Error('storage failure');return value;});
+ const ui=(visible:boolean)=><HomeQuickNote identity="review-hidden" editorControllerRef={controllerRef} initialValue={initial} records={[]}
+ persist={persist} commit={async()=>({})} onClear={()=>{}} renderEditor={options=><RichEditor variant="bare" html={initial.html}
+ controllerRef={options.controllerRef} readOnly={!visible||options.readOnly} onSave={options.onSave} onChange={options.onChange}
+ onPersistStateChange={options.onPersistStateChange} autosave={{delay:120000,onBlur:true,onWindowBlur:true,onVisibilityChange:true}}/>}/>;
+ const view=render(ui(true));
+ await waitFor(()=>expect(controllerRef.current).not.toBeNull());
+ act(()=>controllerRef.current!.focus('end'));
+ await user.keyboard(' UNSAVED');
+ await act(async()=>{await expect(controllerRef.current!.save({force:true})).rejects.toThrow('storage failure');});
+ const before=persist.mock.calls.length;
+ view.rerender(ui(false));
+ await act(async()=>{await expect(flushQuickNotes()).resolves.toBeUndefined();});
+ expect(persist.mock.calls.length).toBe(before);
+ expect(controllerRef.current!.getCommittedValue().markdown).toContain('UNSAVED');
+ expect(controllerRef.current!.hasUnsavedCommittedContent()).toBe(true);
+ view.unmount();
+});
+
+it('CONFIRM: quicknote unmount cancels blur capture and clears the only flusher',async()=>{
+ const user=userEvent.setup();
+ const controllerRef={current:null as RichEditorController|null};
+ const initial={html:'<p>original</p>',markdown:'original',text:'original'};
+ const persist=vi.fn(async(value:any)=>value);
+ const view=render(<HomeQuickNote identity="review-unmount" editorControllerRef={controllerRef} initialValue={initial} records={[]}
+ persist={persist} commit={async()=>({})} onClear={()=>{}} renderEditor={options=><RichEditor variant="bare" html={initial.html}
+ controllerRef={options.controllerRef} onSave={options.onSave} onChange={options.onChange}
+ onPersistStateChange={options.onPersistStateChange} autosave={{delay:120000,onBlur:true}}/>}/>);
+ await waitFor(()=>expect(controllerRef.current).not.toBeNull());
+ act(()=>controllerRef.current!.focus('end'));
+ await user.keyboard(' UNSAVED');
+ fireEvent.blur(view.container.querySelector('.ProseMirror')!);
+ view.unmount();
+ await new Promise(resolve=>setTimeout(resolve,80));
+ await flushQuickNotes();
+ expect(persist).not.toHaveBeenCalled();
+});
+
+beforeAll(() => {
+  const rect = {
+    x: 0,
+    y: 0,
+    top: 0,
+    left: 0,
+    bottom: 24,
+    right: 240,
+    width: 240,
+    height: 24,
+    toJSON: () => ({}),
+  } satisfies DOMRect;
+  const createRectList = () =>
+    ({
+      0: rect,
+      length: 1,
+      item: (index: number) => (index === 0 ? rect : null),
+      [Symbol.iterator]: function* iterator() {
+        yield rect;
+      },
+    }) as DOMRectList;
+
+  Object.defineProperty(document, "elementFromPoint", {
+    configurable: true,
+    value: () => null,
+  });
+  Object.defineProperty(window, "scrollBy", {
+    configurable: true,
+    value: () => {},
+  });
+  Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+    configurable: true,
+    value: () => {},
+  });
+  Object.defineProperty(HTMLElement.prototype, "getClientRects", {
+    configurable: true,
+    value: createRectList,
+  });
+  Object.defineProperty(Text.prototype, "getClientRects", {
+    configurable: true,
+    value: createRectList,
+  });
+  Object.defineProperty(Range.prototype, "getClientRects", {
+    configurable: true,
+    value: createRectList,
+  });
+  Object.defineProperty(document, "execCommand", {
+    configurable: true,
+    value: vi.fn(() => true),
+  });
+});

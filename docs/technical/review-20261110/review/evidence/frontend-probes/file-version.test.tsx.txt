@@ -1,0 +1,73 @@
+import type { AgentObjectRef } from "/Users/xuchen/project_mind/src/lib/agent-types";
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { beforeEach, expect, it, vi } from 'vitest';
+import { ProjectFileContent } from '/Users/xuchen/project_mind/src/components/document/ProjectFileContent';
+import { projectFileApi } from '/Users/xuchen/project_mind/src/services/projectFileApi';
+import { fileDocumentApi } from '/Users/xuchen/project_mind/src/services/fileDocumentApi';
+import { recordDocumentApi } from '/Users/xuchen/project_mind/src/services/recordDocumentApi';
+import {fileWorkingApi} from '/Users/xuchen/project_mind/src/services/fileWorkingApi';
+import { queryKeys } from '/Users/xuchen/project_mind/src/lib/queryKeys';
+vi.mock('/Users/xuchen/project_mind/src/services/fileDocumentApi', () => ({ fileDocumentApi: { versionsList: vi.fn(), sourceRead: vi.fn() } }));
+vi.mock('/Users/xuchen/project_mind/src/services/recordDocumentApi', () => ({ recordDocumentApi: { bindingGet: vi.fn() } }));
+vi.mock('/Users/xuchen/project_mind/src/services/projectFileApi', () => ({ projectFileApi: { resolve: vi.fn(), readBytes: vi.fn(), resolveRelated: vi.fn(), applications: vi.fn(), openWith: vi.fn(), openLocal: vi.fn() }, fileBytes: (result: {
+        base64: string;
+    }) => Uint8Array.from(atob(result.base64), c => c.charCodeAt(0)) }));
+vi.mock('/Users/xuchen/project_mind/src/services/fileWorkingApi',()=>({fileWorkingApi:{open:vi.fn(),saveText:vi.fn(),activity:vi.fn(),close:vi.fn(),tick:vi.fn()}}));
+vi.mock('/Users/xuchen/project_mind/src/components/markdown/MarkdownEditor', async () => {
+    const { useState } = await import('react');
+    return { MarkdownEditor: (props: {
+            value: string;
+            readOnly: boolean;
+            onChange: (value: string) => void;
+            resolveResource?: (reference: string) => Promise<string | undefined>;
+            resources?: Record<string, string>;
+        }) => {
+            const [resource, setResource] = useState('');
+            return <div><p>{props.value}</p><button disabled={props.readOnly} onClick={() => props.onChange('保留草稿')}>编辑文档</button><button disabled={!props.resolveResource} onClick={() => void props.resolveResource?.('images/new.png').then(value => setResource(value ?? ''), error => setResource(error.message))}>读取新增图片</button><output aria-label="关联图片结果">{resource}</output><output aria-label="预载图片">{JSON.stringify(props.resources)}</output></div>;
+        } };
+});
+const binding = { workspaceId: 'w', generation: 'g' };
+const projectObject = { workspaceId: 'w', scope: { kind: 'project' as const, projectId: 2 }, kind: 'file' as const, id: '7' };
+let object: AgentObjectRef = projectObject;
+let current: number;
+function status(){return{object,revision:current,contentHash:`hash${current}`,archivedVersionNumber:2,pendingArchive:current>2,lastActivityAtMs:0,archiveDueAtMs:900000,noChange:false};}
+function opened(){return{...status(),sessionId:`session${current}`,name:'sample.md',base64:btoa(unescape(encodeURIComponent(current===2?'原文':'保留草稿'))),format:'markdown',model:null};}
+
+function resolved() { return { object, relativePath: 'sample.md', name: 'sample.md', versionNumber: current, contentHash: `hash${current}`, state: 'ready' as const, reason: null }; }
+beforeEach(() => {
+    vi.resetAllMocks();
+    object = projectObject;
+    current = 2;
+    vi.mocked(fileWorkingApi.open).mockImplementation(async()=>opened());
+    vi.mocked(fileWorkingApi.activity).mockImplementation(async()=>status());
+    vi.mocked(fileWorkingApi.tick).mockImplementation(async()=>status());
+    vi.mocked(fileWorkingApi.close).mockResolvedValue();
+    vi.mocked(projectFileApi.applications).mockResolvedValue([]);
+    vi.mocked(recordDocumentApi.bindingGet).mockResolvedValue(binding);
+    vi.mocked(projectFileApi.resolve).mockImplementation(async () => resolved());
+    vi.mocked(fileDocumentApi.versionsList).mockImplementation(async () => ({ object, currentVersionNumber: current, currentContentHash: `hash${current}`, versions: [{ id: String(current), versionNumber: current, name: 'sample.md', createdAt: '2026-10-13', contentHash: `hash${current}`, isCurrent: true }], nextCursor: null }));
+    vi.mocked(projectFileApi.readBytes).mockImplementation(async (_, input) => ({ object, versionNumber: input.versionNumber, contentHash: `hash${input.versionNumber}`, name: 'sample.md', mime: 'text/markdown', byteLength: 1, base64: 'Iw==' }));
+    vi.mocked(fileDocumentApi.sourceRead).mockImplementation(async (_, input) => { const text = input.versionNumber === 2 ? '原文' : '保留草稿'; return { object, versionNumber: input.versionNumber, contentHash: `hash${input.versionNumber}`, title: 'sample.md', byteLength: new TextEncoder().encode(text).byteLength, format: 'markdown', text, startChar: 0, endChar: [...text].length, totalChars: [...text].length, nextCursor: null, complete: true }; });
+    vi.mocked(fileWorkingApi.saveText).mockImplementation(async () => { current = 3; return status(); });
+});
+
+it('CONFIRM: incoming historical version prop discards a dirty working editor without save',async()=>{
+ const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
+ const wrap=(versionNumber?:number)=><QueryClientProvider client={client}><ProjectFileContent workspaceRoot="/workspace" projectId={2} fileId={7} visible focused versionNumber={versionNumber}/></QueryClientProvider>;
+ vi.mocked(fileDocumentApi.versionsList).mockImplementation(async()=>({object,currentVersionNumber:2,currentContentHash:'hash2',versions:[2,1].map(n=>({id:String(n),versionNumber:n,name:'sample.md',createdAt:'2026-10-13',contentHash:`hash${n}`,isCurrent:n===2})),nextCursor:null}));
+ const view=render(wrap());
+ await screen.findByText('原文');
+ fireEvent.click(screen.getByRole('button',{name:'编辑文档'}));
+ expect(screen.getByText('保留草稿')).toBeVisible();
+ // Mirrors openProjectContent reusing this tab and setting view.versionNumber.
+ view.rerender(wrap(1));
+ await waitFor(()=>expect(screen.getByRole('button',{name:'编辑文档'})).toBeDisabled());
+ expect(fileWorkingApi.saveText).not.toHaveBeenCalled();
+ expect(fileWorkingApi.close).toHaveBeenCalled();
+ view.rerender(wrap());
+ await waitFor(()=>expect(screen.getByRole('button',{name:'编辑文档'})).not.toBeDisabled());
+ await screen.findByText('原文');
+ expect(fileWorkingApi.saveText).not.toHaveBeenCalled();
+ view.unmount();
+});

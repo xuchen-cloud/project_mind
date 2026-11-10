@@ -79,6 +79,14 @@ complete Issue acceptance follows from this harness.
 
 ## Verification status
 
+Integration subsequently built source `cc99b73` and ran the real macOS main
+Webview against fresh fixtures: all9 assertions passed with empty runtime errors
+and visible-window CUA observation. See
+[`verification/fileflows`](../../docs/technical/review-20261110/verification/fileflows/README.md)
+for the exact build, failed locked-window attempt, successful run, native112 tests,
+frontend204 tests and remaining scope limits. The preparation-only history below
+does not replace that later evidence.
+
 Passed during preparation:
 
 ```sh

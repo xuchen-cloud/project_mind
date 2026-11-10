@@ -1,0 +1,92 @@
+{
+  "key": "assistant",
+  "threadId": "01a1c55d-d4b5-7da3-89db-5405cb4f83d0",
+  "worktree": "/Users/xuchen/.codex/worktrees/1263/project_mind",
+  "branch": "codex/review-session-performance",
+  "phase": "blocked_windows_acceptance",
+  "issue": 305,
+  "head": "c81bb16621e3147d51a93c431e41ae69d2137e83",
+  "pr": "https://github.com/xuchen-cloud/project_mind/pull/311",
+  "dependencies": [],
+  "checks": [
+    "clean initial worktree",
+    "develop baseline verified",
+    "assistant.patch applied",
+    "history-only runtime test red: missing provider rejected",
+    "history-only real runtime: passed without provider/CLI/skills",
+    "scratch real DSH runtime + shell: Project/Workspace x new/restored passed (deterministic local provider)",
+    "dsh-ui integrity 5/5; UI standards passed",
+    "cargo test dsh_assistant::history --no-run passed (baseline warnings)",
+    "assistant native regression: 61 passed, 3 ignored (64 total)",
+    "targeted frontend: 57 passed; root TypeScript passed",
+    "Chrome light/dark/forced 18 scenarios passed; screenshot exposed forced-color selection cascade; corrected and stronger rerun queued",
+    "pinned Node failed-range rerun:28passed/2PowerShell skips; no unit failures remain",
+    "real runtime integration3/3; host508.09ms, A5.13ms/B1.22ms/revisit0.99ms; samePID/no provider calls",
+    "frontend final57passed",
+    "native final history2/2passed: providerlessscope + nonblockingstatus and shutdown-before-subscription",
+    "final Chrome menu18scenarios + screenshot inspection passed (system colors, spans/kbd, drillhover, pointer/scroll/resize)",
+    "UI integrity5/5, UIstandards, DSHruntimecheck, UIbrowserclosure passed",
+    "host production Vite build passed after CoW staging missing renderer caches; hashes recorded",
+    "final exact-head Standards/Spec: no remaining code findings",
+    "draft PR311 created with base develop; remote PR/branch refs both match reviewed c81bb16",
+    "Issue305 confirmedOPEN afterPRcreation; no mergeperformed"
+  ],
+  "blockers": [
+    "Windows WebView2/high-contrast real-device visual acceptance unavailable on macOS host"
+  ],
+  "next": "Windows host: rebuild application/runtime, use isolated Workspace, verify actual WebView2 light/dark/contrast @ and / menu text/borders, keyboard/pointer selection and scrolling; attach evidence to #305. Integration then verifies exact head/dependencies and owns merge. Do not close #305 before required platform acceptance.",
+  "ready_for_merge": false,
+  "reviews": [
+    {
+      "axis": "Standards",
+      "reviewer": "01a1c56c-4b30-7a03-969b-39f73e35ec07",
+      "head": "c81bb16621e3147d51a93c431e41ae69d2137e83",
+      "base": "fe9fe9c188f05c23bae369074446e38c0859a0c8",
+      "mode": "static",
+      "result": "PASS",
+      "findings": [],
+      "resolved": [
+        "mutation refresh supersession",
+        "shutdown before cancellation subscription",
+        "forced-colors cascade and selected descendants/drill backgrounds"
+      ],
+      "acceptanceBlocker": "Actual Windows WebView2 light/dark/contrast validation requires Windows host; ready_for_merge=false."
+    },
+    {
+      "axis": "Spec",
+      "reviewer": "01a1c56c-4b5e-72d0-a2e9-24bc65abf091",
+      "head": "c81bb16621e3147d51a93c431e41ae69d2137e83",
+      "base": "fe9fe9c188f05c23bae369074446e38c0859a0c8",
+      "mode": "static",
+      "result": "PASS_CODE",
+      "findings": [],
+      "resolved": [
+        "metadata I/O outside global mutex",
+        "providerless summary readiness",
+        "nonblocking runtime status",
+        "history host scheduler recovery",
+        "mutation refresh supersession",
+        "shutdown cancellation race"
+      ],
+      "acceptanceBlocker": "Actual Windows WebView2 light/dark/contrast validation requires Windows host; ready_for_merge=false."
+    }
+  ],
+  "evidenceRoot": "/Users/xuchen/.codex/worktrees/1263/project_mind/output/playwright/assistant",
+  "prNumber": 311,
+  "base": "develop",
+  "workingTreeClean": true,
+  "updatedAt": "2026-11-10T13:02:48.718314+00:00",
+  "verificationSummary": {
+    "frontendAffectedPages": "139 passed in7files; final changed-range57passed",
+    "assistantUnits": "fullrun260pass/27fail/2skip; failedrange28pass/2skip after matcher+stagedNode repairs; no remaining failures (287pass/2PowerShellskip overall)",
+    "native": "assistant61pass/3explicitignored; finalhistory2pass (includesnewcancellationtest)",
+    "realRuntime": "3passed pinnedNode24.21.0",
+    "menu": "18scenarios across3themes + screenshotsinspected; drillhover/spans/kbd/pointer/scroll/resize",
+    "builds": "TypeScript,UIintegrity5,UIstandards,DSHcheck,UIbrowserclosure,hostViteproductionpassed"
+  },
+  "githubVerification": {
+    "created": "gh pr create --draft --base develop returned PR311",
+    "exactHead": "remote refs/heads/codex/review-session-performance and refs/pull/311/head both match final reviewed c81bb16621e3147d51a93c431e41ae69d2137e83",
+    "apiReadback": "PR API readback returned repeated EOF; used remote Git PR ref to verify head. Issue305 OPEN confirmed after creation."
+  }
+}
