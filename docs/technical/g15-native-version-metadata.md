@@ -66,7 +66,7 @@ limits/control rejection/trim/null, stale CAS and durable replay/payload conflic
 actual File/version authorization, reopen, rollback on outbox failure, closed
 Workspace fence, two real connections competing for one metadata revision,
 managed-copy append/rename, working save/idle archive/restore, exhausted capacity,
-directory registration/reconciliation/rename, schema-40 migration and important
+directory-managed File registration/reconciliation/rename, schema-40 migration and important
 DELETE/INSERT REPLACE/UPDATE REPLACE/hash protection.
 
 Standards self-review: no unresolved findings. Scope uses existing Project/File
@@ -80,10 +80,27 @@ delegation per task).
 Platforms: tested on this macOS host only. No GUI, Windows/Linux native runtime,
 Windows filesystem behavior or integrated Tauri IPC invocation was validated.
 
-The existing `db::file_reads::tests::` regression command is additionally queued
-under the same build lock to verify both affected version projections. Its result
-is pending at this implementation commit; no broader full-suite rerun is requested.
+Final affected regression, under the same required prefix:
+`cargo test --manifest-path src-tauri/Cargo.toml --lib db::file_reads::tests:: --quiet -- --test-threads=1`
+passed 4/4 (0 failed), verifying existing version read behavior with the extended
+projections. No broader full-suite rerun was required. The 7/7 G15 results are
+reused: business logic did not change; only formatting and evidence prose changed.
+Implementation commit: `0ff3d28106a80bab4c3be262a1056136a1ad9537`.
 `rustfmt --edition 2021 src-tauri/src/db/file_version_metadata.rs src-tauri/src/db/file_version_metadata_tests.rs`
 completed successfully under the required prefix; subsequent changes are formatting only.
 `git diff --check` passed. No frontend build/test is needed for this native-only
 package; frontend type additions and IPC registration remain owned by integration/G13.
+
+
+Final integration checklist (remaining, not completed by this worker):
+
+- Register the already implemented Tauri command and add frontend types/adapter in
+  the G13-owned code; command is intentionally unused until that integration.
+- Reconcile provisional schema 41, its independent migration helper and root/runtime
+  initialization with latest native 04506b4 and files directory-journal changes.
+- Verify combined folder/owner movement preserves these columns and original
+  version identity/hash/bytes under the other workers' real movement services.
+  This package does not implement those services or claim their acceptance.
+- Keep the native 04506b4 version of the prerequisite compile fixes; only the G15
+  implementation/evidence commits need to be taken from this worker.
+- No PR, merge, Issue closure, GUI or non-macOS platform validation was performed.
