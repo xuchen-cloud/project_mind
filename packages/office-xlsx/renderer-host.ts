@@ -1,7 +1,7 @@
 import {installXlsxPreviewView} from './preview-view'
 import {createSelectionController} from './selection'
 import {connectHostChannel,onHostMessage,sendHostMessage} from './renderer-channel'
-import { CellValueType, CommandType, LifecycleStages } from '@univerjs/core'
+import { CellValueType, CommandType, LifecycleStages, ICommandService, covertCellValues } from '@univerjs/core'
 import { ErrorType } from '@univerjs/engine-formula'
 import { FormulaCalculationSessionService } from '@univerjs/sheets-formula'
 import { InitialCalculationGate } from './initial-calculation'
@@ -13,12 +13,13 @@ import { gatewayChangesSchema } from './gateway-contract'
 import { installScrollMasks } from './scroll-masks'
 import {screenSourcesResultSchema,screenCaptureRequestSchema,screenCaptureResultSchema,workbookFileSchema,workbookExportCsvRequestSchema,workbookExportPdfRequestSchema,workbookRecalcRequestSchema,workbookRecalcResultSchema} from './vendor/apps/sheets/src/shared/desktop-api'
 import type { Edit, Model, OfficeViewRead } from './types'
-import {snapshotRange, createViewReader} from './view-source'
+import {snapshotRange, createViewReader, withReadyRangeCoverage} from './view-source'
 import {readView} from './renderer-view'
 import {parseViewResult} from './view-protocol'
 import {formulaClosureRevision, invalidateFormulaClosure, formulasWithEdits, formulaSheetExtent} from './formula-closure-edits'
 import {withoutUnchangedInputStyles} from './input-style-journal'
 import {canonicalCellData} from './cell-comparison'
+import {streamedCellWrites, ProjectionMutationGate, STREAMED_CELL_MUTATION, isCalculationMetadata} from './streamed-cell-writes'
 
 // Only data and explicit replies cross this frame boundary. No native/path relay is installed.
 type Options = { model: Model; edits: Edit[]; readOnly: boolean; presentationMode: 'preview' | 'edit'; appearance: Record<string,string> }
@@ -86,6 +87,7 @@ function capture(request:any){assertSession(request.sessionId);const {sessionId,
 function applyAppearance(){for(const [key,value]of Object.entries(options.appearance))document.documentElement.style.setProperty(key,value)}
 // Reapplying setEditable cancels an active cell editor, even when its value is unchanged.
 const appliedLocks=new WeakMap<object,boolean>()
+const projectionMutations=new ProjectionMutationGate()
 function syncLock(){document.documentElement.dataset.presentationMode=options.presentationMode;document.documentElement.dataset.hostReadonly=String(options.readOnly);const workbook=context?.univerRef.current?.univerAPI.getActiveWorkbook();if(!workbook||!ready)return;const unit=workbook.getWorkbook();if(appliedLocks.get(unit)!==options.readOnly){workbook.setEditable(!options.readOnly);appliedLocks.set(unit,options.readOnly)}
  for(const node of document.querySelectorAll<HTMLElement>('.ribbon,.dialog-backdrop'))node.inert=options.readOnly&&!node.querySelector('.print-dialog')
  document.documentElement.dataset.hostReadonly=String(options.readOnly)}
@@ -187,12 +189,31 @@ export async function initialize(){options=await new Promise<Options>(resolve=>{
   invalidateFormulaClosure,
   formulasWithEdits,
   formulaSheetExtent,
+  withReadyRangeCoverage,
+  writeStreamedCells(worksheet:any, range:{startRow:number;startColumn:number;endRow:number;endColumn:number}, matrix:Record<string,unknown>[][], pinned?:ReadonlySet<string>){
+   const writes=streamedCellWrites(matrix,range.startRow,range.startColumn,pinned)
+   if(!Object.keys(writes).length)return
+   // Source projection is not a user edit, including in readonly preview.
+   // Retain Univer's conversion and mutation observers without its edit command.
+   const params={unitId:worksheet.getWorkbook().getUnitId(),subUnitId:worksheet.getSheetId(),cellValue:covertCellValues(writes,range)}
+   const commands=context!.univerRef.current.univer.__getInjector().get(ICommandService)
+   if(!projectionMutations.run(params,()=>commands.syncExecuteCommand(STREAMED_CELL_MUTATION,params)))throw Error('Excel 视图数据写入失败')
+  },
   captureInputStyles(sheetId:string,values:unknown){
    if(!values||typeof values!=='object')return
    const sheet=context?.univerRef.current?.univerAPI.getActiveWorkbook()?.getSheetBySheetId(sheetId)
    if(sheet)inputStyleJournals.set(values,withoutUnchangedInputStyles(values,(row,column)=>sheet.getSheet().getCellStyle(row,column),toNeutralStyle))
   },
   journalCellValues:(values:unknown)=>values&&typeof values==='object'?inputStyleJournals.get(values)??values:values,
+  projectCalculationResult(data:any,apply:()=>unknown){
+   if(stopped)return
+   if(!ready||!options.readOnly)return apply()
+   const state=context?.lazyWorkbookRef.current,workbook=context?.univerRef.current?.univerAPI.getActiveWorkbook()
+   if(!state||!workbook)return
+   if(options.model.coverage?.kind==='partial'&&state.closure.status!=='active'&&!state.flags.preloadComplete)return
+   if(data.unitData&&Object.keys(data.unitData).some(id=>id!==workbook.getId()))return
+   return projectionMutations.runCalculation(workbook.getId(),apply)
+  },
   canCalculate:()=>options.model.coverage?.kind!=='partial'||context?.lazyWorkbookRef.current?.closure.status==='active'||context?.lazyWorkbookRef.current?.flags.preloadComplete===true,
   initialCalculationRequested(state:object){initialCalculationTarget=state;initialCalculation.expect(state);performance.mark('office-xlsx:initial-calculation-requested')},
   initialCalculationStarting(runtime:any){initialCalculation.begin(initialCalculationTarget,runtime.univer.__getInjector().get(FormulaCalculationSessionService).state.id);performance.mark('office-xlsx:initial-calculation-starting')},
@@ -211,7 +232,7 @@ export async function initialize(){options=await new Promise<Options>(resolve=>{
    runtime.univerAPI.addEvent(runtime.univerAPI.Event.SheetEditChanging,({worksheet,row,column,value}:any)=>{if(!ready||options.readOnly)return;const cell=worksheet.getRange(row,column).getCellData(),current=cell?.f??cell?.p?.body?.dataStream?.replace(/\r\n$/,'')??String(cell?.v??''),input=value.getData().body?.dataStream?.replace(/\r\n$/,'')??'';if(input!==current){inputPending=true;send('pending',true)}})
    runtime.univerAPI.addEvent(runtime.univerAPI.Event.SheetEditEnded,()=>{inputPending=false;api.notifyPendingEdits(0)})
    runtime.univerAPI.addEvent(runtime.univerAPI.Event.BeforeSheetEditStart,(event:any)=>{if(ready&&options.readOnly)event.cancel=true})
-   runtime.univerAPI.addEvent(runtime.univerAPI.Event.BeforeCommandExecute,(event:any)=>{if(ready&&options.readOnly&&event.type===CommandType.MUTATION)event.cancel=true})},
+   runtime.univerAPI.addEvent(runtime.univerAPI.Event.BeforeCommandExecute,(event:any)=>{if(ready&&options.readOnly&&event.type===CommandType.MUTATION&&!isCalculationMetadata(event.id)&&!projectionMutations.permits(event.id,event.params,event.options))event.cancel=true})},
   requestSave:async()=>{await flush();if(editRevision===savedEditRevision&&lastSignature===savedSignature)return{ok:true};const id=++nextSave;await new Promise<void>((resolve,reject)=>{saveReplies.set(id,{resolve,reject});send('saveRequest',undefined,id)});return{ok:true}},
  }
  onHostMessage(data=>{const{type,value,id}=data;if(type==='saved'){try{acknowledgeSaved(value)}catch(error:any){send('error',String(error.message??error))}}if(type==='captureSelection'||type==='applySelection'){if(selectionBusy){send('reply',{error:'Excel 正在处理选区操作'},id);return}const action=type==='captureSelection'?selection.captureSelection():selection.applySelection(value);selectionBusy=true;void action.then(result=>send('reply',{result},id),error=>send('reply',{error:String(error.message??error)},id)).finally(()=>{selectionBusy=false})}if(type==='saveReply'){const reply=saveReplies.get(id);saveReplies.delete(id);if(value?.error)reply?.reject(Error(value.error));else reply?.resolve()}if(type==='update'){options={...options,...value};applyAppearance();syncLock()}if(type==='commit'||type==='output')void (type==='commit'?flush():runOutput(value)).then(()=>send('reply',null,id),error=>send('reply',{error:String(error.message??error)},id))})

@@ -58,6 +58,10 @@ export function projectFilePreviewKind(name: string, mime: string): Kind {
   return "unsupported";
 }
 interface Loaded { working?:FileWorkingOpen; resourceController?: AbortController; resolveResource?: (reference:string) => Promise<string|undefined>; binding: AgentWorkspaceBinding; object: AgentObjectRef; resources: Record<string,string>; warnings:string[]; name: string; renderName: string; kind: Kind; text?: string; bytes?: Uint8Array; version: number; contentHash: string; rendererId: number; reload: number; versions: FileVersionMetadata[]; signal: AbortSignal }
+function archivedWorkingSource(file:Pick<Loaded,'object'|'name'|'versions'>,working?:FileWorkingStatus):AgentSourceRef|null {
+  return working&&!working.pendingArchive&&file.versions.some(item=>item.versionNumber===working.archivedVersionNumber&&item.contentHash===working.contentHash)
+    ?{object:file.object,revision:working.contentHash,fileVersion:working.archivedVersionNumber,recordVersion:null,blockId:null,locator:null,title:file.name,excerpt:""}:null;
+}
 function sameObject(a: AgentObjectRef, b: AgentObjectRef) {
   return a?.workspaceId === b.workspaceId && a.id === b.id && a.kind === b.kind && sameFileOwner(a.scope, b.scope);
 }
@@ -245,10 +249,7 @@ function FileContent({ workspaceRoot, projectId, fileId, fileName, versionNumber
       && (!current || (!!context && sameBinding(current.binding, context.binding) && sameObject(current.object, context.object)));
   }
   function publishWorkingSource(context: Loaded) {
-    const working = context.working;
-    if (working && !working.pendingArchive && context.versions.some(item => item.versionNumber === working.archivedVersionNumber && item.contentHash === working.contentHash)) {
-      sourceCallback.current?.({object:context.object,revision:working.contentHash,fileVersion:working.archivedVersionNumber,recordVersion:null,blockId:null,locator:null,title:context.name,excerpt:""});
-    }
+    if (context.working) sourceCallback.current?.(archivedWorkingSource(context, context.working));
   }
   // Keep an active observer even while a retained editor is hidden. Unlike a
   // one-shot invalidate action, every successful fetch rearms invalidation.
@@ -367,7 +368,7 @@ function FileContent({ workspaceRoot, projectId, fileId, fileName, versionNumber
     if (editorDirty.current && selection === undefined) { setReading(false); return; }
     const retained=latestLoaded.current;
     if(selection===undefined && retained?.working && retained.reload===reload){
-      if(visible&&!retained.working.pendingArchive&&retained.versions.some(item=>item.versionNumber===retained.working!.archivedVersionNumber&&item.contentHash===retained.working!.contentHash))sourceCallback.current?.({object:retained.object,revision:retained.working.contentHash,fileVersion:retained.working.archivedVersionNumber,recordVersion:null,blockId:null,locator:null,title:retained.name,excerpt:""});
+      if(visible)sourceCallback.current?.(archivedWorkingSource(retained,retained.working));
       setReading(false);return;
     }
     if (!visible) {
@@ -416,8 +417,7 @@ function FileContent({ workspaceRoot, projectId, fileId, fileName, versionNumber
         working=opened;openedWorking.current={binding,opened};
         if(currentKind==="office"){
           prepareOffice(opened.name);
-          const archived=history.versions.find(item=>item.versionNumber===opened.archivedVersionNumber);
-          sourceCallback.current?.(!opened.pendingArchive&&archived?.contentHash===opened.contentHash?{object,revision:opened.contentHash,fileVersion:opened.archivedVersionNumber,recordVersion:null,blockId:null,locator:null,title:opened.name,excerpt:""}:null);
+          sourceCallback.current?.(archivedWorkingSource({object,name:opened.name,versions:history.versions},opened));
           setLoaded({working:opened,binding,object,name:opened.name,renderName:opened.name,kind:"office",resources:{},warnings:[],version:opened.archivedVersionNumber,contentHash:opened.contentHash,rendererId:++rendererSequence.current,reload,versions:history.versions,signal});
           return;
         }
@@ -507,7 +507,7 @@ function FileContent({ workspaceRoot, projectId, fileId, fileName, versionNumber
       // Editing can begin while a retained editor is revalidated.
       // Its fixed baseline must survive that asynchronous read until CAS save.
       if (editorDirty.current && selection === undefined) return;
-      if(working)sourceCallback.current?.(!working.pendingArchive&&history.versions.some(item=>item.versionNumber===working.archivedVersionNumber&&item.contentHash===working.contentHash)?{object,revision:working.contentHash,fileVersion:working.archivedVersionNumber,recordVersion:null,blockId:null,locator:null,title:working.name,excerpt:""}:null);
+      if(working)sourceCallback.current?.(archivedWorkingSource({object,name:working.name,versions:history.versions},working));
       else sourceCallback.current?.({ object: result.object, revision: result.contentHash, fileVersion: result.versionNumber, recordVersion: null, blockId: null, locator: null, title: result.name, excerpt: "" });
       const rendererId = ++rendererSequence.current;
       const resourceController = kind === "markdown" && selection === undefined ? new AbortController() : undefined;
@@ -602,9 +602,9 @@ function FileContent({ workspaceRoot, projectId, fileId, fileName, versionNumber
     const previous=latestLoaded.current;
     const next=previous?{...previous,version,contentHash,...(working&&previous.working?{working:{...previous.working,...working}}:{}),...(text!==undefined?{text}:{})}:previous;
     latestLoaded.current=next;setLoaded(next);
-    // A working hash is not an immutable vN source reference. The reference
-    // action must use the native snapshot boundary before attaching a source.
-    if(working)sourceCallback.current?.(null);
+    // A working hash becomes an immutable source only after its exact native
+    // archive version/hash has been verified. No-change saves retain that proof.
+    if(working)sourceCallback.current?.(next?archivedWorkingSource(next,working):null);
     else if(valid)sourceCallback.current?.({object:valid.object,revision:contentHash,fileVersion:version,recordVersion:null,blockId:null,locator:null,title:valid.name,excerpt:""});
   }
 

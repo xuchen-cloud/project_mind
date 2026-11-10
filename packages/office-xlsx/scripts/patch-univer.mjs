@@ -1,6 +1,7 @@
 import {readFile} from 'node:fs/promises'
 import {adaptSteadyScheduling} from './initialization-adapter.mjs'
 import {adaptPlainTextPaste} from './paste-adapter.mjs'
+import {adaptCalculationProjection} from './calculation-projection-adapter.mjs'
 /**
  * Reproducible patch for pinned @univerjs/sheets-ui 0.25.1 (Apache-2.0).
  * A queued auto-height callback can outlive the workbook during rebase/dispose.
@@ -9,6 +10,7 @@ import {adaptPlainTextPaste} from './paste-adapter.mjs'
 export const disposedAutoHeightPatch={
   name:'xlsx-disposed-auto-height',
   setup(build){
+    build.onLoad({filter:/@univerjs[\\/]engine-formula[\\/]lib[\\/]es[\\/]index\.js$/},async({path})=>({contents:adaptCalculationProjection(await readFile(path,'utf8')),loader:'js'}))
     build.onLoad({filter:/@univerjs[\\/]ui[\\/]lib[\\/]es[\\/]index\.js$/},async({path})=>({contents:adaptSteadyScheduling(await readFile(path,'utf8')),loader:'js'}))
     build.onLoad({filter:/@univerjs[\\/]sheets-note-ui[\\/]lib[\\/]es[\\/]index\.js$/},async({path})=>{
       const text=await readFile(path,'utf8')
