@@ -115,7 +115,7 @@ export async function enqueueAiJob(input: AiJobEnqueueInput, expectedBinding?: A
   const ready = ensureAiJobSync();
   const sync = aiJobSync!;
   const binding = await awaitInSync(sync, ready);
-  if (!binding || (expectedBinding && !sameAiJobBinding(binding, expectedBinding))) {
+  if (aiJobSync !== sync || !binding || (expectedBinding && !sameAiJobBinding(binding, expectedBinding))) {
     throw workspaceChanged();
   }
   const snapshot = await awaitInSync(sync, projectMindApi.aiJobEnqueue(input, binding));

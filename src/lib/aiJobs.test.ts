@@ -115,6 +115,17 @@ it("does not enqueue A content when reset happens before binding lookup finishes
   expect(mocks.enqueue).not.toHaveBeenCalled();
 });
 
+it("does not enqueue when reset retires a ready binding before its continuation resumes", async () => {
+  await ensureAiJobSync();
+  const running = enqueueAndWait({ kind: "editor_skill", targetKey: "target", input: {
+    skillName: "Test", prompt: "test", resultMode: "modify", selectedText: "B",
+  } });
+  const settled = expect(running).rejects.toThrow("工作区已切换");
+  queueMicrotask(resetAiJobSync);
+  await settled;
+  expect(mocks.enqueue).not.toHaveBeenCalled();
+});
+
 it("rejects a bound metadata request that no longer matches the current Workspace", async () => {
   await expect(enqueueAndWait({ kind: "editor_skill", targetKey: "target", input: {
     skillName: "Test", prompt: "test", resultMode: "modify", selectedText: "A",
