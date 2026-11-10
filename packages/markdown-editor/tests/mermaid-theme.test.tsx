@@ -53,3 +53,34 @@ it('keeps the rich editor source exact across rendering, editing and reopen', as
   expect(reopened.container.querySelector('.md-codeblock code')?.textContent).toBe(flowchart);
   expect(changed).not.toHaveBeenCalled();
 });
+
+it('does not flash the preceding rich SVG while a new source render is pending', async () => {
+  const first = fenced('flowchart LR\nA[旧源码] --> B');
+  const { container, rerender } = render(<MarkdownEditor value={first} onChange={() => {}} documentKey="rich-a" initialView={{ mode: 'rich' }} />);
+  await waitFor(() => expect(container.querySelector('.md-diagram-preview svg')).not.toBeNull());
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  const realRender = mermaid.render.bind(mermaid);
+  vi.spyOn(mermaid, 'render').mockImplementation(async (...args) => { await held; return realRender(...args); });
+  rerender(<MarkdownEditor value={fenced('flowchart LR\nA[当前源码] --> B')} onChange={() => {}} documentKey="rich-b" initialView={{ mode: 'rich' }} />);
+  await waitFor(() => expect(container.querySelector('.md-codeblock code')?.textContent).toContain('当前源码'));
+  expect(container.querySelector('.md-diagram-preview svg')).toBeNull();
+  await act(async () => { release(); });
+  await waitFor(() => expect(container.querySelector('.md-diagram-preview svg')?.textContent).toContain('当前源码'));
+});
+
+
+it('blocks active Mermaid source before the real Word export renderer and preserves readable code', async () => {
+  const { prepareExportDocument } = await import('../src/export/document');
+  const { deliverMarkdownExport } = await import('../src/export/browser');
+  const { default: JSZip } = await import('jszip');
+  const source = 'flowchart LR\nA@{img:"https://untrusted.invalid/tracker"}';
+  const spy = vi.spyOn(mermaid, 'render');
+  const document = await prepareExportDocument(fenced(source), {});
+  let saved: Uint8Array | undefined;
+  await deliverMarkdownExport(document, 'docx', new AbortController().signal, () => {}, async file => { saved = file.bytes; return true; });
+  expect(spy).not.toHaveBeenCalled();
+  const zip = await JSZip.loadAsync(saved!);
+  expect(await zip.file('word/document.xml')!.async('string')).toContain('untrusted.invalid/tracker');
+  expect(Object.keys(zip.files).some(path => path.startsWith('word/media/'))).toBe(false);
+});

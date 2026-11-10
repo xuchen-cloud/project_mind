@@ -1,4 +1,7 @@
 // Isolated browser acceptance fixture. No native app or user workspace is opened.
+import '@fontsource/work-sans/400.css';
+import '@fontsource/work-sans/500.css';
+import '@fontsource-variable/noto-sans-sc/wght.css';
 import { createRoot } from 'react-dom/client';
 import { useEffect, useState } from 'react';
 import { EditorContent, useEditor } from '@tiptap/react';

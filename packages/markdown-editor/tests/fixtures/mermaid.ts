@@ -25,3 +25,5 @@ export const gantt = `gantt
   完成交付 :after a, 3d`;
 export const invalid = 'flowchart LR\nA -->';
 export const fenced = (source: string) => '```mermaid\n' + source + '\n```';
+
+export const longSequence = sequence + '\n' + Array.from({ length: 24 }, (_, index) => `  Editor->>Store: 第 ${index + 1} 轮确认与长时序图保真验收`).join('\n');

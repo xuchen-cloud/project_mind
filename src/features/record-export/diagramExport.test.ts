@@ -123,6 +123,22 @@ describe("Record Export diagram preparation", () => {
 });
 
 describe("Record Export generator integration", () => {
+  it.each(["docx", "pdf"] as const)("budgets rendered diagram bytes before starting the %s generator", async format => {
+    const workers = vi.fn();
+    vi.stubGlobal("Worker", workers);
+    vi.mocked(diagramSvgToPng).mockResolvedValue({ ...png, base64: btoa("x".repeat(2_000_000)) });
+    const platform: RecordExportPlatform = {
+      saveCommittedContent: async () => ({ recordKind: "workspace", tags: [], style: DEFAULT_RICH_TEXT_STYLE_SETTINGS,
+        committedHtml: `<pre><code class="language-mermaid">${code.code}</code></pre>` }),
+      resolveImage: vi.fn(), availableBytes: vi.fn().mockResolvedValueOnce(Number.MAX_SAFE_INTEGER).mockResolvedValueOnce(2_000_000),
+      loadPdfFonts: vi.fn(), writeAtomically: vi.fn(),
+    };
+    await expect(createRecordExportCoordinator(platform).export({ format, targetPath: `record.${format}` })).rejects.toThrow("磁盘空间不足");
+    expect(workers).not.toHaveBeenCalled();
+    expect(platform.loadPdfFonts).not.toHaveBeenCalled();
+    expect(platform.writeAtomically).not.toHaveBeenCalled();
+  });
+
   it.each(["docx", "pdf"] as const)("sends prepared images to the %s worker even with includeImages=false", async (format) => {
     const messages: Array<{ document: RecordExportDocument; images: Array<[string, unknown]> }> = [];
     const bytes = format === "docx"

@@ -23,9 +23,9 @@ import {
 import type { ResolvedExportImage } from "./recordExport";
 import type { ExportBlock, ExportInline, RecordExportDocument } from "./recordExportModel";
 import { exportImagePlaceholder, formatExportVisualDate } from "./exportPresentation";
-import { prepareExportDiagrams } from "./diagramExport";
 
 const A4_WIDTH_TWIPS = 11_906;
+const A4_HEIGHT_TWIPS = 16_839;
 const PAGE_MARGIN_TWIPS = convertMillimetersToTwip(20);
 const BODY_WIDTH_TWIPS = A4_WIDTH_TWIPS - PAGE_MARGIN_TWIPS * 2;
 
@@ -34,9 +34,8 @@ export async function generateDocx(
   images: ReadonlyMap<string, ResolvedExportImage>,
   signal?: AbortSignal,
 ) {
-  const prepared = await prepareExportDiagrams(document, images, signal);
-  if (typeof Worker === "undefined") return generateDocxInCurrentThread(prepared.document, prepared.images, signal);
-  return runDocxWorker(prepared.document, prepared.images, signal);
+  if (typeof Worker === "undefined") return generateDocxInCurrentThread(document, images, signal);
+  return runDocxWorker(document, images, signal);
 }
 
 export async function generateDocxInCurrentThread(
@@ -106,7 +105,7 @@ export async function generateDocxInCurrentThread(
     sections: [{
       properties: {
         page: {
-          size: { width: A4_WIDTH_TWIPS, height: 16_839 },
+          size: { width: A4_WIDTH_TWIPS, height: A4_HEIGHT_TWIPS },
           margin: {
             top: PAGE_MARGIN_TWIPS,
             right: PAGE_MARGIN_TWIPS,
@@ -213,9 +212,14 @@ async function renderBlock(
     case "image": {
       const image = images.get(block.id);
       if (!image) return [new Paragraph({ text: exportImagePlaceholder(block) })];
-      const width = Math.min(640, Math.max(80, Math.round((block.widthPx ?? image.widthPx ?? 640) * 0.9)));
+      const requestedWidth = Math.min(640, Math.max(80, Math.round((block.widthPx ?? image.widthPx ?? 640) * 0.9)));
       const aspect = image.widthPx && image.heightPx ? image.heightPx / image.widthPx : 0.75;
-      const height = Math.max(1, Math.round(width * aspect));
+      // Word cannot split one picture across pages. Fit both dimensions inside
+      // the printable area, retaining the diagram's aspect and paragraph space.
+      const maxHeight = (A4_HEIGHT_TWIPS - PAGE_MARGIN_TWIPS * 2) / 15 - 24;
+      const scale = Math.min(1, maxHeight / (requestedWidth * aspect));
+      const width = Math.max(1, Math.round(requestedWidth * scale));
+      const height = Math.max(1, Math.round(requestedWidth * aspect * scale));
       return [new Paragraph({
         children: [new ImageRun({
           type: docxImageType(image.extension),
