@@ -9,13 +9,17 @@ export function withoutUnchangedInputStyles(values: unknown, before: (row: numbe
   if (!values || typeof values !== 'object') return values
   let result: Style | undefined
   for (const [row, cells] of Object.entries(values)) {
+    const rowIndex = Number(row)
+    if (!Number.isInteger(rowIndex) || rowIndex < 0) continue
     if (!cells || typeof cells !== 'object') continue
     let nextRow: Style | undefined
     for (const [column, value] of Object.entries(cells)) {
+      const columnIndex = Number(column)
+      if (!Number.isInteger(columnIndex) || columnIndex < 0) continue
       if (!value || typeof value !== 'object') continue
       const cell = value as Style
       if (!('v' in cell || 'f' in cell || 'p' in cell) || !cell.s || typeof cell.s !== 'object') continue
-      const previous = normalize(before(Number(row), Number(column)) ?? {}) ?? {}
+      const previous = normalize(before(rowIndex, columnIndex) ?? {}) ?? {}
       const remaining = {...cell.s as Style}
       let changed = false
       for (const [key, item] of Object.entries(remaining)) {
