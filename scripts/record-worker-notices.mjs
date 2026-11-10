@@ -63,6 +63,18 @@ export async function packageNoticeAssets(roots, utility) {
         if (start < 0 || end < start) throw new Error('Missing data-uri-to-buffer README license');
         texts.push({ name: 'README.md (License)', text: readme.slice(start, end).trimEnd() + '\n' });
       }
+      // fastdom's pinned npm archive also carries its complete MIT notice only
+      // in README.md. Verify the exact notice before including it in bundles.
+      if (manifest.name === 'fastdom' && manifest.version === '1.0.12' && manifest.license === 'MIT') {
+        const readme = await readFile(path.join(root, 'README.md'), 'utf8');
+        const heading = readme.indexOf('## License');
+        const start = readme.indexOf('(The MIT License)', heading);
+        const text = readme.slice(start).trimEnd() + '\n';
+        if (heading < 0 || start < heading || checksum(text) !== '50c0de64f5cd5e39859b43f7eca7f5843fb3c3d5ac7e34a453e27419ad51e08c') {
+          throw new Error('Missing or changed fastdom README license');
+        }
+        texts.push({ name: 'README.md (License)', text });
+      }
     }
     if (!manifest.name || !manifest.version || !manifest.license || !texts.length) throw new Error(`Missing third-party license text: ${root}`);
     return { name: manifest.name, version: manifest.version, license: manifest.license, texts };
