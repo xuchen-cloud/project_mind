@@ -19,7 +19,7 @@ import {parseViewResult} from './view-protocol'
 import {formulaClosureRevision, invalidateFormulaClosure, formulasWithEdits, formulaSheetExtent} from './formula-closure-edits'
 import {withoutUnchangedInputStyles} from './input-style-journal'
 import {canonicalCellData} from './cell-comparison'
-import {streamedCellWrites, ProjectionMutationGate, STREAMED_CELL_MUTATION} from './streamed-cell-writes'
+import {streamedCellWrites, ProjectionMutationGate, STREAMED_CELL_MUTATION, isCalculationMetadata} from './streamed-cell-writes'
 
 // Only data and explicit replies cross this frame boundary. No native/path relay is installed.
 type Options = { model: Model; edits: Edit[]; readOnly: boolean; presentationMode: 'preview' | 'edit'; appearance: Record<string,string> }
@@ -205,6 +205,15 @@ export async function initialize(){options=await new Promise<Options>(resolve=>{
    if(sheet)inputStyleJournals.set(values,withoutUnchangedInputStyles(values,(row,column)=>sheet.getSheet().getCellStyle(row,column),toNeutralStyle))
   },
   journalCellValues:(values:unknown)=>values&&typeof values==='object'?inputStyleJournals.get(values)??values:values,
+  projectCalculationResult(data:any,apply:()=>unknown){
+   if(stopped)return
+   if(!ready||!options.readOnly)return apply()
+   const state=context?.lazyWorkbookRef.current,workbook=context?.univerRef.current?.univerAPI.getActiveWorkbook()
+   if(!state||!workbook)return
+   if(options.model.coverage?.kind==='partial'&&state.closure.status!=='active'&&!state.flags.preloadComplete)return
+   if(data.unitData&&Object.keys(data.unitData).some(id=>id!==workbook.getId()))return
+   return projectionMutations.runCalculation(workbook.getId(),apply)
+  },
   canCalculate:()=>options.model.coverage?.kind!=='partial'||context?.lazyWorkbookRef.current?.closure.status==='active'||context?.lazyWorkbookRef.current?.flags.preloadComplete===true,
   initialCalculationRequested(state:object){initialCalculationTarget=state;initialCalculation.expect(state);performance.mark('office-xlsx:initial-calculation-requested')},
   initialCalculationStarting(runtime:any){initialCalculation.begin(initialCalculationTarget,runtime.univer.__getInjector().get(FormulaCalculationSessionService).state.id);performance.mark('office-xlsx:initial-calculation-starting')},
@@ -223,7 +232,7 @@ export async function initialize(){options=await new Promise<Options>(resolve=>{
    runtime.univerAPI.addEvent(runtime.univerAPI.Event.SheetEditChanging,({worksheet,row,column,value}:any)=>{if(!ready||options.readOnly)return;const cell=worksheet.getRange(row,column).getCellData(),current=cell?.f??cell?.p?.body?.dataStream?.replace(/\r\n$/,'')??String(cell?.v??''),input=value.getData().body?.dataStream?.replace(/\r\n$/,'')??'';if(input!==current){inputPending=true;send('pending',true)}})
    runtime.univerAPI.addEvent(runtime.univerAPI.Event.SheetEditEnded,()=>{inputPending=false;api.notifyPendingEdits(0)})
    runtime.univerAPI.addEvent(runtime.univerAPI.Event.BeforeSheetEditStart,(event:any)=>{if(ready&&options.readOnly)event.cancel=true})
-   runtime.univerAPI.addEvent(runtime.univerAPI.Event.BeforeCommandExecute,(event:any)=>{if(ready&&options.readOnly&&event.type===CommandType.MUTATION&&!projectionMutations.permits(event.id,event.params,event.options))event.cancel=true})},
+   runtime.univerAPI.addEvent(runtime.univerAPI.Event.BeforeCommandExecute,(event:any)=>{if(ready&&options.readOnly&&event.type===CommandType.MUTATION&&!isCalculationMetadata(event.id)&&!projectionMutations.permits(event.id,event.params,event.options))event.cancel=true})},
   requestSave:async()=>{await flush();if(editRevision===savedEditRevision&&lastSignature===savedSignature)return{ok:true};const id=++nextSave;await new Promise<void>((resolve,reject)=>{saveReplies.set(id,{resolve,reject});send('saveRequest',undefined,id)});return{ok:true}},
  }
  onHostMessage(data=>{const{type,value,id}=data;if(type==='saved'){try{acknowledgeSaved(value)}catch(error:any){send('error',String(error.message??error))}}if(type==='captureSelection'||type==='applySelection'){if(selectionBusy){send('reply',{error:'Excel 正在处理选区操作'},id);return}const action=type==='captureSelection'?selection.captureSelection():selection.applySelection(value);selectionBusy=true;void action.then(result=>send('reply',{result},id),error=>send('reply',{error:String(error.message??error)},id)).finally(()=>{selectionBusy=false})}if(type==='saveReply'){const reply=saveReplies.get(id);saveReplies.delete(id);if(value?.error)reply?.reject(Error(value.error));else reply?.resolve()}if(type==='update'){options={...options,...value};applyAppearance();syncLock()}if(type==='commit'||type==='output')void (type==='commit'?flush():runOutput(value)).then(()=>send('reply',null,id),error=>send('reply',{error:String(error.message??error)},id))})

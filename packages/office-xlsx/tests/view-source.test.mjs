@@ -5,6 +5,7 @@ import ts from 'typescript'
 import {runInNewContext} from 'node:vm'
 import {adaptFormulaStreamHold} from '../scripts/initialization-adapter.mjs'
 import {adaptProgressiveApp,adaptProgressiveSync,adaptProgressiveHold} from '../scripts/progressive-adapter.mjs'
+import {adaptCalculationProjection} from '../scripts/calculation-projection-adapter.mjs'
 const exports={}
 runInNewContext(ts.transpileModule(readFileSync(new URL('../view-source.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,Map,WeakMap,Promise,Error,JSON})
 const {snapshotRange,createViewReader}=exports
@@ -253,4 +254,30 @@ test('native recalculation overlays project after result delivery and viewport r
   api.apply(worksheet,overlay,undefined,{startRow:0,endRow:10,startColumn:0,endColumn:2})
   api.apply(worksheet,overlay,{startRow:0,endRow:10,startColumn:0,endColumn:2},{startRow:490,endRow:510,startColumn:0,endColumn:2})
   assert.deepEqual(JSON.parse(JSON.stringify(writes)),[[6,{f:'=A1+1',v:8}],[6,{f:'=A1+1',v:8}],[499,{v:9}]])
+})
+
+test('engine calculation results publish synchronously within a scoped readonly projection',async()=>{
+  const source=adaptCalculationProjection(readFileSync(new URL('../node_modules/@univerjs/engine-formula/lib/es/index.js',import.meta.url),'utf8'))
+  const header='\tasync _applyResult(data) {'
+  const start=source.indexOf(header),end=source.indexOf('\n\t}\n};\nCalculateController =',start)
+  const api={},gate=new streamedWrites.ProjectionMutationGate(),seen=[]
+  const ids={SetArrayFormulaDataMutation:'formula.mutation.set-array-formula-data',SetImageFormulaDataMutation:'formula.mutation.set-image-formula-data',SetFormulaCalculationResultMutation:'formula.mutation.set-formula-calculation-result'}
+  runInNewContext('exports.apply=async function(data){'+source.slice(start+header.length,end)+'\n}',{exports:api,console,
+    ...Object.fromEntries(Object.entries(ids).map(([name,id])=>[name,{id}])),convertRuntimeToUnitData:value=>value,
+    __projectMindSheetsHost:{projectCalculationResult(_data,apply){return gate.runCalculation('book',apply)}}})
+  const arrays={book:{sheet:{}}},data={unitData:{book:{sheet:{6:{2:{v:8,t:2}}}}},unitOtherData:{},arrayFormulaRange:arrays,arrayFormulaCellData:arrays,arrayFormulaEmbedded:arrays,imageFormulaData:[{unitId:'book'}]}
+  const controller={_applyTreeResult(){},_formulaDataModel:{clearPreviousArrayFormulaCellData(){},mergeArrayFormulaCellData(){},mergeArrayFormulaRange(){},getArrayFormulaRange:()=>arrays,getArrayFormulaCellData:()=>arrays},
+    _commandService:{executeCommand(){throw Error('asynchronous result publication escapes projection')},syncExecuteCommand(id,params,options){
+      assert.equal(gate.permits(id,params,options),true,id);seen.push(id)
+      assert.equal(gate.permits(streamedWrites.STREAMED_CELL_MUTATION,{unitId:'other',subUnitId:'sheet',cellValue:{}},{onlyLocal:true,fromFormula:true}),false)
+      if(id===ids.SetFormulaCalculationResultMutation)assert.equal(gate.permits(streamedWrites.STREAMED_CELL_MUTATION,{unitId:'book',subUnitId:'sheet',cellValue:params.unitData.book.sheet},{onlyLocal:true,fromFormula:true,applyFormulaCalculationResult:true}),true)
+      return true
+    }}}
+  await api.apply.call(controller,data)
+  assert.deepEqual(seen,Object.values(ids))
+  assert.equal(gate.permits(streamedWrites.STREAMED_CELL_MUTATION,{unitId:'book',subUnitId:'sheet',cellValue:{}},{onlyLocal:true,fromFormula:true}),false)
+  assert.equal(streamedWrites.isCalculationMetadata('formula.mutation.set-formula-calculation-start'),true)
+  assert.equal(streamedWrites.isCalculationMetadata(streamedWrites.STREAMED_CELL_MUTATION),false)
+  assert.throws(()=>gate.runCalculation('book',()=>{throw Error('calculation failed')}),/calculation failed/)
+  assert.equal(gate.permits(ids.SetFormulaCalculationResultMutation,data,{onlyLocal:true}),false)
 })

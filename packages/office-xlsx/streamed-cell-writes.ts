@@ -1,12 +1,20 @@
 type Cell = Record<string, unknown>
 
 export const STREAMED_CELL_MUTATION = 'sheet.mutation.set-range-values'
+const CALCULATION_METADATA = new Set([
+  'formula.mutation.set-formula-calculation-start',
+  'formula.mutation.set-trigger-formula-calculation-start',
+  'formula.mutation.set-formula-calculation-stop',
+  'formula.mutation.set-formula-calculation-notification',
+])
+export const isCalculationMetadata = (id: string): boolean => CALCULATION_METADATA.has(id)
 
 type ProjectionTarget = { unitId: string; subUnitId: string }
 
 /** Authorize the synchronous projection and its scoped formula observers. */
 export class ProjectionMutationGate {
   private readonly active = new Set<ProjectionTarget>()
+  private readonly calculationBooks: string[] = []
 
   permits(id: string, params: unknown, options?: { onlyLocal?: boolean; fromFormula?: boolean }): boolean {
     if (typeof params !== 'object' || params === null) return false
@@ -23,12 +31,24 @@ export class ProjectionMutationGate {
       }
       if (id === 'formula.mutation.set-array-formula-data' && withinBook(data.arrayFormulaRange, target.unitId) && withinBook(data.arrayFormulaCellData, target.unitId)) return true
     }
+    for (const unitId of this.calculationBooks) {
+      if (id === STREAMED_CELL_MUTATION && options.fromFormula === true && data.unitId === unitId) return true
+      if (id === 'formula.mutation.set-formula-calculation-result' && withinBook(data.unitData, unitId) && withinBook(data.unitOtherData ?? {}, unitId)) return true
+      if (id === 'formula.mutation.set-array-formula-data' && withinBook(data.arrayFormulaRange, unitId) && withinBook(data.arrayFormulaCellData, unitId) && withinBook(data.arrayFormulaEmbedded ?? {}, unitId)) return true
+      if (id === 'formula.mutation.set-image-formula-data' && Array.isArray(data.imageFormulaData) && data.imageFormulaData.every(item => item?.unitId === unitId)) return true
+      if (id === 'formula.mutation.set-formula-dependency-calculation-result') return true
+    }
     return false
   }
 
   run<T>(params: ProjectionTarget, apply: () => T): T {
     this.active.add(params)
     try { return apply() } finally { this.active.delete(params) }
+  }
+
+  runCalculation<T>(unitId: string, apply: () => T): T {
+    this.calculationBooks.push(unitId)
+    try { return apply() } finally { this.calculationBooks.pop() }
   }
 }
 
