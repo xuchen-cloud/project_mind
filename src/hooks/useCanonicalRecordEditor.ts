@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { JSONContent } from "@tiptap/core";
 import { agentApi } from "../services/agentApi";
 import { recordDocumentApi } from "../services/recordDocumentApi";
@@ -26,6 +26,7 @@ export function useCanonicalRecordEditor({ target, coordinator, enabled, receive
   const [attempt, setAttempt] = useState(0);
   const [incomingConflict, setIncomingConflict] = useState<RecordEditorState | null>(null);
   const refreshSequence = useRef(0);
+  const finishInitialLoad = useRef<(() => void) | null>(null);
   const incomingReceiver = useRef(receiveIncoming);
   incomingReceiver.current = receiveIncoming;
   const editorFlusher = useRef(flushEditor);
@@ -35,6 +36,15 @@ export function useCanonicalRecordEditor({ target, coordinator, enabled, receive
   targetRef.current = target;
   const currentLoad = loaded?.key === key && loaded?.attempt === attempt;
   const ready = enabled && !!key && currentLoad && baseline.current?.key === key;
+
+  // Loading ends at the first commit, when the consumer can hydrate its editor.
+  // setLoaded alone does not guarantee React has displayed that snapshot yet.
+  useLayoutEffect(() => {
+    if (ready) {
+      finishInitialLoad.current?.();
+      finishInitialLoad.current = null;
+    }
+  }, [ready, key, attempt]);
 
   useEffect(() => {
     baseline.current = null;
@@ -49,13 +59,25 @@ export function useCanonicalRecordEditor({ target, coordinator, enabled, receive
     // A save can settle while either the head read or registration is pending.
     let savedSequence = 0;
     let loadingBinding: AgentWorkspaceBinding | null = null;
+    let published = false;
+    let restarting = false;
     const stopLoadingSaves = coordinator.subscribeSaved((snapshot) => {
       const body = snapshot.canonicalBody;
       const savedKey = snapshot.scope === "project"
         ? projectRecordSaveKey(snapshot.projectId, snapshot.recordId) : workspaceRecordSaveKey(snapshot.recordId);
-      if (savedKey === key && body && loadingBinding && body.binding.workspaceId === loadingBinding.workspaceId
-        && body.binding.generation === loadingBinding.generation) ++savedSequence;
+      if (savedKey !== key || !body || !loadingBinding || body.binding.workspaceId !== loadingBinding.workspaceId
+        || body.binding.generation !== loadingBinding.generation) return;
+      ++savedSequence;
+      if (published && !restarting) {
+        // Acknowledgement removed the pending draft before the first commit.
+        // Read body and revision together again rather than expose the old body.
+        restarting = true;
+        baseline.current = null;
+        setLoaded(null);
+        setAttempt((value) => value + 1);
+      }
     });
+    finishInitialLoad.current = stopLoadingSaves;
     void (async () => {
       try {
         const status = await agentApi.statusGet();
@@ -85,14 +107,21 @@ export function useCanonicalRecordEditor({ target, coordinator, enabled, receive
           metadata: resumed?.metadataBase ?? state.metadata,
           codeLanguage: state.head.projection.codeLanguage,
           session: resumed?.editSessionId ?? crypto.randomUUID().replaceAll("-", "") };
+        published = true;
         setLoaded({ key, attempt, state, binding: status.binding });
       } catch (failure) {
         if (!cancelled) setError(failure);
       } finally {
-        stopLoadingSaves();
+        if (!published) stopLoadingSaves();
       }
     })();
-    return () => { cancelled = true; stopLoadingSaves(); ++refreshSequence.current; unregister?.(); };
+    return () => {
+      cancelled = true;
+      stopLoadingSaves();
+      if (finishInitialLoad.current === stopLoadingSaves) finishInitialLoad.current = null;
+      ++refreshSequence.current;
+      unregister?.();
+    };
   }, [key, coordinator, enabled, attempt]);
 
   useEffect(() => coordinator.subscribeSaved((snapshot, result) => {

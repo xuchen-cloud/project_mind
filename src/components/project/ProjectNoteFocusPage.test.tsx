@@ -462,7 +462,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     });
   });
 
-  it("hydrates the saved draft after registration and submits the same body again", async () => {
+  it.each(["during registration", "before first ready render"] as const)("hydrates the saved draft %s and submits the same body again", async (timing) => {
     const target: RecordTarget = { scope: { kind: "project", projectId: 1 }, recordId: 7 };
     const next = fixtureEditorState(target, { ...currentNote, title: "Saved title", contentHtml: "<p>Saved draft</p>", contentMarkdown: "Saved draft" }, 2);
     let finishRegister!: () => void;
@@ -480,8 +480,17 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
         requestId: "pending-load", baseRevision: 1, document: fixtureDocument("Saved draft"), editSessionId: null, origin: "manual" } });
     render(<RecordSaveCoordinatorProvider coordinator={coordinator}><ProjectNoteFocusPage /></RecordSaveCoordinatorProvider>);
     await waitFor(() => expect(recordMocks.editorRegister).toHaveBeenCalledOnce());
-    await act(async () => { finishPersist(); await coordinator.flush("project:1:7"); });
-    await act(async () => { finishRegister(); });
+    if (timing === "during registration") {
+      await act(async () => { finishPersist(); await coordinator.flush("project:1:7"); });
+      await act(async () => { finishRegister(); });
+    } else {
+      await act(async () => {
+        finishRegister();
+        for (let i = 0; i < 8; ++i) await Promise.resolve();
+        finishPersist();
+        await coordinator.flush("project:1:7");
+      });
+    }
     await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
     expect(screen.getByPlaceholderText("记录标题")).toHaveValue("Saved title");
     expect(screen.getByRole("textbox", { name: "正文编辑器" })).toHaveValue("Saved draft");
