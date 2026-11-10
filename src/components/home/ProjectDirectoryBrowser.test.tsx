@@ -32,7 +32,7 @@ function watchedDirectory() {
   Object.defineProperty(window, "__TAURI_INTERNALS__", { value: {}, configurable: true });
   const binding = { workspaceId: "w", generation: "g" };
   native.binding.mockResolvedValue(binding);
-  const listeners: ((hint: { binding: typeof binding; projectId: number; relativePaths: string[] }) => void)[] = [];
+  const listeners: ((hint: { binding: typeof binding; projectId: number; relativePaths?: string[] | null }) => void)[] = [];
   native.listen.mockImplementation(async (_name, callback) => { listeners.push(callback); return vi.fn(); });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const wrap = (id = 7, hidden = false, documents: import("../layout/ProjectSidebar").ProjectSidebarDocumentItem[] = []) => <div hidden={hidden}><QueryClientProvider client={client}><ProjectDirectoryBrowser projectId={id} workspaceRoot="/workspace" rootPath={`/project-${id}`} documents={documents} /></QueryClientProvider></div>;
@@ -675,4 +675,88 @@ it("refuses a managed file menu selected from an old binding's cached tree", asy
   expect(await screen.findByRole("alert")).toHaveTextContent("工作区已切换");
   expect(menu.openContextMenu).not.toHaveBeenCalled();
   expect(fileActions.register).not.toHaveBeenCalled();
+});
+
+it.each(["scoped", "all"])("orders %s native dirty reads before a deleted expanded subtree and can discover its restoration", async mode => {
+  const nested = { ...folder, name: "deep", relativePath: "generated/deep" };
+  const leaf = { ...file, relativePath: "generated/deep/result.txt" };
+  const removedRoot = deferred<ProjectDirectoryEntry[]>();
+  let removed = false;
+  vi.mocked(projectDirectoryApi.list).mockImplementation(async (_owner, path) => {
+    if (path === "") return removed ? removedRoot.promise : [folder];
+    if (removed) throw new Error(`ENOENT: ${path}`);
+    return path === "generated" ? [nested] : [leaf];
+  });
+  const view = watchedDirectory();
+  fireEvent.click(await screen.findByRole("button", { name: "generated" }));
+  fireEvent.click(await screen.findByRole("button", { name: "deep" }));
+  await screen.findByRole("button", { name: "result.txt" });
+  vi.mocked(projectDirectoryApi.list).mockClear();
+  removed = true;
+  act(() => view.listeners[0]({ binding: { workspaceId: "w", generation: "g" }, projectId: 7,
+    relativePaths: mode === "all" ? null : ["", "generated", "generated/deep"] }));
+  await waitFor(() => expect(projectDirectoryApi.list).toHaveBeenCalledWith(7, ""));
+  // The parent remains pending while its stale child observers are mounted.
+  // Concurrent invalidation would already have read both vanished paths here.
+  expect(projectDirectoryApi.list.mock.calls).toEqual([[7, ""]]);
+  await act(async () => removedRoot.resolve([]));
+  await waitFor(() => expect(screen.queryByRole("button", { name: "generated" })).toBeNull());
+  expect(projectDirectoryApi.list.mock.calls).toEqual([[7, ""]]);
+  expect(screen.queryByRole("alert")).toBeNull();
+
+  removed = false;
+  act(() => view.dirty());
+  await screen.findByRole("button", { name: "generated" });
+  fireEvent.click(await screen.findByRole("button", { name: "deep" }));
+  expect(await screen.findByRole("button", { name: "result.txt" })).toBeVisible();
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
+it.each(["EACCES: generated", "ENOENT after a successful parent read"])("reports %s from a dirty directory still listed by its parent", async message => {
+  const nested = { ...folder, name: "deep", relativePath: "generated/deep" };
+  const leaf = { ...file, relativePath: "generated/deep/result.txt" };
+  const parent = deferred<ProjectDirectoryEntry[]>();
+  let changed = false;
+  vi.mocked(projectDirectoryApi.list).mockImplementation(async (_owner, path) => {
+    if (path === "") return changed ? parent.promise : [folder];
+    if (changed) throw new Error(message);
+    return path === "generated" ? [nested] : [leaf];
+  });
+  const view = watchedDirectory();
+  fireEvent.click(await screen.findByRole("button", { name: "generated" }));
+  fireEvent.click(await screen.findByRole("button", { name: "deep" }));
+  await screen.findByRole("button", { name: "result.txt" });
+  vi.mocked(projectDirectoryApi.list).mockClear();
+  changed = true;
+  act(() => view.listeners[0]({ binding: { workspaceId: "w", generation: "g" }, projectId: 7,
+    relativePaths: ["", "generated", "generated/deep"] }));
+  await waitFor(() => expect(projectDirectoryApi.list).toHaveBeenCalledWith(7, ""));
+  expect(projectDirectoryApi.list.mock.calls).toEqual([[7, ""]]);
+  await act(async () => parent.resolve([folder]));
+  await waitFor(() => expect(screen.getAllByRole("alert").some(node => node.textContent?.includes(message))).toBe(true));
+  expect(projectDirectoryApi.list.mock.calls).toEqual([[7, ""], [7, "generated"]]);
+  expect(screen.getByRole("button", { name: "result.txt" })).toBeVisible();
+});
+
+it("defers parent and child dirty hints while hidden, then confirms deletion before reading children", async () => {
+  let removed = false;
+  vi.mocked(projectDirectoryApi.list).mockImplementation(async (_owner, path) => {
+    if (path === "") return removed ? [] : [folder];
+    if (removed) throw new Error(`ENOENT: ${path}`);
+    return [file];
+  });
+  const view = watchedDirectory();
+  fireEvent.click(await screen.findByRole("button", { name: "generated" }));
+  await screen.findByRole("button", { name: "result.txt" });
+  view.rerender(view.wrap(7, true));
+  await act(async () => {});
+  vi.mocked(projectDirectoryApi.list).mockClear();
+  removed = true;
+  await act(async () => view.listeners[0]({ binding: { workspaceId: "w", generation: "g" }, projectId: 7,
+    relativePaths: ["", "generated"] }));
+  expect(projectDirectoryApi.list).not.toHaveBeenCalled();
+  view.rerender(view.wrap());
+  await waitFor(() => expect(screen.queryByRole("button", { name: "generated" })).toBeNull());
+  expect(projectDirectoryApi.list.mock.calls).toEqual([[7, ""]]);
+  expect(screen.queryByRole("alert")).toBeNull();
 });

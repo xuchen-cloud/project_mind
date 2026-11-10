@@ -102,8 +102,8 @@ export function useFileNavigationRefresh({ projectId, rootPath, workspaceRoot, e
             return [{ id: item.id, relative, health: item.health }];
           });
           const paths = checked.map(item => item.relative);
-          // Read only ancestors of registered Files. A failed enumeration is an
-          // error, never evidence that its descendants have been deleted.
+          // Read ancestors of registered Files and expanded branches. A failed
+          // enumeration is never evidence that descendants have been deleted.
           const listings = new Map<string, Awaited<ReturnType<typeof projectDirectoryApi.list>>>();
           const directories = new Set([""]);
           const addDirectory = (path: string) => {
@@ -128,6 +128,11 @@ export function useFileNavigationRefresh({ projectId, rootPath, workspaceRoot, e
           }
           if (!current()) return;
           if (dirty === null) {
+            // Dirty handling may start a query while the manual enumeration is
+            // awaiting I/O. Cancellation retires its reply synchronously; publish
+            // without yielding so that reply cannot overwrite this snapshot.
+            void client.cancelQueries({ queryKey: prefix,
+              predicate: query => matchesBinding(query.queryKey) && directories.has(directoryQueryRelativePath(query.queryKey)) });
             // Publish the same verified snapshot to flat presence and tree.
             // A skipped directory is absent by its parent's successful read;
             // its old query must not refetch ENOENT before React unmounts it.

@@ -337,3 +337,41 @@ it("settles an expanded read mounted by page refresh before publishing the manua
     expect(native.list.mock.calls).toEqual([[7, ""]]);
   } finally { stopExpanded(); stopPage(); }
 });
+
+it("retires a matching read started during manual enumeration before its late reply can restore a removed directory", async () => {
+  const hook = setup(7, [item(1, "removed/gone.txt")]);
+  const key = projectDirectoryQueryKey("/root", 7, "", "/workspace", { workspaceId: "w", generation: "g" });
+  const foreignKey = projectDirectoryQueryKey("/root", 7, "", "/other", { workspaceId: "other", generation: "g" });
+  let finishListing!: (entries: ReturnType<typeof directory>[]) => void;
+  let finishOld!: (entries: ReturnType<typeof directory>[]) => void;
+  let finishForeign!: (entries: ReturnType<typeof directory>[]) => void;
+  native.list.mockReturnValue(new Promise(done => { finishListing = done; }));
+  const read = vi.fn().mockReturnValue(new Promise(done => { finishOld = done; }));
+  const observer = new QueryObserver(hook.client, { queryKey: key, staleTime: Infinity,
+    initialData: [directory("removed")], queryFn: read });
+  const foreign = new QueryObserver(hook.client, { queryKey: foreignKey, staleTime: Infinity,
+    initialData: [], queryFn: () => new Promise(done => { finishForeign = done; }) });
+  const stop = observer.subscribe(() => {});
+  const stopForeign = foreign.subscribe(() => {});
+  try {
+    let refresh!: Promise<void>;
+    act(() => { refresh = hook.result.current.refresh(); });
+    await waitFor(() => expect(native.list).toHaveBeenCalledExactlyOnceWith(7, ""));
+    let oldRead!: ReturnType<typeof observer.refetch>;
+    let foreignRead!: ReturnType<typeof foreign.refetch>;
+    act(() => { oldRead = observer.refetch(); foreignRead = foreign.refetch(); });
+    await waitFor(() => expect(read).toHaveBeenCalledOnce());
+    await act(async () => { finishListing([]); await refresh; });
+    expect(hook.client.getQueryData(key)).toEqual([]);
+    expect(hook.result.current.visibleDocuments).toEqual([]);
+    expect(hook.client.getQueryState(foreignKey)?.fetchStatus).toBe("fetching");
+    await act(async () => {
+      finishOld([directory("removed")]); finishForeign([directory("foreign")]);
+      await Promise.all([oldRead, foreignRead]);
+    });
+    expect(hook.client.getQueryData(key)).toEqual([]);
+    expect(hook.client.getQueryState(key)?.error).toBeNull();
+    expect(hook.client.getQueryData(foreignKey)).toEqual([directory("foreign")]);
+    expect(hook.result.current.error).toBe("");
+  } finally { stop(); stopForeign(); }
+});

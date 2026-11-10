@@ -1,4 +1,4 @@
-import { matchesDirectoryQueryBinding, projectDirectoryQueryKey } from "../../lib/project-directory-query";
+import { directoryQueryRelativePath, matchesDirectoryQueryBinding, projectDirectoryQueryKey } from "../../lib/project-directory-query";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight } from "lucide-react";
@@ -10,7 +10,7 @@ import type { WorkspaceStatusSnapshot } from "../../lib/types";
 import { queryKeys } from "../../lib/queryKeys";
 import { getErrorMessage } from "../../lib/errors";
 import { projectFilePathMatches, openProjectFilePreview } from "../../lib/project-file-navigation";
-import { projectDirectoryApi } from "../../services/projectDirectoryApi";
+import { projectDirectoryApi, type ProjectDirectoryEntry } from "../../services/projectDirectoryApi";
 import { desktopApi } from "../../services/desktopApi";
 import type { AgentWorkspaceBinding } from "../../lib/agent-types";
 import { HomeSidebarList } from "./HomeSidebarList";
@@ -190,36 +190,79 @@ export function ProjectDirectoryBrowser({ projectId, workspaceRoot, rootPath, bi
   useLayoutEffect(() => {
     let disposed = false;
     const matchesBinding = (key: readonly unknown[]) => matchesDirectoryQueryBinding(key, activeWorkspaceRoot, directoryBinding);
+    const prefix = ["project-directory", rootPath, projectId];
+    const within = (path: string, ancestor: string) => path === ancestor || ancestor === "" || path.startsWith(`${ancestor}/`);
     const invalidate = (paths: Set<string> | null) => queryClient.invalidateQueries({
-      queryKey: ["project-directory", rootPath, projectId],
-      predicate: query => matchesBinding(query.queryKey) && (paths === null || paths.has(String(query.queryKey[3]))),
-      refetchType: isVisible() ? "active" : "none",
-    }, { cancelRefetch: false });
+      queryKey: prefix,
+      predicate: query => matchesBinding(query.queryKey) && (paths === null || paths.has(directoryQueryRelativePath(query.queryKey))),
+      refetchType: "none",
+    });
     let dirty: Set<string> | null | undefined;
     let flight: Promise<void> | undefined;
     const refresh = (paths: string[] | null | undefined) => {
       if (disposed) return;
-      if (paths?.length === 0) return;
-      if (paths == null) dirty = null;
-      else if (dirty !== null) {dirty = new Set([...(dirty ?? []),...paths]);if (dirty.size > 256) dirty = null;}
-      if (flight) return;
+      // Empty paths resume a deferred generation without widening its scope.
+      if (paths?.length !== 0) {
+        if (paths == null) dirty = null;
+        else if (dirty !== null) {dirty = new Set([...(dirty ?? []),...paths]);if (dirty.size > 256) dirty = null;}
+      }
+      if (flight || dirty === undefined || !isVisible()) return;
       flight = Promise.resolve().then(async () => {
-        while (dirty !== undefined && !disposed) {
+        while (dirty !== undefined && !disposed && isVisible()) {
           const paths = dirty;
           // Invalidation would reuse an older read (including an initial read
           // with no data), whose result can then clear isInvalidated. Let that
           // native I/O settle before consuming this dirty generation.
-          const pending = queryClient.getQueryCache().findAll({
-            queryKey: ["project-directory", rootPath, projectId],
-            predicate: query => matchesBinding(query.queryKey) && (paths === null || paths.has(String(query.queryKey[3]))),
-          }).filter(query => query.state.fetchStatus !== "idle").map(query => query.promise);
+          const scoped = queryClient.getQueryCache().findAll({ queryKey: prefix, predicate: query => matchesBinding(query.queryKey) });
+          const affected = scoped.filter(query => paths === null || paths.has(directoryQueryRelativePath(query.queryKey)));
+          const pending = scoped.filter(query => query.state.fetchStatus !== "idle" && affected.some(target =>
+            within(directoryQueryRelativePath(target.queryKey), directoryQueryRelativePath(query.queryKey)))).map(query => query.promise);
           await Promise.allSettled(pending);
-          if (disposed) break;
+          if (disposed || !isVisible()) break;
           // Hints arriving during the wait stay merged; include their paths in
           // the wait before issuing one refresh for the accumulated generation.
           if (paths !== dirty) continue;
           dirty = undefined;
           await invalidate(paths);
+          const active = queryClient.getQueryCache().findAll({ queryKey: prefix,
+            predicate: query => matchesBinding(query.queryKey) && query.isActive()
+              && (paths === null || paths.has(directoryQueryRelativePath(query.queryKey))) })
+            .sort((a, b) => directoryQueryRelativePath(a.queryKey).split("/").length - directoryQueryRelativePath(b.queryKey).split("/").length
+              || directoryQueryRelativePath(a.queryKey).localeCompare(directoryQueryRelativePath(b.queryKey)));
+          const missing = new Set<string>();
+          const failed = new Set<string>();
+          let failure: unknown;
+          for (let index = 0; index < active.length; index++) {
+            if (disposed) return;
+            if (!isVisible()) {
+              if (dirty !== null) dirty = new Set([...(dirty ?? []), ...active.slice(index).map(query => directoryQueryRelativePath(query.queryKey))]);
+              break;
+            }
+            const query = active[index];
+            const path = directoryQueryRelativePath(query.queryKey);
+            if ([...missing, ...failed].some(ancestor => within(path, ancestor))) continue;
+            const parentPath = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+            const parent = path ? queryClient.getQueryCache().find({ queryKey: projectDirectoryQueryKey(rootPath, projectId,
+              parentPath, activeWorkspaceRoot, directoryBinding), exact: true }) : undefined;
+            if (parent?.state.status === "error") { failed.add(path); continue; }
+            const entries = parent?.state.data as ProjectDirectoryEntry[] | undefined;
+            if (entries && !parent?.state.isInvalidated && !entries.some(entry => entry.kind === "directory" && entry.relativePath === path)) {
+              missing.add(path);
+              // A successful ancestor read proves this subtree is gone. Retire
+              // outstanding reads; never infer deletion from an I/O failure.
+              await queryClient.cancelQueries({ queryKey: prefix, predicate: candidate => matchesBinding(candidate.queryKey)
+                && within(directoryQueryRelativePath(candidate.queryKey), path) });
+              continue;
+            }
+            if (!query.isActive()) continue;
+            try {
+              await queryClient.refetchQueries({ queryKey: query.queryKey, exact: true, type: "active" }, { cancelRefetch: false, throwOnError: true });
+              // A concurrent publisher may retire this read. Its invalidated
+              // snapshot cannot establish membership for the next descendant.
+              if (query.state.isInvalidated) failed.add(path);
+            } catch (reason) { failed.add(path); failure ??= reason; }
+          }
+          if (!disposed) setMenuError(failure ? getErrorMessage(failure, "无法刷新目录") : "");
         }
       }).finally(() => { flight = undefined; });
       void flight.catch(reason => { if (!disposed) setMenuError(getErrorMessage(reason, "无法刷新目录")); });
@@ -227,6 +270,7 @@ export function ProjectDirectoryBrowser({ projectId, workspaceRoot, rootPath, bi
     refreshDirectories.current = refresh;
     return () => { disposed = true; };
   }, [queryClient, activeWorkspaceRoot, rootPath, projectId, directoryBinding?.workspaceId, directoryBinding?.generation]);
+  useEffect(() => { if (enabled) refreshDirectories.current([]); }, [enabled]);
   // Page invalidation also follows ordinary saves/Todo changes. Only committed
   // path membership changes alter directory entries; do not fan these out.
   const previousPaths = useRef<{scope:string;paths:Map<number,string>} | undefined>(undefined);
