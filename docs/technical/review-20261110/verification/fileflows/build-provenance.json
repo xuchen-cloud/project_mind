@@ -1,0 +1,7 @@
+{
+  "head": "cc99b732d5a18400af8c7722024e134117c5e73e",
+  "headAtEnd": "cc99b732d5a18400af8c7722024e134117c5e73e",
+  "binary": "/tmp/project-mind-review-combined/output/g12-file-flows/G12 File Flows.app/Contents/MacOS/project_mind_alpha",
+  "sha256": "e304c1738612543866ad1d2b755ff57bf847087ce171f125c21ee99d1ccaf0f7",
+  "scope": "macOS arm64 embedded debug File flow native component acceptance; baseline Office distributions only for import resolution, no new Office engine/runtime evidence; no Windows/release claim"
+}
