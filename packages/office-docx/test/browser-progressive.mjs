@@ -97,7 +97,8 @@ for (const kind of process.env.OFFICE_BROWSERS?.split(',') ?? ['chromium']) {
     const slider = previewFrame.getByRole('slider', {name: '缩放比例'});
     const zoom = () => slider.inputValue().then(Number);
     const expectZoom = async expected => {
-      await previewFrame.waitForFunction(value => Number(document.querySelector('.zoom-slider').value) === value, expected);
+      await previewFrame.waitForFunction(value => Number(document.querySelector('.zoom-slider').value) === value &&
+        Math.abs(Number.parseFloat(getComputedStyle(document.querySelector('.doc-zoom')).zoom) * 100 - value) < 0.01, expected);
     };
     await slider.focus(); await slider.press('Home'); await expectZoom(50);
     assert.equal(await previewFrame.getByRole('button', {name: '缩小', exact: true}).isDisabled(), true);
@@ -130,6 +131,33 @@ for (const kind of process.env.OFFICE_BROWSERS?.split(',') ?? ['chromium']) {
     await wheel(1, 1, 20); await expectZoom(50);
     await wheel(-0.5, 0, 400); await expectZoom(150);
     await wheel(0.5, 0, 400); await expectZoom(50);
+    await dialogZoom(75);
+    await previewFrame.evaluate(() => { window.savedPreviewView = window.__projectMindOfficePreview.capture(); });
+    for (const preview of [false, true, false]) {
+      await page.evaluate(value => window.progressive.preview(value), preview);
+      await expectZoom(75);
+    }
+    // Real View ribbon entrances use separate callbacks from the status bar.
+    await previewFrame.locator('.ribbon-tabs').getByRole('button', {name: '视图', exact: true}).click();
+    const ribbon = previewFrame.locator('.ribbon-body');
+    await ribbon.getByRole('button', {name: '放大', exact: true}).click(); await expectZoom(85);
+    await ribbon.getByRole('button', {name: '缩小', exact: true}).click(); await expectZoom(75);
+    await ribbon.getByRole('button', {name: '缩放到 100%', exact: true}).click(); await expectZoom(100);
+    for (const name of ['页宽', '整页', '多页']) {
+      await ribbon.getByRole('button', {name, exact: true}).click();
+      assert.ok(await zoom() >= 50 && await zoom() <= 150, 'ribbon ' + name);
+    }
+    await ribbon.getByRole('button', {name: '缩放', exact: true}).click();
+    await previewFrame.locator('.zoom-dialog').getByRole('radio', {name: '75%', exact: true}).check();
+    await previewFrame.locator('.zoom-dialog').getByRole('button', {name: '确定', exact: true}).click();
+    await expectZoom(75);
+    await dialogZoom(150);
+    await previewFrame.evaluate(() => window.__projectMindOfficePreview.restore(window.savedPreviewView)); await expectZoom(75);
+    for (const value of [-10, 500]) {
+      await previewFrame.evaluate(value => window.__projectMindOfficePreview.restore({...window.savedPreviewView, zoom: value}), value);
+      await expectZoom(value < 50 ? 50 : 150);
+    }
+    await page.evaluate(() => window.progressive.preview(true));
     await page.setViewportSize({width: 440, height: 350}); await dialogZoom('整页'); await expectZoom(50);
     await page.setViewportSize({width: 2200, height: 1400}); await dialogZoom('页宽');
     assert.ok(await zoom() >= 50 && await zoom() <= 150);
@@ -139,7 +167,8 @@ for (const kind of process.env.OFFICE_BROWSERS?.split(',') ?? ['chromium']) {
       firstContentMs: initial.firstContent - navigationAt, firstEditableMs: initial.firstEditable - navigationAt,
       editConfirmedMs, loadedBlocksAtFirstEditable: initial.blocks, appendedFixtureBlocks: APPENDED_BLOCKS,
       twoSavesReopen: true, untouchedEntriesEqual: true, previewEdit: true, initialPreviewTail: true, zoomBounds: [50, 150],
-      zoomPaths: ['slider keyboard', 'step buttons', 'dialog percent clamp', 'dialog presets', 'four fit modes', 'Ctrl-wheel notch', 'fractional Ctrl-wheel pinch', 'viewport resize'], errors});
+      zoomPaths: ['slider keyboard', 'step buttons', 'dialog percent clamp', 'dialog presets', 'four fit modes', 'Ctrl-wheel notch', 'fractional Ctrl-wheel pinch', 'ribbon steps/100%/fit/dialog', 'preview-edit preserves zoom', 'preview capture/restore and clamp', 'viewport resize'],
+      platformGaps: ['Native zoom menu accelerators are not wired to DOM keydown in this embedded renderer; native OS menu/shortcut and physical trackpad input require platform acceptance.'], errors});
   } finally { await browser.close(); }
 }
 await writeFile(new URL('output/browser/progressive-results.json', import.meta.url), JSON.stringify(results, null, 2) + '\n');
