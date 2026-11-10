@@ -3,6 +3,7 @@ import { projectFilePathMatches } from "../../lib/project-file-navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../../lib/queryKeys";
 import { FileContextMenuPanel } from "../document/FileContextMenuPanel";
+import { useFileDefaultOpen } from "../document/useFileDefaultOpen";
 import { RecordIcon } from "../icons/ContentTypeIcon";
 import "../tags/entity-tags.css";
 import { HomeSidebarList } from "../home/HomeSidebarList";
@@ -20,6 +21,7 @@ import {
 import {
   ChevronLeft,
   ChevronRight,
+  ExternalLink,
   FilePlus2,
   Files,
   FolderKanban,
@@ -144,6 +146,7 @@ interface ContextMenuState {
   documentId: number;
   document: ProjectSidebarDocumentItem;
   listed: boolean;
+  openDefault: () => Promise<void>;
   x: number;
   y: number;
 }
@@ -205,6 +208,7 @@ export function ProjectSidebar({
   const { pushToast } = useFeedbackStore();
   const queryClient = useQueryClient();
   const workspaceRoot = fileScope?.workspaceRoot ?? queryClient.getQueryData<WorkspaceStatusSnapshot>(queryKeys.workspaceStatus)?.currentWorkspace?.rootPath ?? owner.rootPath;
+  const captureDefaultOpen = useFileDefaultOpen(workspaceRoot, ownerId);
   const { pinnedIds, isPinned, togglePin } = useListPins(workspaceRoot, recordPinScope(ownerId));
   const refreshDirectory = () => queryClient.invalidateQueries({
     queryKey: queryKeys.projectDirectory(owner.rootPath, ownerId, "", 0).slice(0, 3),
@@ -707,7 +711,8 @@ export function ProjectSidebar({
 
   const openContextMenu = (document: ProjectSidebarDocumentItem, x: number, y: number) => {
     clearPendingOpen();
-    setContextMenu({ documentId: document.id, document, listed: sortedDocuments.some(item => item.id === document.id), x, y });
+    setContextMenu({ documentId: document.id, document, listed: sortedDocuments.some(item => item.id === document.id),
+      openDefault: captureDefaultOpen(document.id), x, y });
   };
 
   const handleDocumentKeyDown = (document: ProjectSidebarDocumentItem, event: KeyboardEvent<HTMLElement>) => {
@@ -1192,6 +1197,15 @@ export function ProjectSidebar({
       {contextMenuDocument && contextMenu ? (
         <FileContextMenuPanel x={contextMenu.x} y={contextMenu.y} menuRef={contextMenuRef}>
           <div className="grid gap-0.5">
+            <DocumentContextMenuAction
+              icon={<ExternalLink size={14} />}
+              label="使用系统默认应用打开"
+              disabled={contextMenuDocument.health === "missing"}
+              onClick={() => {
+                setContextMenu(null);
+                void runDesktopAction(contextMenu.openDefault(), "使用系统默认应用打开失败");
+              }}
+            />
             <DocumentContextMenuAction
               icon={<FolderOpen size={14} />}
               label="打开文件所在位置"

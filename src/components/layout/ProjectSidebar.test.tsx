@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -7,11 +7,14 @@ import { queryKeys } from "../../lib/queryKeys";
 import { closeFilePreview, useFilePreviewStore } from "../../state/file-preview-store";
 import type { DocumentRecord, ProjectTagRecord } from "../../lib/types";
 import { createUiStoreState, useUiStore } from "../../state/ui-store";
+import { useFeedbackStore } from "../../state/feedback-store";
 import { ProjectSidebar } from "./ProjectSidebar";
 
 const nativeVersionMocks = vi.hoisted(() => ({binding:vi.fn(async()=>({workspaceId:"w",generation:"g"})),list:vi.fn()}));
 vi.mock("../../services/recordDocumentApi",()=>({recordDocumentApi:{bindingGet:nativeVersionMocks.binding}}));
 vi.mock("../../services/fileDocumentApi",()=>({fileDocumentApi:{versionsList:nativeVersionMocks.list}}));
+const fileOpenMocks = vi.hoisted(() => ({ open: vi.fn(async () => undefined) }));
+vi.mock("../../services/projectFileApi", () => ({ projectFileApi: { openLocal: fileOpenMocks.open } }));
 const documentMutationMocks = vi.hoisted(() => ({
   documentMetaMutation: { mutate: vi.fn(), isPending: false },
   documentAddVersionMutation: { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false },
@@ -65,6 +68,63 @@ function renderWithProviders(ui: React.ReactElement) {
 }
 
 describe("ProjectSidebar", () => {
+  it.each([1, null].flatMap(owner => [false, true].map(tree => ({ owner, tree }))))(
+    "opens the current original by native File identity from the shared menu (owner=$owner, tree=$tree)", async ({ owner, tree }) => {
+      const document = buildDocument({ id: 29, projectId: owner, managedPath: "/stale/brief.pdf", historyDirPath: "/history/v1" });
+      renderWithProviders(<ProjectSidebar filesOnly fileScope={{ workspaceRoot: "/tmp/workspace", projectId: owner, name: "Files", rootPath: "/files" }}
+        documents={tree ? [] : [document]} onOpenProject={() => undefined}
+        fileContent={tree ? controls => <button onContextMenu={() => controls.openContextMenu(document, 10, 10)}>tree file</button> : undefined} />);
+      fireEvent.contextMenu(screen.getByRole("button", { name: tree ? "tree file" : /^brief.pdf/ }));
+      const open = await screen.findByRole("menuitem", { name: "使用系统默认应用打开" });
+      await waitFor(() => expect(nativeVersionMocks.binding).toHaveBeenCalledWith("/tmp/workspace"));
+      // Reopening a Workspace after selecting this File must not rebind the
+      // action. Native opening receives the menu's original generation.
+      nativeVersionMocks.binding.mockResolvedValueOnce({ workspaceId: "other", generation: "reopened" });
+      fireEvent.click(open);
+      await waitFor(() => expect(fileOpenMocks.open).toHaveBeenCalledExactlyOnceWith({ workspaceId: "w", generation: "g" }, {
+        workspaceId: "w", scope: owner === null ? { kind: "workspace" } : { kind: "project", projectId: owner }, kind: "file", id: "29",
+      }));
+      expect(desktopApiMocks.openFile).not.toHaveBeenCalled();
+      expect(useFilePreviewStore.getState().request).toBeNull();
+    },
+  );
+
+  it("disables default opening for a missing original", async () => {
+    renderWithProviders(<ProjectSidebar filesOnly project={{ id: 1, name: "Alpha", rootPath: "/project" }}
+      documents={[buildDocument({ health: "missing" })]} onOpenProject={() => undefined} />);
+    fireEvent.contextMenu(screen.getByRole("button", { name: /^brief.pdf/ }));
+    expect(await screen.findByRole("menuitem", { name: "使用系统默认应用打开" })).toBeDisabled();
+    expect(fileOpenMocks.open).not.toHaveBeenCalled();
+  });
+
+  it("reports native default-opener failures without opening a cached path", async () => {
+    fileOpenMocks.open.mockRejectedValueOnce(new Error("原件已被移走，请刷新后重试"));
+    renderWithProviders(<ProjectSidebar filesOnly project={{ id: 1, name: "Alpha", rootPath: "/project" }}
+      documents={[buildDocument()]} onOpenProject={() => undefined} />);
+    fireEvent.contextMenu(screen.getByRole("button", { name: /^brief.pdf/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "使用系统默认应用打开" }));
+    await waitFor(() => expect(useFeedbackStore.getState().toasts).toEqual([expect.objectContaining({
+      tone: "error", title: "使用系统默认应用打开失败", detail: expect.stringContaining("原件已被移走"),
+    })]));
+    expect(desktopApiMocks.openFile).not.toHaveBeenCalled();
+  });
+
+  it("retires a pending default-open action when the File owner changes", async () => {
+    let finish!: (value: { workspaceId: string; generation: string }) => void;
+    nativeVersionMocks.binding.mockImplementationOnce(() => new Promise(done => { finish = done; }));
+    const component = (owner: number) => <ProjectSidebar filesOnly project={{ id: owner, name: "Project", rootPath: `/project-${owner}` }}
+      documents={[buildDocument({ projectId: owner })]} onOpenProject={() => undefined} />;
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client.setQueryData(queryKeys.workspaceStatus, { currentWorkspace: { rootPath: "/tmp/workspace" } });
+    const view = render(component(1), { wrapper: ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> });
+    fireEvent.contextMenu(screen.getByRole("button", { name: /^brief.pdf/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "使用系统默认应用打开" }));
+    view.rerender(component(2));
+    await act(async () => { finish({ workspaceId: "w", generation: "g" }); });
+    expect(fileOpenMocks.open).not.toHaveBeenCalled();
+    expect(useFeedbackStore.getState().toasts).toEqual([]);
+  });
+
   it("uses the same File rail for Workspace ownership without a placeholder Project", async () => {
     const document = buildDocument({ id: 29, projectId: null, name: "workspace.md", baseName: "workspace.md", managedPath: "/tmp/workspace/files/workspace.md" });
     renderWithProviders(<ProjectSidebar filesOnly fileScope={{ workspaceRoot: "/tmp/workspace", projectId: null, name: "工作区", rootPath: "/tmp/workspace/files" }} documents={[document]} onOpenProject={() => undefined} />);
@@ -107,7 +167,9 @@ describe("ProjectSidebar", () => {
   });
   beforeEach(() => {
     closeFilePreview();
-    nativeVersionMocks.binding.mockClear();nativeVersionMocks.list.mockReset();
+    nativeVersionMocks.binding.mockReset();nativeVersionMocks.binding.mockResolvedValue({workspaceId:"w",generation:"g"});nativeVersionMocks.list.mockReset();
+    fileOpenMocks.open.mockReset();fileOpenMocks.open.mockResolvedValue(undefined);
+    useFeedbackStore.setState({ toasts: [] });
     documentMutationMocks.documentMetaMutation.mutate.mockReset();
     documentMutationMocks.documentAddVersionMutation.mutate.mockReset();
     documentMutationMocks.documentAddVersionMutation.mutateAsync.mockReset();
