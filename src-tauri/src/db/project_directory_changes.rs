@@ -951,7 +951,9 @@ impl Database {
                     return Ok(());
                 }
                 let _files = self.directory_member_leases(&intent.members)?;
-                let _permit = self.file_commit_permit()?;
+                let _permit = self
+                    .file_commit_permit()
+                    .map_err(|error| anyhow!(error.message))?;
                 self.directory_recover_locked(&directory, &intent)
             })();
             if let Err(error) = recovered {
@@ -1075,6 +1077,9 @@ impl Database {
                 self.directory_retain_versions(&intent, true)?;
             }
             crash_point(DirectoryPhase::HistoryRetained);
+            // Retaining history crosses filesystem I/O; its ancestor path may
+            // have changed while the original directory identity stayed equal.
+            self.directory_validate_intent(&intent)?;
             if directory_identity(&source)? != intent.identity {
                 return Err(failure("revision_conflict", "目录身份已变化"));
             }

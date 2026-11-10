@@ -347,7 +347,7 @@ fn directory_recovery_external_links_are_local_conflicts() {
                 symlink(&retained, source.parent().unwrap()).unwrap();
             }
         }
-        let db = Database::open(&db_path, &root, None).unwrap();
+        let mut db = Database::open(&db_path, &root, None).unwrap();
         assert_eq!(fs::read_dir(root.join(JOURNALS)).unwrap().count(), 1);
         assert!(db.workspace_page_get().is_ok());
     }
@@ -451,4 +451,28 @@ fn directory_journal_cleaned_after_enumeration_is_not_a_read_failure() {
     db.project_directory_recover_pending(None).unwrap();
     db.directory_require_no_pending(&root.join("unrelated"), None)
         .unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn directory_trash_retained_history_parent_swap_preserves_original_and_intent() {
+    let (_temp, db, _binding, _owner, source) = setup();
+    let root = db.workspace_root.clone();
+    let db_path = crate::workspace::workspace_paths(&root).db_path;
+    drop(db);
+    crash(&root, 1, "trash");
+    let retained = root.join("external-parent");
+    fs::rename(source.parent().unwrap(), &retained).unwrap();
+    std::os::unix::fs::symlink(&retained, source.parent().unwrap()).unwrap();
+    let db = Database::open(&db_path, &root, None).unwrap();
+    assert_eq!(
+        fs::read(retained.join("source/known.md")).unwrap(),
+        b"retained history"
+    );
+    assert_eq!(fs::read_dir(root.join(JOURNALS)).unwrap().count(), 1);
+    assert!(!root.join("fixture-trash").exists());
+    assert!(db
+        .workspace_root
+        .join(".project-mind/directory-history")
+        .is_dir());
 }
