@@ -1,0 +1,2 @@
+HEAD cc99b732d5a18400af8c7722024e134117c5e73e
+git diff --exit-code cc99b732d5a18400af8c7722024e134117c5e73e -- src-tauri: clean before singleton

@@ -11,6 +11,7 @@ Product source `943b5ac` combines the reviewed File/Record/coordinator work with
 - Strict root TypeScript passed. Harness initial TypeScript failed due omitted existing ambient declarations, then passed aftercc99b73. Collector tests2 and SQLite reader test1 passed.
 - New fresh native run2:9/9 checks passed, visible main Webview, no runtime errors. Actual UI observation is recorded in `window-observation.md`.
 - Run1 failed visible-window preflight while Mac was locked; preserved as a failed sample. It did not create a Workspace or mutate test content.
+- Canonical Mermaid dependency integration at09f55ca:44 tests across4 files passed, including Workspace/Project HTML serialization, parser reopen, stable block IDs and Markdown export. Diagram SVG is mocked in the two canonical cases; this is not native database or real renderer evidence. The independent G16 visual results remain separate.
 - App import cleanup1d1c8ce:67 tests across App and canonical Record creation/metadata passed, root TypeScript/UI standards/shipping Vite/bundle boundaries passed. Both helpers were already in App's eager graph through its static WorkspacePage/ProjectOverviewPage imports. The cleanup removes two ineffective-dynamic-import warnings without pulling a previously lazy module into that graph. Main bundle249KiB remains under250KiB. Existing third-party WaveDrom eval and vendor-size warnings remain visible.
 
 ## Native scope

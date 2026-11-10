@@ -9,3 +9,5 @@
 历史探针源码以 `.txt` 后缀归档，避免被产品测试 runner 意外收集；原路径、归档路径及内容 SHA-256 见 `review/source-evidence-manifest.json`。冻结状态在 `state.baseline.json`，本轮执行状态在 `state.json`。
 
 当前集成快照的真实 File 流程和逐项测试见 [File-flow 验收](verification/fileflows/README.md)。该报告包含失败样本、有效 source/binary 指纹与边界；尚未完成的 Records/Office 收尾和 Windows 平台验收不计入通过。最终 Phase4/聚合结论仍待剩余工作完成，findings-ledger 保留既有冻结状态，不据此宣称当前全部问题已解决。
+
+用户追加的统一告警清理见 [构建验证](verification/warnings/README.md)：固定原生快照已达到生产/测试编译 0 warnings，相关 722 测试通过；第三方打包提示与后续权限 caller 修复单独记录。

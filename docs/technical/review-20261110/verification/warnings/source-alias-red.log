@@ -1,0 +1,66 @@
+warning: field `agent_cancel_started` is never read
+   --> src/lib.rs:231:5
+    |
+228 | pub(crate) struct WorkspaceRuntime {
+    |                   ---------------- field in this struct
+...
+231 |     agent_cancel_started: Mutex<std::collections::HashMap<String, std::time::Instant>>,
+    |     ^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: method `agent_session_mark_read_only` is never used
+   --> src/db/agent_sessions.rs:769:19
+    |
+224 | impl Database {
+    | ------------- method in this implementation
+...
+769 |     pub(crate) fn agent_session_mark_read_only(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `agent_session_summary_get` is never used
+  --> src/db/agent_session_summary.rs:13:19
+   |
+12 | impl Database {
+   | ------------- method in this implementation
+13 |     pub(crate) fn agent_session_summary_get(
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `agent_pending_review_plans` is never used
+  --> src/db/agent_output_review.rs:37:19
+   |
+34 | impl Database {
+   | ------------- method in this implementation
+...
+37 |     pub(crate) fn agent_pending_review_plans(
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `scan` is never used
+  --> src/source_session_read.rs:22:8
+   |
+21 | pub(crate) trait SessionHistoryUtility {
+   |                  --------------------- method in this trait
+22 |     fn scan(
+   |        ^^^^
+
+
+running 1 test
+agent::record_blocks::tests::record_blocks_authorizes_policy_scope_withdrawal_and_keeps_legacy_uninitialized --- FAILED
+
+failures:
+
+---- agent::record_blocks::tests::record_blocks_authorizes_policy_scope_withdrawal_and_keeps_legacy_uninitialized stdout ----
+
+thread 'agent::record_blocks::tests::record_blocks_authorizes_policy_scope_withdrawal_and_keeps_legacy_uninitialized' (2011834) panicked at src/agent/record_blocks.rs:574:13:
+assertion `left == right` failed
+  left: NotFound
+ right: WorkspaceChanged
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    agent::record_blocks::tests::record_blocks_authorizes_policy_scope_withdrawal_and_keeps_legacy_uninitialized
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1867 filtered out; finished in 0.08s
+
+error: test failed, to rerun pass `--lib`

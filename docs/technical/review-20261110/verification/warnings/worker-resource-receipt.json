@@ -1,0 +1,23 @@
+{
+  "cache": "/tmp/project-mind-review-combined",
+  "source_hashes": {
+    "package-lock.json": "b7363249cc5de6b7151f9f4af6a7f5099a446dbbe1c5fe9ca2b14c8a5043db3e",
+    "vite.record-worker.config.ts": "885cd2f54a328142697b7b6d84bd527857e6bd8e70c2ffe6d5c9d8c365655985",
+    "src/workers/record-document-worker.ts": "b000e9757a41c0eaaf93b73f5d709b09368483ac310a49566f7db999131370fa",
+    "packages/agent-host/src/record-worker-entry.mjs": "1b78047b5d988dc7f0bc00044ab7ea917f19ecdbc34caec7b4d8457c68f1e231",
+    "src-tauri/src/record_document_schema.json": "143953f18f929cacccf15cb275d0152e72632b1e18288645a07b2c3c9f527f31",
+    "src/lib/record-document-html.test.ts": "e53a192a7538f7a1b67cf242f5c8be89e517eb9a33a7a8b5f974409b9ed4a8f4",
+    "src/lib/record-document.test.ts": "d610c5d2507d7bda5c1e7f02616ee2673512598415195eb75fbb1e3ae9baf22e",
+    "src/lib/record-document-html.node.test.ts": "fdd2e5bc450a41d0e024f5df90691d568316913018db17ef4a8f99ad504170ce",
+    "src/lib/record-document.node.test.ts": "a5bc2d23e1f179c96430ec76d22335032d22f3dc34cefece567233592f1666b7",
+    "src/lib/record-document.ts": "0f2390954687ac50347c1353622772e6fc1d553389bfe4bc3a60c3cb5c4c3341",
+    "src/lib/record-document-format.ts": "e6c520ba33ff009b0dafc0bf295dd175f290813490b3599a6b92fd8071aed6b4",
+    "src/lib/record-document-events.ts": "2b12a1eee71027ba02a6992080222eb6e7213b2378018d420af5ddc6f5951a89",
+    "src/lib/record-document-types.ts": "3b8be9939807f1a5f46233124581f1ae4d67d5aa9068c9c9d7c6cab71b2357c3",
+    "src/lib/record-document-html.ts": "a089a556f33ff03288677f5acdcf1076c865d2f2cdb0a1ecd9cb86d2b3bf5b9f"
+  },
+  "node_version": "v24.21.0",
+  "node_checksum": "e4b5a3af0e05c75de2eae013904145f40fe7fc2a6e6f17510128bf45cca4e79b",
+  "manifest_checksum": "00ea30cb1b14bd969be87638252cc272de94b266fc527f0bc9e2cec7aa55faa3",
+  "verified_bundles": 120
+}

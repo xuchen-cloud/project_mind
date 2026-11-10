@@ -1,0 +1,77 @@
+[
+  {
+    "file": "native-check.log",
+    "source": "/tmp/project-mind-combined-native-final-check.log",
+    "sha256": "23488359309eb337f9a8322e2962cf624af34b2e890391678429f78d360cd9c0"
+  },
+  {
+    "file": "native-tests.log",
+    "source": "/tmp/project-mind-combined-native-final-tests.log",
+    "sha256": "bfb87429e9622bec1b4651fa8bbca5e9fcf6c8b250669be06c47400104450d8a"
+  },
+  {
+    "file": "native-provenance.json",
+    "source": "/tmp/project-mind-combined-native-final-provenance.json",
+    "sha256": "71de0fb520b1998fc73c822e59a282fc1d722b464e6699bb09faf98f8d32faeb"
+  },
+  {
+    "file": "source-alias-red.log",
+    "source": "/tmp/project-mind-combined-alias-auth-red.log",
+    "sha256": "8704527ae0d08b4b023e894c1dfcbe0dab60f0482a3a0158a717d442b74938eb"
+  },
+  {
+    "file": "source-alias-green.log",
+    "source": "/tmp/project-mind-combined-alias-auth-green.log",
+    "sha256": "6fc74dce15a462b59f216e7b263903f030215082c078a189fbc05871f0468c8e"
+  },
+  {
+    "file": "shipping-vite-before-wavedrom.log",
+    "source": "/tmp/project-mind-combined-warning-final-vite.log",
+    "sha256": "b252a0ba85d0fd02cbe0ba3c13102a96bcb787d6fc0daee5ce59dc5ac020f0b0"
+  },
+  {
+    "file": "worker-baseline-record-blocks-red.log",
+    "source": "/tmp/project-mind-review-warning-cleanup-final/output/warning-cleanup-final/baseline-record-blocks-red.log",
+    "sha256": "e844d032adb0e232f7027c85babfbb7d6dbb95b216aedee69ff2cc0c0edf6bea"
+  },
+  {
+    "file": "worker-baseline-source-proof.txt",
+    "source": "/tmp/project-mind-review-warning-cleanup-final/output/warning-cleanup-final/baseline-source-proof.txt",
+    "sha256": "ae8faa7a4aca94edf6f7e1edacfc700263fa8374aff440c7c65127bf1efa2725"
+  },
+  {
+    "file": "worker-production-final.log",
+    "source": "/tmp/project-mind-review-warning-cleanup-final/output/warning-cleanup-final/production-final.log",
+    "sha256": "c336091b28aaa64f29d9c7053b9f01653b0154f57dfa7ab1fe0efd75af1e2257"
+  },
+  {
+    "file": "worker-imports-tests-final.log",
+    "source": "/tmp/project-mind-review-warning-cleanup-final/output/warning-cleanup-final/imports-tests-final.log",
+    "sha256": "c3302a3357b58ebb054cade4df0fa4ade0c7d19d8cab859f0fb9f9a62fcdf701"
+  },
+  {
+    "file": "worker-record-runtime-tests.log",
+    "source": "/tmp/project-mind-review-warning-cleanup-final/output/warning-cleanup-final/record-runtime-tests.log",
+    "sha256": "b010bead02e3eb2049035fdd48a412c1ed7dab6faab2399fdff37413655369c8"
+  },
+  {
+    "file": "worker-warning-comparison.json",
+    "source": "/tmp/project-mind-review-warning-cleanup-final/output/warning-cleanup-final/warning-comparison.json",
+    "sha256": "6a0c0378d1a2d2b4aab1820e39e3e2ecf43d5f2a02ffb255cd944e282a4a5ee7"
+  },
+  {
+    "file": "worker-verification.json",
+    "source": "/tmp/project-mind-review-warning-cleanup-final/output/warning-cleanup-final/verification.json",
+    "sha256": "895f4f59eb1e66a9276ef49c75b6c9fbc01c9f5a0e7e449cc79507c6d95281bc"
+  },
+  {
+    "file": "worker-verification-followup.json",
+    "source": "/tmp/project-mind-review-warning-cleanup-final/output/warning-cleanup-final/verification-followup.json",
+    "sha256": "d601b57bcf5c26c21ee8388afa9b158a209091fed8be870eb199fc062599a05c"
+  },
+  {
+    "file": "worker-resource-receipt.json",
+    "source": "/tmp/project-mind-review-warning-cleanup-final/output/warning-cleanup-final/resource-receipt.json",
+    "sha256": "36dd4c3846ac6b9f6b9edb723f76fa8517e071dccd3f8e24e4f386e48354e676"
+  }
+]
