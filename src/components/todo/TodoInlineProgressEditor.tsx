@@ -86,21 +86,6 @@ export function TodoInlineProgressEditor({
   }, [editing, onEditingChange]);
 
   useEffect(() => {
-    if (!editing) {
-      setDraft("");
-    }
-  }, [editing]);
-
-  useEffect(() => {
-    if (mode === "edit" && displayLatestProgress) {
-      setDraft(displayLatestProgress.content);
-    }
-    if (mode === "add") {
-      setDraft("");
-    }
-  }, [displayLatestProgress, mode]);
-
-  useEffect(() => {
     if (!optimisticLatestProgress || !latestProgress) {
       return;
     }
@@ -158,16 +143,16 @@ export function TodoInlineProgressEditor({
           progressDate: parsed.progressDate,
           ...(parsed.dueDate ? { dueDate: parsed.dueDate } : {}),
         });
+        setDraft("");
         if (continueOnEnter && reason === "enter") {
           setEditorCycle((cycle) => cycle + 1);
-          setDraft("");
           setMode("add");
         }
       }
-    } catch (error) {
+    } catch {
+      // The mutation owner has reported the failure; preserve the exact input for retry.
       setOptimisticLatestProgress(null);
       setMode(mode === "edit" ? "edit" : "add");
-      throw error;
     } finally {
       saveInFlightRef.current = false;
       setSaving(false);
@@ -225,6 +210,7 @@ export function TodoInlineProgressEditor({
         )}
         onClick={() => {
           if (!saving) {
+            setDraft("");
             setMode("add");
           }
         }}
@@ -234,6 +220,7 @@ export function TodoInlineProgressEditor({
           }
           if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
+            setDraft("");
             setMode("add");
           }
         }}
@@ -265,6 +252,7 @@ export function TodoInlineProgressEditor({
               label: "编辑子项",
               onSelect: () => {
                 if (!saving) {
+                  setDraft(displayLatestProgress.content);
                   setMode("edit");
                 }
               },

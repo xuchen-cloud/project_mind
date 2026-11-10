@@ -42,6 +42,7 @@ export function TodoInlineContentEditor({
   value: string;
   dueDate?: string | null;
   editable: boolean;
+  /** Publishes canonical content before resolving; the mutation owner reports request errors. */
   onSave: (content: string, dueDate?: string | null) => Promise<unknown> | void;
   onError?: (message: string) => void;
   internalReferenceContext?: InternalReferenceContext | null;
@@ -101,32 +102,18 @@ export function TodoInlineContentEditor({
   });
 
   useEffect(() => {
-    if (!editing) {
+    if (!editing && !saving) {
       setDraft(displayValue);
       controller.setControllerState((current) => ({
         ...current,
         ...resetTodoEditorControllerState(),
       }));
     }
-  }, [controller.setControllerState, displayValue, editing]);
+  }, [controller.setControllerState, displayValue, editing, saving]);
 
   useEffect(() => {
     onEditingChange?.(editing);
   }, [editing, onEditingChange]);
-
-  useEffect(() => {
-    if (!optimisticValue) {
-      return;
-    }
-
-    if (
-      value.trim() === optimisticValue.trim() &&
-      (dueDate ?? null) === (optimisticDueDate ?? null)
-    ) {
-      setOptimisticValue(null);
-      setOptimisticDueDate(undefined);
-    }
-  }, [dueDate, optimisticDueDate, optimisticValue, value]);
 
   useEffect(() => {
     if (!savedPulse) {
@@ -167,12 +154,15 @@ export function TodoInlineContentEditor({
       } else {
         await onSave(parsed.content);
       }
+      // TodoModule confirms its canonical cache before this promise resolves.
+      setOptimisticValue(null);
+      setOptimisticDueDate(undefined);
       setSavedPulse(true);
-    } catch (error) {
+    } catch {
+      // The mutation owner has reported the failure; preserve the exact input for retry.
       setOptimisticValue(null);
       setOptimisticDueDate(undefined);
       setEditing(true);
-      throw error;
     } finally {
       saveInFlightRef.current = false;
       setSaving(false);
