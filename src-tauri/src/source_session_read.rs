@@ -6,7 +6,6 @@ use crate::{
         models::{Scope, WorkspaceBinding},
     },
     db::agent_session_model_search::SourceReadRecord,
-    db::agent_session_search::{SessionScanPage, SessionScanWork},
     source_service::{
         BoundSourceStore, SourceReadInput, SourceReadPage, SourceReadView, SourceService,
     },
@@ -19,18 +18,6 @@ fn error(code: ErrorCode, message: &str) -> AgentError {
 /// The utility verifies history identity and response bounds. Its cursor is
 /// the serialized internal HistoryCursor, opaque to source callers.
 pub(crate) trait SessionHistoryUtility {
-    fn scan(
-        &self,
-        _binding: &WorkspaceBinding,
-        _work: &SessionScanWork,
-    ) -> impl std::future::Future<Output = AgentResult<SessionScanPage>> + Send {
-        async {
-            Err(error(
-                ErrorCode::RuntimeUnavailable,
-                "History scan utility is unavailable",
-            ))
-        }
-    }
     fn read(
         &self,
         binding: &WorkspaceBinding,
@@ -63,8 +50,11 @@ pub(crate) struct SessionHistoryFragment {
 
 pub(crate) struct SessionReadResult {
     pub page: SourceReadPage,
+    #[cfg(test)]
     pub char_start: u32,
+    #[cfg(test)]
     pub char_end: u32,
+    #[cfg(test)]
     pub total_chars: u32,
 }
 
@@ -222,11 +212,14 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
             }
             Ok(())
         })?;
-        let (page,end)=fitted?;
+        let fitted = fitted?;
         Ok(SessionReadResult {
-            page,
+            page: fitted.0,
+            #[cfg(test)]
             char_start: fragment.char_start,
-            char_end: end,
+            #[cfg(test)]
+            char_end: fitted.1,
+            #[cfg(test)]
             total_chars: fragment.total_chars,
         })
     }

@@ -11,13 +11,15 @@ import { dshProjectRunKey, useAgentPanelStore } from "../../state/agent-panel-st
 import { MOTION_DURATION_MS } from "../../ui/motion";
 import { useProjectContentStore } from "../../state/project-content-store";
 import "./project-content.css";
+import type { MovingContentObject } from "../../lib/project-content-lifecycle";
+import { ProjectContentMoveContext } from "../../lib/project-content-move-context";
 
 type PaneId = ContentPane["id"];
 export interface ContentPageProps {
   tab: ContentTab;
   visible: boolean;
   focused: boolean;
-  registerCloseGuard: (guard: () => Promise<void>) => () => void;
+  registerCloseGuard: (close: () => Promise<void>, strictSave?: () => Promise<void>) => () => void;
 }
 
 interface TabDragZone {
@@ -65,13 +67,14 @@ function tabTypeLabel(tab: ContentTab): string {
   if (["js", "ts", "tsx", "jsx", "json", "py", "rs", "html", "css"].includes(extension ?? "")) return "代码文件";
   return extension ? `${extension.toUpperCase()} 文件` : "文件";
 }
-function TabBar({ pane, layout, onSelect, onOverview, onClose, scope, dragging, startDrag, dragZones, shown }: {
+function TabBar({ pane, layout, onSelect, onOverview, onClose, scope, dragging, startDrag, dragZones, shown, moving }: {
   pane: ContentPane; layout: ProjectContentLayout; scope: ContentScope; shown: boolean;
   dragging: string | null; startDrag: (event: React.PointerEvent<HTMLElement>, id: string) => void;
   dragZones: Map<PaneId, TabDragZone>;
   onSelect: (paneId: PaneId, tabId: string) => void;
   onOverview: () => void;
   onClose: (tabId: string) => void;
+  moving: ReadonlySet<string>;
 }) {
   const viewport = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
@@ -246,7 +249,7 @@ Alt+Shift+←/→ 排序；Ctrl+Alt+Shift+←/→ 移到对应栏`}
                 {tab.object.kind === "file" && tab.view.versionNumber !== undefined ? <small>v{tab.view.versionNumber}</small> : null}
               </span>
             </button>
-            <button type="button" className="project-content__tab-close compact-tab__close" aria-label={`关闭${tab.object.title}`} title="关闭内容 Tab（Alt+W）" onClick={() => onClose(id)}><X size={14} strokeWidth={1.5} /></button>
+            <button type="button" className="project-content__tab-close compact-tab__close" disabled={moving.has(id)} aria-label={`关闭${tab.object.title}`} title="关闭内容 Tab（Alt+W）" onClick={() => onClose(id)}><X size={14} strokeWidth={1.5} /></button>
             </div>
           </div>;
         })}
@@ -264,7 +267,7 @@ export function ProjectContentLayoutView({ scope, layout, active, renderPage, re
   onSelect: (paneId: PaneId, tabId: string) => void;
   onOverview: () => void;
   onClose: (tabId: string, guard?: () => Promise<void>) => Promise<void>;
-  registerLeaveGuard?: (guard: () => Promise<void>) => () => void;
+  registerLeaveGuard?: (guard: (object?: MovingContentObject) => Promise<void>, lockObject: (object: MovingContentObject) => () => void, moved: (object: MovingContentObject, nativeSessionsClosed: boolean) => void) => () => void;
 }) {
   const root = useRef<HTMLElement>(null);
   const [contentWidth, setContentWidth] = useState(0);
@@ -328,7 +331,10 @@ export function ProjectContentLayoutView({ scope, layout, active, renderPage, re
   const narrow = contentWidth > 0 && contentWidth < 720;
   const [error, setError] = useState<string | null>(null);
   const [closing, setClosing] = useState<string | null>(null);
-  const guards = useRef(new Map<string, () => Promise<void>>());
+  const guards = useRef(new Map<string, { close: () => Promise<void>; strictSave?: () => Promise<void> }>());
+  const movingIds = useRef(new Map<string, number>());
+  const moveStates = useRef(new Map<string, { committed: boolean; nativeSessionsClosed?: boolean }>());
+  const [moving, setMoving] = useState<ReadonlySet<string>>(new Set());
   const registrars = useRef(new Map<string, ContentPageProps["registerCloseGuard"]>());
   const currentTabs = useRef(layout.tabs);
   currentTabs.current = layout.tabs;
@@ -336,9 +342,39 @@ export function ProjectContentLayoutView({ scope, layout, active, renderPage, re
     const ids = new Set(layout.tabs.map(tab => tab.id));
     for (const id of guards.current.keys()) if (!ids.has(id)) guards.current.delete(id);
     for (const id of registrars.current.keys()) if (!ids.has(id)) registrars.current.delete(id);
+    for (const id of moveStates.current.keys()) if (!ids.has(id)) moveStates.current.delete(id);
   }, [layout.tabs]);
-  useEffect(() => registerLeaveGuard?.(async () => {
-    for (const tab of currentTabs.current) if (tab.object.kind === "record" || tab.object.kind === "file") await guards.current.get(tab.id)?.();
+  useEffect(() => registerLeaveGuard?.(async object => {
+    if (!object && movingIds.current.size) throw new Error("内容正在移动，请等待完成");
+    for (const tab of currentTabs.current) {
+      if (tab.object.kind !== "record" && tab.object.kind !== "file") continue;
+      if (object && (tab.object.kind !== object.kind || tab.object.id !== object.id)) continue;
+      const guard = guards.current.get(tab.id);
+      if (object) await guard?.strictSave?.();
+      else await guard?.close();
+    }
+  }, object => {
+    const tab = currentTabs.current.find(item => item.object.kind === object.kind && item.object.id === object.id);
+    if (!tab) return () => {};
+    movingIds.current.set(tab.id, (movingIds.current.get(tab.id) ?? 0) + 1);
+    // Apply before awaiting capture, so input cannot race React's next commit.
+    const page = document.getElementById(`content-page-${tab.id}`);
+    if (page) page.inert = true;
+    setMoving(new Set(movingIds.current.keys()));
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const remaining = (movingIds.current.get(tab.id) ?? 1) - 1;
+      if (remaining) movingIds.current.set(tab.id, remaining);
+      else movingIds.current.delete(tab.id);
+      if (page) page.inert = page.hidden || movingIds.current.has(tab.id);
+      if (root.current) setMoving(new Set(movingIds.current.keys()));
+    };
+  }, (object, nativeSessionsClosed) => {
+    const tab = currentTabs.current.find(item => item.object.kind === object.kind && item.object.id === object.id);
+    const state = tab && moveStates.current.get(tab.id);
+    if (state) { state.committed = true; state.nativeSessionsClosed = nativeSessionsClosed; }
   }), [registerLeaveGuard]);
   const split = layout.panes.length === 2;
   const singlePane = narrow;
@@ -378,16 +414,20 @@ export function ProjectContentLayoutView({ scope, layout, active, renderPage, re
     return () => observer.disconnect();
   }, []);
   async function close(id: string) {
-    if (closing) return;
+    if (closing || movingIds.current.has(id)) return;
     setClosing(id); setError(null);
-    try { await onClose(id, guards.current.get(id)); }
+    try { await onClose(id, guards.current.get(id)?.close); }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setClosing(null); }
   }
   function registrar(id: string) {
     let value = registrars.current.get(id);
     if (!value) {
-      value = guard => { guards.current.set(id, guard); return () => { if (guards.current.get(id) === guard) guards.current.delete(id); }; };
+      value = (close, strictSave) => {
+        const guard = { close, strictSave };
+        guards.current.set(id, guard);
+        return () => { if (guards.current.get(id) === guard) guards.current.delete(id); };
+      };
       registrars.current.set(id, value);
     }
     return value;
@@ -436,7 +476,7 @@ export function ProjectContentLayoutView({ scope, layout, active, renderPage, re
                 event.preventDefault(); onSelect(pane.id, id); document.getElementById(`content-tab-${id}`)?.focus();
               }
             }}><Home size={16} strokeWidth={1.6} /></button> : null}
-          <TabBar pane={pane} layout={layout} scope={scope} onSelect={onSelect} onOverview={onOverview} onClose={id => void close(id)} dragging={dragging} startDrag={startDrag} dragZones={dragZones.current} shown={shown} />
+          <TabBar pane={pane} layout={layout} scope={scope} onSelect={onSelect} onOverview={onOverview} onClose={id => void close(id)} dragging={dragging} startDrag={startDrag} dragZones={dragZones.current} shown={shown} moving={moving} />
           <div className="project-content__tab-actions">
             {split && singlePane ? <button type="button" className="project-content__icon-button" aria-label="切换另一栏" title="切换另一栏"
               onClick={() => useProjectContentStore.getState().focus(scope, pane.id === "left" ? "right" : "left")}><ArrowLeftRight size={15} /></button> : null}
@@ -453,14 +493,16 @@ export function ProjectContentLayoutView({ scope, layout, active, renderPage, re
         {renderOverview?.(overviewVisible)}
       </div>
       {layout.tabs.map(tab => {
+        let moveState = moveStates.current.get(tab.id);
+        if (!moveState) { moveState = { committed: false }; moveStates.current.set(tab.id, moveState); }
         const index = layout.panes.findIndex(pane => pane.tabIds.includes(tab.id));
         const pane = layout.panes[index];
         const visible = active && pane.selectedTabId === tab.id && (!singlePane || !split || pane.id === layout.focusedPaneId);
         const focused = visible && pane.id === layout.focusedPaneId;
         return <div key={tab.id} id={`content-page-${tab.id}`} role="tabpanel" aria-labelledby={`content-tab-${tab.id}`} className="project-content__page"
-          hidden={!visible} inert={!visible} style={{ gridColumn: singlePane ? 1 : index + 1, gridRow: 2 }} data-content-object={`${tab.object.kind}:${tab.object.id}`}
+          hidden={!visible} inert={!visible || moving.has(tab.id)} aria-busy={moving.has(tab.id) || undefined} style={{ gridColumn: singlePane ? 1 : index + 1, gridRow: 2 }} data-content-object={`${tab.object.kind}:${tab.object.id}`}
           onPointerDownCapture={() => useProjectContentStore.getState().focus(scope, pane.id)} onFocusCapture={() => useProjectContentStore.getState().focus(scope, pane.id)}>
-          {renderPage({ tab, visible, focused, registerCloseGuard: registrar(tab.id) })}
+          <ProjectContentMoveContext.Provider value={moveState}>{renderPage({ tab, visible, focused, registerCloseGuard: registrar(tab.id) })}</ProjectContentMoveContext.Provider>
         </div>;
       })}
       {layout.panes.filter(pane => pane.id === "right" && pane.selectedTabId === null).map(pane => <div key={`empty-${pane.id}`} className="project-content__empty" style={{ gridColumn: singlePane ? 1 : layout.panes.indexOf(pane) + 1, gridRow: 2 }} hidden={!active || (singlePane && split && pane.id !== layout.focusedPaneId)}

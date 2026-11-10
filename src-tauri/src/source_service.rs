@@ -561,6 +561,7 @@ pub(crate) struct SourceReadPage {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[cfg(test)]
 pub(crate) struct SourcePolicyUpdate {
     pub object: ObjectRef,
     pub expected_revision: u64,
@@ -568,6 +569,7 @@ pub(crate) struct SourcePolicyUpdate {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg(test)]
 pub(crate) struct SourcePolicy {
     pub object: ObjectRef,
     pub revision: u64,
@@ -974,6 +976,7 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
     }
     /// Process one bounded job through the existing source services. Claims and
     /// settlement hold only short locks; conversion, hashing and paging do not.
+    #[cfg(test)]
     pub(crate) async fn index_next_queued<
         R: crate::record_document_service::DocumentUtility,
         F: SourceUtility,
@@ -1522,6 +1525,7 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
             Ok(page)
         })
     }
+    #[cfg(test)]
     pub(crate) fn cache_capacity(
         &self,
         request: &RequestContext,
@@ -1530,6 +1534,7 @@ impl<'a, S: BoundSourceStore> SourceService<'a, S> {
         self.store
             .with_current(|binding, db| db.source_cache_capacity(request, binding, scope))
     }
+    #[cfg(test)]
     pub(crate) fn set_policy(
         &self,
         request: &RequestContext,

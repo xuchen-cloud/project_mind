@@ -1,0 +1,14 @@
+(node:20137) [DEP0205] DeprecationWarning: `module.register()` is deprecated. Use `module.registerHooks()` instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ RUN  v4.1.2 /private/tmp/project-mind-review-01a
+
+(node:20139) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+·
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  19:03:55
+   Duration  2.55s (transform 715ms, setup 102ms, import 1.21s, tests 769ms, environment 401ms)
+

@@ -1,4 +1,8 @@
+import type { AgentWorkspaceBinding } from "../lib/agent-types";
 import { desktopApi } from "./desktopApi";
+
+export interface DshSessionSummary { id: string; title: string; running: boolean; pinned: boolean }
+export interface DshSessionSummaries { revision: string; items: DshSessionSummary[] }
 
 export type DshSessionAction = { kind: "rename"; title: string } | { kind: "pin" | "unpin" | "archive" } | { kind: "fork"; childSessionId: string };
 
@@ -26,6 +30,9 @@ export const dshAssistantApi = {
     const clear = () => { if (starts.get(projectId)?.promise === next) starts.delete(projectId); };
     void next.then(clear, clear);
     return next;
+  },
+  summaries(projectId: number | null, expectedBinding: AgentWorkspaceBinding): Promise<DshSessionSummaries> {
+    return desktopApi.command("dsh_assistant_session_summaries", { projectId, expectedBinding });
   },
   sessions(projectId: number | null): Promise<{ id: string; title: string; running: boolean; pinned: boolean }[]> {
     return runtimeCommand("dsh_assistant_sessions", { projectId });

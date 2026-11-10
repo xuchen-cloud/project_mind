@@ -1,10 +1,10 @@
 import { toCanvas } from 'html-to-image';
 import { PDFDocument } from 'pdf-lib';
 import JSZip from 'jszip';
-import DOMPurify from 'dompurify';
+import { renderSafeDiagram } from '../adapters/diagramPreviewSafety';
 import { exportDocxBytes } from './upstream-docx.mjs';
 import { decodeImageDataUrl, toDocxImage } from '../genoffice/export/exportImage';
-import { diagramSvgToPng, renderDiagram } from '../genoffice/editor/diagrams';
+import { diagramSvgToPng } from '../genoffice/editor/diagrams';
 import type { ExportDocument } from './document';
 import { embedPrintDocument, type MarkdownPrintHandler, type MarkdownPdfRenderer } from './document';
 
@@ -75,7 +75,7 @@ export async function deliverMarkdownExport(document:ExportDocument,format:Markd
   signal.throwIfAborted();
   async function save(bytes:Uint8Array,name:string,mime:string){signal.throwIfAborted();if(onExport)return onExport({bytes,name,mime});downloadMarkdownExport(bytes,name,mime);return true;}
   if(format==='docx'||format==='docs'){
-    const bytes=await exportDocxBytes(document.json,async source=>{const data=decodeImageDataUrl(document.images[source]??'');return data?toDocxImage(data,620):null;},async(source,language)=>{const diagram=await renderDiagram(language,source);const image=diagram.ok?await diagramSvgToPng(DOMPurify.sanitize(diagram.svg,{USE_PROFILES:{svg:true,svgFilters:true}}),620):null;return image?{...image,mime:'image/png'}:null;});
+    const bytes=await exportDocxBytes(document.json,async source=>{const data=decodeImageDataUrl(document.images[source]??'');return data?toDocxImage(data,620):null;},async(source,language)=>{const diagram=await renderSafeDiagram(language,source,'light');const image=diagram.ok?await diagramSvgToPng(diagram.svg,620):null;return image?{...image,mime:'image/png'}:null;});
     if(!await save(bytes,`${document.title}.docx`,'application/vnd.openxmlformats-officedocument.wordprocessingml.document'))return '已取消导出。';
     return format==='docs'?'已导出转换后的 Word 文档，可在 Word 编辑器打开。':'已导出 Word 文档。';
   }

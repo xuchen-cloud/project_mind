@@ -198,7 +198,7 @@ fn fixed_evidence_cas_rejection_leaves_body_and_edges_unchanged() {
 }
 #[test]
 fn fixed_evidence_survives_update_and_deleted_target_without_permitting_forged_retention() {
-    let (_root, mut db, scope, document) = fixture();
+    let (_root, db, scope, document) = fixture();
     let retained = reference_identities(&document).unwrap();
     let target = RecordTarget {
         scope: scope.clone(),

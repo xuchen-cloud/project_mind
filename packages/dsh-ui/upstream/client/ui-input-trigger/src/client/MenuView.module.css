@@ -24,21 +24,45 @@
   display: flex;
   flex-direction: column;
   border: 0;
+  /* Reference candidates must remain readable without backdrop blur (WebView2
+     and Windows contrast themes). Keep the material and scroll hint opaque. */
+  --dsw-menu-surface-fill: var(--dsw-alias-bg-layer-2);
+  --dsw-specific-menu: var(--dsw-menu-surface-fill);
+  --dsw-menu-backdrop-filter: none;
   --dsw-elevation-stroke-color: var(--dsw-alias-border-l1);
   box-shadow: var(--dsw-elevation-prominent);
 }
 
-/* The hint covers content, not the scrollbar rail, and disappears once the
-   viewport reaches the final row. */
-.menu[data-overflow-below]::after {
+
+.viewportFrame {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Cover only scrolling rows; breadcrumbs and the scrollbar remain clear. */
+.viewportFrame::before,
+.viewportFrame::after {
   content: '';
   position: absolute;
-  right: 14px;
-  bottom: 4px;
-  left: 4px;
-  height: 16px;
-  background: linear-gradient(to bottom, transparent, var(--dsw-specific-menu));
+  z-index: 1;
+  right: 6px;
+  left: 0;
+  height: min(24px, 35%);
   pointer-events: none;
+}
+
+.viewportFrame::before {
+  top: 0;
+  opacity: var(--trigger-edge-top, 0);
+  background: linear-gradient(to bottom, var(--dsw-specific-menu), transparent);
+}
+
+.viewportFrame::after {
+  bottom: 0;
+  opacity: var(--trigger-edge-bottom, 0);
+  background: linear-gradient(to bottom, transparent, var(--dsw-specific-menu));
 }
 
 .viewport {
@@ -271,4 +295,25 @@
   flex: none;
   display: inline-flex;
   color: var(--dsw-alias-menu-icon);
+}
+
+@media (forced-colors: active) {
+  .menu {
+    --dsw-menu-surface-fill: Canvas;
+    outline: 1px solid CanvasText;
+    box-shadow: none;
+  }
+
+  .item.active {
+    /* Preserve the system selection as one surface; forced per-span Canvas
+       backgrounds otherwise hide white text inside the selected button. */
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
+  }
+
+  .item.active :is(.itemAlias, .itemDescription, .itemIcon, .drill, .drillHintText, .drillHint) {
+    color: HighlightText;
+    background: transparent;
+  }
 }

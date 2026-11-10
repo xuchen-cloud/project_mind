@@ -555,6 +555,37 @@ mod tests {
         );
     }
     #[test]
+    fn source_alias_reads_deny_unlisted_missing_locators() {
+        let mut f = fixture(json!({"type":"doc","content":[paragraph(1,"visible")]}));
+        let sql = f.sql();
+        sql.execute("INSERT INTO voice_records(workspace_note_id,created_at) VALUES(?1,'now')", [f.target.record_id]).unwrap();
+        let transcript = ObjectRef {
+            kind: ObjectKind::Transcript, id: sql.last_insert_rowid().to_string(),
+            ..f.input.record.clone()
+        };
+        let files = f.db.ensure_file_scope_root(None).unwrap();
+        std::fs::write(files.join("source.txt"), b"retained source").unwrap();
+        let file = f.db.project_file_register(&f.binding.workspace_id, None, "source.txt").unwrap().object;
+        let mut results = Vec::new();
+        for object in [f.input.record.clone(), transcript, file] {
+            let missing = ObjectRef { id: "999999999".into(), ..object.clone() };
+            f.request.scope_grant.object_keys = Some(vec![]);
+            results.push((object.kind,
+                f.db.source_read_object(&f.request, &f.binding, &object).unwrap_err().code,
+                f.db.source_read_object(&f.request, &f.binding, &missing).unwrap_err().code));
+            f.request.scope_grant.object_keys = Some(vec![missing.key().unwrap()]);
+            assert_eq!(f.db.source_read_object(&f.request, &f.binding, &missing).unwrap_err().code, ErrorCode::NotFound);
+            f.request.scope_grant.object_keys = Some(vec![object.key().unwrap()]);
+            assert_eq!(f.db.source_read_object(&f.request, &f.binding, &object).unwrap(), object);
+        }
+        assert_eq!(results, vec![
+            (ObjectKind::Record, ErrorCode::ScopeDenied, ErrorCode::ScopeDenied),
+            (ObjectKind::Transcript, ErrorCode::ScopeDenied, ErrorCode::ScopeDenied),
+            (ObjectKind::File, ErrorCode::ScopeDenied, ErrorCode::ScopeDenied),
+        ]);
+    }
+
+    #[test]
     fn record_blocks_authorizes_policy_scope_withdrawal_and_keeps_legacy_uninitialized() {
         let mut f = fixture(json!({"type":"doc","content":[paragraph(1,"visible")]}));
         f.request.binding.generation = "old".into();
@@ -565,6 +596,21 @@ mod tests {
             ErrorCode::WorkspaceChanged
         );
         f.request.binding = f.binding.clone();
+        for kind in [ObjectKind::Record, ObjectKind::Transcript, ObjectKind::File] {
+            let mut missing = f.input.record.clone();
+            missing.kind = kind;
+            missing.id = "999999999".into();
+            f.request.binding.generation = "old".into();
+            assert_eq!(f.db.source_read_object(&f.request, &f.binding, &missing).unwrap_err().code,
+                ErrorCode::WorkspaceChanged);
+            f.request.binding = f.binding.clone();
+            missing.scope = super::super::models::Scope::Project { project_id: 1 };
+            assert_eq!(f.db.source_read_object(&f.request, &f.binding, &missing).unwrap_err().code,
+                ErrorCode::ScopeDenied);
+            missing.scope = super::super::models::Scope::Workspace;
+            assert_eq!(f.db.source_read_object(&f.request, &f.binding, &missing).unwrap_err().code,
+                ErrorCode::NotFound);
+        }
         f.input.record.scope = super::super::models::Scope::Project { project_id: 1 };
         assert_eq!(
             get_record_blocks(&f.db, &f.request, &f.binding, &f.input)

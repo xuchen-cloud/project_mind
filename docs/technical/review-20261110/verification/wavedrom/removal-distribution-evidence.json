@@ -1,0 +1,22 @@
+{
+  "shipping": {
+    "chunks": 274,
+    "removedModules": 0,
+    "mermaidChunks": 66,
+    "mermaidStartupReachable": false,
+    "evalWarnings": 0
+  },
+  "recordWorker": {
+    "bundles": 118,
+    "packages": 118,
+    "manifestChecksum": "04847e2ae44c64272c6ac3f3f0bd16466c8cff393d06c991501c0edfc411f55f",
+    "noticesChecksum": "274ac9cde4f14bd96ff8c2da468ca0d9f0d8219ffd7116085aafe2a580f7ea59",
+    "removedPackages": 0,
+    "staleWaveDromFiles": 0,
+    "verifiedAllBundleChecksums": true
+  },
+  "retained": [
+    "Mermaid",
+    "KaTeX"
+  ]
+}

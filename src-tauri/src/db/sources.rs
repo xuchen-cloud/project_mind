@@ -1,5 +1,7 @@
 //! Authoritative source ownership and immutable/current Record snapshots.
 use super::Database;
+#[cfg(test)]
+use crate::source_service::{SourcePolicy, SourcePolicyUpdate};
 use crate::{
     agent::{
         access::{Caller, RequestContext},
@@ -8,7 +10,7 @@ use crate::{
     },
     record_documents::RecordTarget,
     source_service::{
-        SourceFingerprint, SourcePolicy, SourcePolicyUpdate, SourceReadTarget, SourceSnapshot,
+        SourceFingerprint, SourceReadTarget, SourceSnapshot,
     },
 };
 use rusqlite::{params, OptionalExtension};
@@ -26,6 +28,45 @@ impl Database {
         operation: &str,
     ) -> AgentResult<ObjectRef> {
         object.key()?;
+        // Validate the request before looking up a locator. A prior owner may
+        // be outside the current grant, so defer scope/claimed-object denial until we
+        // can authorize the persisted current owner. Unknown locators must not
+        // turn stale/unauthorized requests into existence diagnostics.
+        let locator_denial = match request.authorize(binding, &object.scope, operation).and_then(|_| {
+            if matches!(object.kind, ObjectKind::Record | ObjectKind::Transcript)
+                || (object.kind == ObjectKind::File && operation == "source.read")
+            {
+                request.require_object_allowed(object)
+            } else {
+                Ok(())
+            }
+        }) {
+            Ok(()) => None,
+            Err(error) if error.code == ErrorCode::ScopeDenied => Some(error),
+            Err(error) => return Err(error),
+        };
+        let unresolved_error = |error: AgentError| {
+            if error.code == ErrorCode::NotFound {
+                locator_denial.clone().unwrap_or(error)
+            } else {
+                error
+            }
+        };
+        if matches!(object.kind, ObjectKind::Record | ObjectKind::Transcript) {
+            if object.workspace_id != binding.workspace_id {
+                return Err(AgentError::new(ErrorCode::ScopeDenied, "Source is outside this Workspace"));
+            }
+            let actual = super::record_owner_moves::resolve_object(&self.conn, object)
+                .map_err(unresolved_error)?;
+            request.authorize_object(binding, &actual, &actual, operation)?;
+            return Ok(actual);
+        }
+        // A File has one global stable document ID. Only persisted old-owner
+        // locators may be read aliases; authorize the canonical current owner
+        // and canonical allowlist before exposing metadata or bytes.
+        if object.kind==ObjectKind::File && operation=="source.read" {
+            return self.file_resolve_read_alias(request,binding,object).map_err(unresolved_error);
+        }
         request.authorize(binding, &object.scope, operation)?;
         if object.workspace_id != binding.workspace_id {
             return Err(AgentError::new(
@@ -87,6 +128,7 @@ impl Database {
         request.authorize_object(binding, object, &resolved, operation)?;
         Ok(resolved)
     }
+    #[cfg(test)]
     pub(crate) fn source_policy_update(
         &self,
         request: &RequestContext,
@@ -614,6 +656,7 @@ impl Database {
         }
         Ok(())
     }
+    #[cfg(test)]
     pub(crate) fn source_cache_capacity(
         &self,
         request: &RequestContext,

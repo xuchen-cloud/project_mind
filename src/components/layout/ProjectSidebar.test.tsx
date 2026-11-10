@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -7,11 +7,18 @@ import { queryKeys } from "../../lib/queryKeys";
 import { closeFilePreview, useFilePreviewStore } from "../../state/file-preview-store";
 import type { DocumentRecord, ProjectTagRecord } from "../../lib/types";
 import { createUiStoreState, useUiStore } from "../../state/ui-store";
+import { useFeedbackStore } from "../../state/feedback-store";
 import { ProjectSidebar } from "./ProjectSidebar";
 
 const nativeVersionMocks = vi.hoisted(() => ({binding:vi.fn(async()=>({workspaceId:"w",generation:"g"})),list:vi.fn()}));
+const ownerMoveMocks = vi.hoisted(() => ({ move: vi.fn(), projects: vi.fn() }));
+vi.mock("../../services/contentOwnerMoveApi", () => ({ moveContentOwner: ownerMoveMocks.move }));
 vi.mock("../../services/recordDocumentApi",()=>({recordDocumentApi:{bindingGet:nativeVersionMocks.binding}}));
 vi.mock("../../services/fileDocumentApi",()=>({fileDocumentApi:{versionsList:nativeVersionMocks.list}}));
+const fileOpenMocks = vi.hoisted(() => ({ open: vi.fn(async () => undefined), resolve: vi.fn() }));
+vi.mock("../../services/projectFileApi", () => ({ projectFileApi: { openLocal: fileOpenMocks.open, resolve: fileOpenMocks.resolve } }));
+const trashMocks = vi.hoisted(() => ({ prepare: vi.fn(), trash: vi.fn() }));
+vi.mock("../../services/projectDirectoryApi", () => ({ projectDirectoryApi: { prepareTrash: trashMocks.prepare, trash: trashMocks.trash } }));
 const documentMutationMocks = vi.hoisted(() => ({
   documentMetaMutation: { mutate: vi.fn(), isPending: false },
   documentAddVersionMutation: { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false },
@@ -19,9 +26,11 @@ const documentMutationMocks = vi.hoisted(() => ({
 }));
 
 const desktopApiMocks = vi.hoisted(() => ({
+  fileCommand: vi.fn(),
   pickFiles: vi.fn<(input?: unknown) => Promise<string[]>>(async () => []),
   openFile: vi.fn(async () => undefined),
   revealInExplorer: vi.fn(async () => undefined),
+  confirm: vi.fn(async () => true),
 }));
 
 const projectMindApiMocks = vi.hoisted(() => ({
@@ -38,14 +47,17 @@ vi.mock("../../hooks/useDocumentMutations", () => ({
 
 vi.mock("../../services/desktopApi", () => ({
   desktopApi: {
+    fileCommand: desktopApiMocks.fileCommand,
     pickFiles: desktopApiMocks.pickFiles,
     openFile: desktopApiMocks.openFile,
     revealInExplorer: desktopApiMocks.revealInExplorer,
+    confirm: desktopApiMocks.confirm,
   },
 }));
 
 vi.mock("../../services/projectMindApi", () => ({
   projectMindApi: {
+    projectsList: ownerMoveMocks.projects,
     projectTagSettingsGet: projectMindApiMocks.projectTagSettingsGet,
     documentListVersions: projectMindApiMocks.documentListVersions,
     documentImport: projectMindApiMocks.documentImport,
@@ -61,10 +73,182 @@ function renderWithProviders(ui: React.ReactElement) {
   });
 
   queryClient.setQueryData(queryKeys.workspaceStatus, { currentWorkspace: { rootPath: "/tmp/workspace" } });
-  return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
+  return render(ui, { wrapper: ({ children }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider> });
 }
 
 describe("ProjectSidebar", () => {
+  it.each(["list", "tree"])("moves the same File through the shared %s menu controls", async presentation => {
+    ownerMoveMocks.projects.mockResolvedValue([{ id: 8, name: "目标项目" }]);
+    ownerMoveMocks.move.mockReset().mockResolvedValue(undefined);
+    const document = buildDocument({ id: 41 });
+    renderWithProviders(<ProjectSidebar filesOnly project={{ id: 1, name: "Alpha", rootPath: "/project" }}
+      documents={[document]} onOpenProject={vi.fn()} fileContent={presentation === "tree" ? controls =>
+        <button onContextMenu={event => { event.preventDefault(); controls.openContextMenu(document, event.clientX, event.clientY); }}>树文件</button> : undefined} />);
+    fireEvent.contextMenu(screen.getByRole("button", { name: presentation === "tree" ? "树文件" : /^brief.pdf/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "移动到…" }));
+    fireEvent.click(await screen.findByRole("radio", { name: /目标项目/ }));
+    fireEvent.click(screen.getByRole("button", { name: "移动" }));
+    await waitFor(() => expect(ownerMoveMocks.move).toHaveBeenCalledWith({ workspaceRoot: "/tmp/workspace", binding: { workspaceId: "w", generation: "g" },
+      sourceProjectId: 1, destinationProjectId: 8, object: { kind: "file", id: 41 } }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "移动文件" })).not.toBeInTheDocument());
+    expect(desktopApiMocks.openFile).not.toHaveBeenCalled();
+  });
+  it("observes a list mounted after initial expansion so filtered selections cannot return", async () => {
+    useUiStore.setState({ projectSidebarCollapsed: true, projectSidebarTab: "files" });
+    const documents = [1, 2, 3].map(id => buildDocument({ id, name: `file-${id}.txt`, baseName: `file-${id}.txt`, managedPath: `/files/file-${id}.txt` }));
+    const component = (query: string) => <ProjectSidebar project={{ id: 1, name: "Alpha", rootPath: "/files" }}
+      documents={documents} fileFilter={{ query, tagId: null }} onOpenProject={() => undefined} />;
+    const view = renderWithProviders(component(""));
+    expect(screen.queryByRole("button", { name: /^file-1.txt/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "展开项目侧边栏" }));
+    const first = screen.getByRole("button", { name: /^file-1.txt/ });
+    const second = screen.getByRole("button", { name: /^file-2.txt/ });
+    fireEvent.click(first, { ctrlKey: true });fireEvent.click(second, { ctrlKey: true });
+    expect(first).toHaveAttribute("aria-pressed", "true");
+    expect(second).toHaveAttribute("aria-pressed", "true");
+    view.rerender(component("file-3"));
+    await waitFor(() => expect(screen.queryByRole("button", { name: /^file-1.txt/ })).not.toBeInTheDocument());
+    view.rerender(component(""));
+    expect(screen.getByRole("button", { name: /^file-1.txt/ })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: /^file-2.txt/ })).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it.each([1, null])("selects a visible range and toggles individual Files before one Trash confirmation (owner=%s)", async owner => {
+    const documents = [1, 2, 3, 4].map(id => buildDocument({ id, projectId: owner, name: `file-${id}.txt`, baseName: `file-${id}.txt`, managedPath: `/files/file-${id}.txt` }));
+    fileOpenMocks.resolve.mockImplementation(async (_binding, object) => ({ state: "ready", relativePath: `file-${object.id}.txt` }));
+    trashMocks.prepare.mockImplementation(async ({ relativePath }) => ({ kind: "file", relativePath, token: relativePath, identityToken: relativePath,
+      files: [{ fileId: Number(relativePath.match(/\d+/)?.[0]), revision: 1 }] }));
+    trashMocks.trash.mockResolvedValue({ relativePath: null, fileIds: [] });
+    renderWithProviders(<ProjectSidebar filesOnly fileScope={{ workspaceRoot: "/tmp/workspace", projectId: owner, name: "Files", rootPath: "/files" }} documents={documents} onOpenProject={() => undefined} />);
+    const rows = within(screen.getByRole("region", { name: owner === null ? "工作区文件列表" : "项目文件列表" })).getAllByRole("button", { name: /^file-/ });
+    fireEvent.click(rows[0]);
+    fireEvent.click(rows[2], { shiftKey: true });
+    expect(rows.map(row => row.getAttribute("aria-pressed"))).toEqual(["true", "true", "true", "false"]);
+    fireEvent.click(rows[1], { ctrlKey: true });
+    fireEvent.click(rows[3], { metaKey: true });
+    expect(rows.map(row => row.getAttribute("aria-pressed"))).toEqual(["true", "false", "true", "true"]);
+    fireEvent.contextMenu(rows[2]);
+    const action = await screen.findByRole("menuitem", { name: "删除所选 3 项" });
+    expect(screen.queryByRole("menuitem", { name: "重命名" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "使用系统默认应用打开" })).not.toBeInTheDocument();
+    fireEvent.click(action);
+    await waitFor(() => expect(trashMocks.trash).toHaveBeenCalledTimes(3));
+    expect(desktopApiMocks.confirm).toHaveBeenCalledOnce();
+    expect(trashMocks.prepare).toHaveBeenCalledTimes(6);
+    expect(trashMocks.trash.mock.calls.map(([input]) => input.relativePath)).toEqual([rows[0], rows[2], rows[3]].map(row => row.dataset.fileSelectionPath));
+    for (const [input] of trashMocks.trash.mock.calls) expect(input).toMatchObject({ binding: { workspaceId: "w", generation: "g" }, projectId: owner, confirmed: true });
+    await waitFor(() => expect(rows.every(row => row.getAttribute("aria-pressed") === "false")).toBe(true));
+    expect(documentMutationMocks.documentDeleteMutation.mutate).not.toHaveBeenCalled();
+    expect(useFilePreviewStore.getState().request).toBeNull();
+  });
+
+  it("handles macOS Control primary contextmenu without opening a menu or toggling twice", async () => {
+    renderWithProviders(<ProjectSidebar filesOnly project={{ id: 1, name: "Alpha", rootPath: "/files" }}
+      documents={[1, 2].map(id => buildDocument({ id, name: `file-${id}.txt`, baseName: `file-${id}.txt`, managedPath: `/files/file-${id}.txt` }))} onOpenProject={() => undefined} />);
+    const rows = screen.getAllByRole("button", { name: /^file-/ });
+    for (const row of rows) {
+      fireEvent.mouseDown(row, { button: 0, ctrlKey: true });
+      fireEvent.contextMenu(row, { button: 2, ctrlKey: true });
+      fireEvent.click(row, { ctrlKey: true });
+    }
+    expect(rows.every(row => row.getAttribute("aria-pressed") === "true")).toBe(true);
+    expect(screen.queryByRole("menuitem")).not.toBeInTheDocument();
+    fireEvent.mouseDown(rows[0], { button: 2, ctrlKey: true });
+    fireEvent.contextMenu(rows[0], { button: 2, ctrlKey: true });
+    expect(await screen.findByRole("menuitem", { name: "删除所选 2 项" })).toBeVisible();
+    expect(useFilePreviewStore.getState().request).toBeNull();
+  });
+
+  it("keeps only failed Files selected after a partial Trash result", async () => {
+    fileOpenMocks.resolve.mockImplementation(async (_binding, object) => ({ state: "ready", relativePath: `file-${object.id}.txt` }));
+    trashMocks.prepare.mockImplementation(async ({ relativePath }) => ({ kind: "file", relativePath, token: relativePath, identityToken: relativePath,
+      files: [{ fileId: Number(relativePath.match(/\d+/)?.[0]), revision: 1 }] }));
+    trashMocks.trash.mockImplementation(async ({ relativePath }) => { if (relativePath === "file-2.txt") throw new Error("文件正在使用"); return { relativePath: null, fileIds: [1] }; });
+    renderWithProviders(<ProjectSidebar filesOnly project={{ id: 1, name: "Alpha", rootPath: "/files" }}
+      documents={[1, 2].map(id => buildDocument({ id, name: `file-${id}.txt`, baseName: `file-${id}.txt`, managedPath: `/files/file-${id}.txt` }))} onOpenProject={() => undefined} />);
+    const first = screen.getByRole("button", { name: /^file-1.txt/ });
+    const second = screen.getByRole("button", { name: /^file-2.txt/ });
+    fireEvent.click(first, { ctrlKey: true });fireEvent.click(second, { ctrlKey: true });
+    fireEvent.contextMenu(first);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "删除所选 2 项" }));
+    await waitFor(() => expect(first).toHaveAttribute("aria-pressed", "false"));
+    expect(second).toHaveAttribute("aria-pressed", "true");
+    expect(useFeedbackStore.getState().toasts).toEqual([expect.objectContaining({ title: "已移入回收站 1 项，1 项未删除", detail: expect.stringContaining("文件正在使用") })]);
+  });
+
+  it("prunes filtered selections and replaces the group when right clicking an unselected File", async () => {
+    const documents = [1, 2, 3].map(id => buildDocument({ id, name: `file-${id}.txt`, baseName: `file-${id}.txt`, managedPath: `/files/file-${id}.txt` }));
+    const component = (query: string) => <ProjectSidebar filesOnly project={{ id: 1, name: "Alpha", rootPath: "/files" }}
+      documents={documents} fileFilter={{ query, tagId: null }} onOpenProject={() => undefined} />;
+    const view = renderWithProviders(component(""));
+    const rows = screen.getAllByRole("button", { name: /^file-/ });
+    fireEvent.click(rows[0], { ctrlKey: true });fireEvent.click(rows[1], { ctrlKey: true });
+    fireEvent.contextMenu(rows[2]);
+    expect(await screen.findByRole("menuitem", { name: "删除" })).toBeVisible();
+    expect(rows.map(row => row.getAttribute("aria-pressed"))).toEqual(["false", "false", "true"]);
+    view.rerender(component("file-1"));
+    await waitFor(() => expect(screen.queryByRole("menuitem")).not.toBeInTheDocument());
+    view.rerender(component(""));
+    expect(screen.getAllByRole("button", { name: /^file-/ }).every(row => row.getAttribute("aria-pressed") === "false")).toBe(true);
+  });
+
+  it.each([1, null].flatMap(owner => [false, true].map(tree => ({ owner, tree }))))(
+    "opens the current original by native File identity from the shared menu (owner=$owner, tree=$tree)", async ({ owner, tree }) => {
+      const document = buildDocument({ id: 29, projectId: owner, managedPath: "/stale/brief.pdf", historyDirPath: "/history/v1" });
+      renderWithProviders(<ProjectSidebar filesOnly fileScope={{ workspaceRoot: "/tmp/workspace", projectId: owner, name: "Files", rootPath: "/files" }}
+        documents={tree ? [] : [document]} onOpenProject={() => undefined}
+        fileContent={tree ? controls => <button onContextMenu={() => controls.openContextMenu(document, 10, 10)}>tree file</button> : undefined} />);
+      fireEvent.contextMenu(screen.getByRole("button", { name: tree ? "tree file" : /^brief.pdf/ }));
+      const open = await screen.findByRole("menuitem", { name: "使用系统默认应用打开" });
+      await waitFor(() => expect(nativeVersionMocks.binding).toHaveBeenCalledWith("/tmp/workspace"));
+      // Reopening a Workspace after selecting this File must not rebind the
+      // action. Native opening receives the menu's original generation.
+      nativeVersionMocks.binding.mockResolvedValueOnce({ workspaceId: "other", generation: "reopened" });
+      fireEvent.click(open);
+      await waitFor(() => expect(fileOpenMocks.open).toHaveBeenCalledExactlyOnceWith({ workspaceId: "w", generation: "g" }, {
+        workspaceId: "w", scope: owner === null ? { kind: "workspace" } : { kind: "project", projectId: owner }, kind: "file", id: "29",
+      }));
+      expect(desktopApiMocks.openFile).not.toHaveBeenCalled();
+      expect(useFilePreviewStore.getState().request).toBeNull();
+    },
+  );
+
+  it("disables default opening for a missing original", async () => {
+    renderWithProviders(<ProjectSidebar filesOnly project={{ id: 1, name: "Alpha", rootPath: "/project" }}
+      documents={[buildDocument({ health: "missing" })]} onOpenProject={() => undefined} />);
+    fireEvent.contextMenu(screen.getByRole("button", { name: /^brief.pdf/ }));
+    expect(await screen.findByRole("menuitem", { name: "使用系统默认应用打开" })).toBeDisabled();
+    expect(fileOpenMocks.open).not.toHaveBeenCalled();
+  });
+
+  it("reports native default-opener failures without opening a cached path", async () => {
+    fileOpenMocks.open.mockRejectedValueOnce(new Error("原件已被移走，请刷新后重试"));
+    renderWithProviders(<ProjectSidebar filesOnly project={{ id: 1, name: "Alpha", rootPath: "/project" }}
+      documents={[buildDocument()]} onOpenProject={() => undefined} />);
+    fireEvent.contextMenu(screen.getByRole("button", { name: /^brief.pdf/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "使用系统默认应用打开" }));
+    await waitFor(() => expect(useFeedbackStore.getState().toasts).toEqual([expect.objectContaining({
+      tone: "error", title: "使用系统默认应用打开失败", detail: expect.stringContaining("原件已被移走"),
+    })]));
+    expect(desktopApiMocks.openFile).not.toHaveBeenCalled();
+  });
+
+  it("retires a pending default-open action when the File owner changes", async () => {
+    let finish!: (value: { workspaceId: string; generation: string }) => void;
+    nativeVersionMocks.binding.mockImplementationOnce(() => new Promise(done => { finish = done; }));
+    const component = (owner: number) => <ProjectSidebar filesOnly project={{ id: owner, name: "Project", rootPath: `/project-${owner}` }}
+      documents={[buildDocument({ projectId: owner })]} onOpenProject={() => undefined} />;
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client.setQueryData(queryKeys.workspaceStatus, { currentWorkspace: { rootPath: "/tmp/workspace" } });
+    const view = render(component(1), { wrapper: ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> });
+    fireEvent.contextMenu(screen.getByRole("button", { name: /^brief.pdf/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "使用系统默认应用打开" }));
+    view.rerender(component(2));
+    await act(async () => { finish({ workspaceId: "w", generation: "g" }); });
+    expect(fileOpenMocks.open).not.toHaveBeenCalled();
+    expect(useFeedbackStore.getState().toasts).toEqual([]);
+  });
+
   it("uses the same File rail for Workspace ownership without a placeholder Project", async () => {
     const document = buildDocument({ id: 29, projectId: null, name: "workspace.md", baseName: "workspace.md", managedPath: "/tmp/workspace/files/workspace.md" });
     renderWithProviders(<ProjectSidebar filesOnly fileScope={{ workspaceRoot: "/tmp/workspace", projectId: null, name: "工作区", rootPath: "/tmp/workspace/files" }} documents={[document]} onOpenProject={() => undefined} />);
@@ -107,11 +291,17 @@ describe("ProjectSidebar", () => {
   });
   beforeEach(() => {
     closeFilePreview();
-    nativeVersionMocks.binding.mockClear();nativeVersionMocks.list.mockReset();
+    nativeVersionMocks.binding.mockReset();nativeVersionMocks.binding.mockResolvedValue({workspaceId:"w",generation:"g"});nativeVersionMocks.list.mockReset();
+    fileOpenMocks.open.mockReset();fileOpenMocks.open.mockResolvedValue(undefined);
+    fileOpenMocks.resolve.mockReset();
+    trashMocks.prepare.mockReset();trashMocks.trash.mockReset();
+    desktopApiMocks.confirm.mockReset();desktopApiMocks.confirm.mockResolvedValue(true);
+    useFeedbackStore.setState({ toasts: [] });
     documentMutationMocks.documentMetaMutation.mutate.mockReset();
     documentMutationMocks.documentAddVersionMutation.mutate.mockReset();
     documentMutationMocks.documentAddVersionMutation.mutateAsync.mockReset();
     documentMutationMocks.documentDeleteMutation.mutate.mockReset();
+    desktopApiMocks.fileCommand.mockReset().mockImplementation(async command => command === "file_drop_prepare" ? { intentId: "intent" } : { documentId: 21, versionNumber: 1, contentHash: "h", noChange: false, cleanupWarning: null });
     desktopApiMocks.pickFiles.mockReset();
     desktopApiMocks.openFile.mockReset();
     desktopApiMocks.revealInExplorer.mockReset();
@@ -396,16 +586,16 @@ describe("ProjectSidebar", () => {
     fireEvent.dragEnter(sidebar, { dataTransfer });
 
     expect(screen.getByRole("tab", { name: "文件" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByText("松手即可导入文件")).toBeInTheDocument();
+    expect(screen.getByText("松手移入文件，成功后原文件移至回收站")).toBeInTheDocument();
 
     fireEvent.drop(sidebar, { dataTransfer });
 
     await waitFor(() => {
-      expect(projectMindApiMocks.documentImport).toHaveBeenCalledWith({
-        projectId: 1,
-        sourcePath: "/tmp/alpha-project/brief.pdf",
-        isStarred: false,
+      expect(desktopApiMocks.fileCommand).toHaveBeenCalledWith("file_drop_prepare", {
+        binding: { workspaceId: "w", generation: "g" }, requestId: expect.any(String),
+        sourcePath: "/tmp/alpha-project/brief.pdf", target: { kind: "new", owner: 1, name: "brief.pdf" },
       });
+      expect(projectMindApiMocks.documentImport).not.toHaveBeenCalled();
     });
   });
 
@@ -432,7 +622,7 @@ describe("ProjectSidebar", () => {
 
     const sidebar = screen.getByLabelText("项目导航侧边栏");
     fireEvent.dragEnter(sidebar, { dataTransfer });
-    expect(screen.getByText("松手即可导入文件")).toBeInTheDocument();
+    expect(screen.getByText("松手移入文件，成功后原文件移至回收站")).toBeInTheDocument();
 
     fireEvent.dragLeave(sidebar, {
       clientX: -1,
@@ -442,7 +632,7 @@ describe("ProjectSidebar", () => {
     fireEvent.dragEnter(sidebar, { dataTransfer });
     vi.advanceTimersByTime(100);
 
-    expect(screen.getByText("松手即可导入文件")).toBeInTheDocument();
+    expect(screen.getByText("松手移入文件，成功后原文件移至回收站")).toBeInTheDocument();
   });
 
   it("shows add actions beside search and hides tab counts", async () => {

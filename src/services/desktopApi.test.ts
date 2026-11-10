@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import voiceCaptionCapability from "../../src-tauri/capabilities/voice-caption.json";
 import mainWindowCapability from "../../src-tauri/capabilities/default.json";
 const tauriMocks = vi.hoisted(() => ({
+  eventHandlers: new Map<string, (event: { payload: unknown }) => void>(),
   invokeMock: vi.fn(),
   emitEventMock: vi.fn(async () => undefined),
   convertFileSrcMock: vi.fn((path: string) => `asset://${path}`),
@@ -51,7 +52,10 @@ const tauriMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@tauri-apps/api/event", () => ({
-  listen: vi.fn(async () => () => {}),
+  listen: vi.fn(async (event: string, handler: (event: { payload: unknown }) => void) => {
+    tauriMocks.eventHandlers.set(event, handler);
+    return () => tauriMocks.eventHandlers.delete(event);
+  }),
   emit: tauriMocks.emitEventMock,
 }));
 
@@ -114,6 +118,7 @@ vi.mock("@tauri-apps/api", () => {
 });
 
 import { desktopApi } from "./desktopApi";
+import { registerQuickNoteFlusher } from "../lib/quick-note-transfer";
 
 describe("desktopApi", () => {
   beforeEach(() => {
@@ -225,6 +230,68 @@ describe("desktopApi", () => {
     await handler({ preventDefault });
 
     expect(preventDefault).toHaveBeenCalledTimes(1);
+  });
+
+  it("holds QuickNote editing through native shutdown and restores it after shutdown rejects", async () => {
+    const hold = vi.fn();
+    const stop = registerQuickNoteFlusher("native-close", async () => {}, undefined, undefined, hold);
+    let reject!: (error: Error) => void;
+    tauriMocks.invokeMock.mockImplementation(command => command === "app_exit"
+      ? new Promise((_resolve, fail) => { reject = fail; }) : Promise.resolve());
+    try {
+      const allow = vi.fn(async () => { expect(hold).toHaveBeenLastCalledWith(true); return true; });
+      await desktopApi.listenForCloseRequest(allow);
+      const closing = tauriMocks.onCloseRequestedMock.mock.calls[0][0]({ preventDefault: vi.fn() });
+      await vi.waitFor(() => expect(tauriMocks.invokeMock).toHaveBeenCalledWith("app_exit"));
+      expect(hold).toHaveBeenLastCalledWith(true);
+      reject(new Error("native shutdown failed"));
+      await expect(closing).rejects.toThrow("native shutdown failed");
+      expect(hold).toHaveBeenLastCalledWith(false);
+    } finally { stop(); }
+  });
+
+  it("keeps other windows held after their acknowledgement until native shutdown fails", async () => {
+    let respond!: (event: { payload: { requestId: string; windowLabel: string; ok: boolean } }) => void;
+    const current = { label: "main", listen: vi.fn(async (_name: string, handler: typeof respond) => { respond = handler; return () => {}; }) };
+    const target = { label: "project-7", emit: vi.fn(async (event: string, request: { requestId: string }) => {
+      if (event === "workspace-lifecycle:flush-request") respond({ payload: { requestId: request.requestId, windowLabel: "project-7", ok: true } });
+    }) };
+    tauriMocks.getCurrentWebviewWindowMock.mockReturnValue(current);
+    tauriMocks.getAllWebviewWindowsMock.mockResolvedValue([current, target]);
+    let reject!: (error: Error) => void;
+    tauriMocks.invokeMock.mockImplementation(() => new Promise((_resolve, fail) => { reject = fail; }));
+    await desktopApi.listenForCloseRequest(async () => { await desktopApi.flushOtherWorkspaceWindows(); return true; });
+    const closing = tauriMocks.onCloseRequestedMock.mock.calls[0][0]({ preventDefault: vi.fn() });
+    await vi.waitFor(() => expect(tauriMocks.invokeMock).toHaveBeenCalledWith("app_exit"));
+    const request = target.emit.mock.calls[0][1];
+    expect(request).toMatchObject({ holdQuickNotes: true, requesterLabel: "main" });
+    expect(target.emit).toHaveBeenCalledTimes(1);
+    reject(new Error("native shutdown failed"));
+    await expect(closing).rejects.toThrow("native shutdown failed");
+    expect(target.emit).toHaveBeenLastCalledWith("workspace-lifecycle:release-quick-notes", {
+      requestId: request.requestId, requesterLabel: "main",
+    });
+  });
+
+  it("holds a remote QuickNote after flush and releases it on abort or save failure", async () => {
+    let request!: (event: { payload: { requestId: string; requesterLabel: string; holdQuickNotes: boolean } }) => Promise<void>;
+    const current = { label: "project-7", listen: vi.fn(async (_name: string, handler: typeof request) => { request = handler; return () => {}; }) };
+    tauriMocks.getCurrentWebviewWindowMock.mockReturnValue(current);
+    tauriMocks.getByLabelMock.mockResolvedValue({ emit: vi.fn(async () => {}) });
+    const hold = vi.fn();
+    const stop = registerQuickNoteFlusher("remote-close", async () => {}, undefined, undefined, hold);
+    const flush = vi.fn(async () => {});
+    const unlisten = await desktopApi.listenForWorkspaceLifecycleFlush(flush);
+    const payload = { requestId: "held-remote-close", requesterLabel: "main", holdQuickNotes: true };
+    try {
+      await request({ payload });
+      expect(hold).toHaveBeenLastCalledWith(true);
+      tauriMocks.eventHandlers.get("workspace-lifecycle:release-quick-notes")!({ payload });
+      expect(hold).toHaveBeenLastCalledWith(false);
+      flush.mockRejectedValueOnce(new Error("save failed"));
+      await request({ payload: { ...payload, requestId: "failed-remote-close" } });
+      expect(hold.mock.calls.map(call => call[0])).toEqual([true, false, true, false]);
+    } finally { unlisten(); stop(); }
   });
 
   it("flushes and then destroys detached Project windows for a Workspace switch", async () => {

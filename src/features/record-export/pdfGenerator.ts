@@ -261,9 +261,7 @@ function measureBlocks(
     if (block.type === "image") {
       const image = images.get(block.id);
       if (!image) return total + bodySize * 1.5 + 8;
-      const imageWidth = Math.min(width, (block.widthPx ?? image.widthPx ?? 640) * 0.75);
-      const aspect = image.widthPx && image.heightPx ? image.heightPx / image.widthPx : 0.75;
-      return total + imageWidth * aspect + 24;
+      return total + pdfImageSize(block, image, width).height + IMAGE_CAPTION_SPACE;
     }
     if (block.type === "paragraph" || block.type === "heading") {
       const text = block.content.map((inline) => inline.text).join("") || " ";
@@ -349,10 +347,8 @@ async function renderBlock(
         addText(pdf, parent, exportImagePlaceholder(block), "P", { fontSize: bodySize, color: "#5f6368", after: 8, width });
         return;
       }
-      const imageWidth = Math.max(Math.min(60, width), Math.min(width, (block.widthPx ?? image.widthPx ?? 640) * 0.75));
-      const aspect = image.widthPx && image.heightPx ? image.heightPx / image.widthPx : 0.75;
-      const height = Math.min(PAGE_HEIGHT - MARGIN - BOTTOM_MARGIN, imageWidth * aspect);
-      ensureSpace(pdf, height + 18);
+      const { width: imageWidth, height } = pdfImageSize(block, image, width);
+      ensureSpace(pdf, height + IMAGE_CAPTION_SPACE);
       const alternative = block.alt ?? block.title ?? "Record 图片";
       const figure = pdf.struct("Figure", { alt: alternative });
       parent.add(figure);
@@ -528,4 +524,13 @@ function ensureNotCancelled(signal?: AbortSignal) {
 
 function abortError() {
   return new DOMException("导出已取消", "AbortError");
+}
+
+const IMAGE_CAPTION_SPACE = 24;
+function pdfImageSize(block: Extract<ExportBlock, { type: "image" }>, image: ResolvedExportImage, availableWidth: number) {
+  const width = Math.max(Math.min(60, availableWidth), Math.min(availableWidth, (block.widthPx ?? image.widthPx ?? 640) * 0.75));
+  const aspect = image.widthPx && image.heightPx ? image.heightPx / image.widthPx : 0.75;
+  const maxHeight = PAGE_HEIGHT - MARGIN - BOTTOM_MARGIN - IMAGE_CAPTION_SPACE;
+  const scale = Math.min(1, maxHeight / (width * aspect));
+  return { width: width * scale, height: width * aspect * scale };
 }

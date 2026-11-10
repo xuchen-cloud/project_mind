@@ -5,6 +5,23 @@ import ts from 'typescript';
 import {replaceStatusZoom,markEditorChrome} from '../editor-chrome/build-adapter.mjs';
 export function installTextEditTransforms(build,root){
  const modulePath=JSON.stringify(buildImportPath(root,'parity-text-edit.ts'));
+ const replaceZoom=(source,from,to)=>{
+  if(source.split(from).length!==2)throw Error('Upstream zoom point changed: '+from);
+  return source.replace(from,to);
+ };
+ build.onLoad({filter:/slides[\\/]src[\\/]renderer[\\/]zoom-steps\.ts$/},args=>{
+  let source=readFileSync(args.path,'utf8');
+  for(const [from,to] of [['10-400%','50-150%'],['ZOOM_MIN = 0.1','ZOOM_MIN = 0.5'],['ZOOM_MAX = 4','ZOOM_MAX = 1.5'],['[0.1, 0.25, 0.33, 0.5, 0.66, 0.75, 1, 1.5, 2, 3, 4]','[0.5, 0.66, 0.75, 1, 1.5]']])source=replaceZoom(source,from,to);
+  return{contents:source,loader:'ts'};
+ });
+ const adaptZoom=source=>{
+  source=replaceZoom(source,'  const [zoom, setZoom] = useState(1)', `  const [zoom, setZoomState] = useState(1)
+  const setZoom = useCallback((value: Parameters<typeof setZoomState>[0]) => {
+    setZoomState(current => clampZoom(typeof value === 'function' ? value(current) : value))
+  }, [])`);
+  source=replaceZoom(source,'rawFit clamped to the 0.1–1.5 auto-fit range','rawFit clamped to the Office viewing range');
+  return replaceZoom(source,'Math.min(1.5, Math.max(0.1, rawFit(s)))','clampZoom(rawFit(s))');
+ };
  build.onLoad({filter:/slides[\\/]src[\\/]renderer[\\/]TextEditOverlay\.tsx$/},args=>{
   let source=readFileSync(args.path,'utf8');
   source=source.replace('onCommit: (paragraphs: EditParagraph[]) => void','onCheckpoint?: (paragraphs: EditParagraph[]) => Promise<void>\n  onAbandon?: () => void\n  onCommit: (paragraphs: EditParagraph[]) => void')
@@ -32,9 +49,10 @@ export function installTextEditTransforms(build,root){
    .replace('        onBlur={(e) => {','        onBlur={(e) => {\n          if (keepTextEditOnBlur(e.relatedTarget)) return');
   return {contents:"import {registerTextEdit, consumeTextEditCheckpoint, keepTextEditOnBlur} from "+modulePath+";\n"+source,loader:'tsx'};
  });
- build.onLoad({filter:/slides[\\/]src[\\/]renderer[\\/]App\.tsx$/},args=>({contents:markEditorChrome(ts,replaceStatusZoom(ts,"import {usePreviewView} from "+JSON.stringify(buildImportPath(root,'../editor-chrome/preview-view.ts'))+";\nimport {usePptxSelection} from "+JSON.stringify(buildImportPath(root,'parity-selection.ts'))+";\nimport {usePptxOutput} from "+JSON.stringify(buildImportPath(root,'parity-output.ts'))+";\nimport {usePptxPreview} from "+JSON.stringify(buildImportPath(root,'parity-presentation.ts'))+";\nimport {markTextEditCheckpoint} from "+modulePath+";\n"+readFileSync(args.path,'utf8')
-  .replace('for (const s of slides) {', 'for (const [index, s] of slides.entries()) {\n      if (projectMindPreview && index !== current && !visibleThumbs.has(index) && !visibleSorterItems.has(index)) continue')
-  .replace('imageLoaderRef.current.load(urls)\n  }, [slides])', 'imageLoaderRef.current.load(urls)\n  }, [slides, current, visibleThumbs, visibleSorterItems, projectMindPreview])')
+ build.onLoad({filter:/slides[\\/]src[\\/]renderer[\\/]App\.tsx$/},args=>({contents:markEditorChrome(ts,replaceStatusZoom(ts,"import {usePreviewView} from "+JSON.stringify(buildImportPath(root,'../editor-chrome/preview-view.ts'))+";\nimport {usePptxSelection} from "+JSON.stringify(buildImportPath(root,'parity-selection.ts'))+";\nimport {usePptxOutput} from "+JSON.stringify(buildImportPath(root,'parity-output.ts'))+";\nimport {usePptxPreview} from "+JSON.stringify(buildImportPath(root,'parity-presentation.ts'))+";\nimport {markTextEditCheckpoint} from "+modulePath+";\n"+adaptZoom(readFileSync(args.path,'utf8'))
+  .replace('return slides.every((s) => !nodesHaveContent(s.nodes))', 'return slides.every((s) => !(s as any).projectMindUnloaded && !nodesHaveContent(s.nodes))')
+  .replace('for (const s of slides) {', 'for (const [index, s] of slides.entries()) {\n      if (!slideShow && !presenter && !zoomDialog && index !== current && !visibleThumbs.has(index) && !visibleSorterItems.has(index)) continue')
+  .replace('imageLoaderRef.current.load(urls)\n  }, [slides])', 'imageLoaderRef.current.load(urls)\n  }, [slides, current, visibleThumbs, visibleSorterItems, projectMindPreview, slideShow, presenter, zoomDialog])')
   .replace('  ctxRef.current = {', '  usePreviewView({zoom,setZoom,page:current,setPage:setCurrent,scrollers:()=>[stageWrapRef.current,thumbsListRef.current]})\n  usePptxSelection({current, selectedIds, editing, editingCell, enteredGroupId})\n  ctxRef.current = {')
   .replace('const exportImages = useCallback(() => fileActions.exportImages(ctxRef.current), [])', 'const exportImages = useCallback((hostOutput = false) => fileActions.exportImages(ctxRef.current, hostOutput), [])')
   .replace('const exportPdf = useCallback(() => void fileActions.exportPdf(ctxRef.current), [])', 'const exportPdf = useCallback((hostOutput = false) => fileActions.exportPdf(ctxRef.current, undefined, hostOutput), [])')

@@ -3,12 +3,15 @@ use crate::models::ProjectCreateInput;
 use base64::{engine::general_purpose::STANDARD, Engine};
 
 fn hidden_test_command(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
-    let mut command = std::process::Command::new(program);
+    let command = std::process::Command::new(program);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
+        let mut command = command;
         command.creation_flags(0x08000000);
+        return command;
     }
+    #[cfg(not(windows))]
     command
 }
 
@@ -707,7 +710,7 @@ fn imported_file_legacy_registration_rejects_known_identity_or_registered_histor
 
 #[test]
 fn imported_file_legacy_registration_rejects_foreign_physical_owner_and_forged_scope() {
-    let (_root, mut db, project, path, object) = legacy_unregistered_fixture();
+    let (_root, db, project, path, object) = legacy_unregistered_fixture();
     let other = db
         .project_create(ProjectCreateInput {
             name: "Other owner".into(),
@@ -1031,7 +1034,7 @@ fn imported_file_location_changed_before_first_snapshot_keeps_registered_head() 
 
 #[test]
 fn directory_file_register_is_idempotent_keeps_location_and_reads_binary_snapshot() {
-    let (_root, mut db, project, path) = fixture();
+    let (_root, db, project, path) = fixture();
     fs::write(path.join("data.bin"), [0, 255, 128, 42]).unwrap();
     let first = db
         .project_file_register("wp1-workspace", project, "data.bin")
@@ -1150,7 +1153,7 @@ fn directory_file_atomic_replacement_rejects_stale_save_baseline() {
 
 #[test]
 fn directory_file_move_and_rename_keep_identity_versions_and_recover_intent() {
-    let (_root, mut db, project, path) = fixture();
+    let (_root, db, project, path) = fixture();
     fs::write(path.join("old.txt"), b"unchanged").unwrap();
     fs::create_dir(path.join("sub")).unwrap();
     let original = db
@@ -1196,7 +1199,7 @@ fn directory_file_move_and_rename_keep_identity_versions_and_recover_intent() {
 
 #[test]
 fn directory_file_scan_is_resumable_reports_exclusions_errors_and_cancellation() {
-    let (_root, mut db, project, path) = fixture();
+    let (_root, db, project, path) = fixture();
     fs::create_dir(path.join(".project-mind")).unwrap();
     fs::write(path.join(".project-mind/secret"), b"private").unwrap();
     fs::create_dir(path.join("sub")).unwrap();
@@ -1383,7 +1386,7 @@ fn directory_file_fixed_bytes_reject_forged_owner_hash_and_missing_snapshot() {
 }
 #[test]
 fn directory_file_external_move_is_ambiguous_and_crossproject_physical_ownership_is_rejected() {
-    let (_root, mut db, project, path) = fixture();
+    let (_root, db, project, path) = fixture();
     fs::write(path.join("old.bin"), b"same").unwrap();
     let file = db
         .project_file_register("wp1-workspace", project, "old.bin")
@@ -2152,7 +2155,7 @@ fn directory_file_restore_process_crashes_recover_all_durable_boundaries_and_ret
         let watermark = db.committed_change_watermark().unwrap();
         drop(db);
         directory_restore_crash(root.path(), stage);
-        let mut db = directory_restore_crash_open(root.path());
+        let db = directory_restore_crash_open(root.path());
         assert_eq!(
             db.conn
                 .query_row("SELECT count(*) FROM project_directory_restores", [], |r| r
@@ -3431,7 +3434,7 @@ fn directory_scan_event_path_does_not_enumerate_unrelated_wide_directories() {
 
 #[test]
 fn directory_scan_retained_cursor_rejects_other_modes_scope_and_replays() {
-    let (_root, mut db, project, path) = fixture();
+    let (_root, db, project, path) = fixture();
     for i in 0..150 { fs::write(path.join(format!(".excluded-{i:03}")), b"hidden").unwrap(); }
     let first = db.project_file_scan_new("wp1-workspace", project, None, 1).unwrap();
     let cursor = first.next_cursor.unwrap();
@@ -3445,7 +3448,7 @@ fn directory_scan_retained_cursor_rejects_other_modes_scope_and_replays() {
 
 #[test]
 fn directory_file_claims_detect_unregistered_external_hard_link_identities() {
-    let (_root, mut db, project, path) = fixture();
+    let (_root, db, project, path) = fixture();
     let other = db.project_create(ProjectCreateInput { name: "External owner".into(), summary: None, status: None }).unwrap();
     let owner_path = PathBuf::from(&other.root_path).join("owner.txt");
     fs::write(&owner_path, b"original owner").unwrap();

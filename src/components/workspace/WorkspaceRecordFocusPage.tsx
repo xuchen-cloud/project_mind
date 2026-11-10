@@ -2,7 +2,8 @@ import { HomeSaveIndicator } from "../home/HomeSaveIndicator";
 import { HomeNoteSidebar } from "../home/HomeNoteSidebar";
 import { HomeRecordHeader } from "../home/HomeRecordHeader";
 import "../home/home.css";
-import { useCallback,useEffect,useLayoutEffect,useMemo,useRef,useState } from "react";
+import { useCallback,useContext,useEffect,useLayoutEffect,useMemo,useRef,useState } from "react";
+import { ProjectContentMoveContext } from "../../lib/project-content-move-context";
 import { useQuery,useQueryClient } from "@tanstack/react-query";
 import { useNavigate,useParams,useSearchParams } from "react-router-dom";
 
@@ -81,7 +82,7 @@ export function WorkspaceRecordFocusPage({
   embedded?: boolean;
   searchParamsOverride?: URLSearchParams;
   onBack?: () => void;
-  registerCloseGuard?: (guard: () => Promise<void>) => () => void;
+  registerCloseGuard?: (close: () => Promise<void>, strictSave?: () => Promise<void>) => () => void;
 } = {}) {
   const navigate = useNavigate();
   const params = useParams();
@@ -337,7 +338,7 @@ export function WorkspaceRecordFocusPage({
 
   useEffect(() => {
     if (recordId === null) return;
-    const prepare = () => prepareClose(async () => {
+    const strictSave = async () => {
         if (!draftReady) return;
         const recordKey = workspaceRecordSaveKey(recordId);
         const current = canonicalRef.current;
@@ -368,8 +369,9 @@ export function WorkspaceRecordFocusPage({
         if (editor.isBusy() || editor.getPendingAiReviewCount() > 0 || getDraftSignature() !== before) {
           throw new Error("记录仍在编辑，草稿已保留，请稍后再关闭");
         }
-      });
-    return registerCloseGuard ? registerCloseGuard(prepare) : registerWorkspaceRecordCloseGuard({
+      };
+    const prepare = () => prepareClose(strictSave);
+    return registerCloseGuard ? registerCloseGuard(prepare, strictSave) : registerWorkspaceRecordCloseGuard({
       workspaceRoot: saveCoordinator.workspaceKey ?? currentWorkspace?.rootPath ?? "", recordId, prepare,
     });
   }, [registerCloseGuard, recordId, saveCoordinator, currentWorkspace?.rootPath, prepareClose, draftReady,
@@ -377,9 +379,9 @@ export function WorkspaceRecordFocusPage({
 
   const handleSave = useCallback(
     async (value: RichEditorValue) => {
-      if (!submitCurrentRecord(value)) return false;
+      if (recordId === null || !submitCurrentRecord(value)) return false;
       try {
-        await saveCoordinator.flush();
+        await saveCoordinator.flush(workspaceRecordSaveKey(recordId));
         await queryClient.invalidateQueries({ queryKey: queryKeys.projectTags.workspace });
         return true;
       } catch (error) {
@@ -387,7 +389,7 @@ export function WorkspaceRecordFocusPage({
         throw error;
       }
     },
-    [pushToast, queryClient, saveCoordinator, submitCurrentRecord],
+    [pushToast, queryClient, recordId, saveCoordinator, submitCurrentRecord],
   );
 
   const saveCurrentRecord = useCallback(async () => {
@@ -400,8 +402,10 @@ export function WorkspaceRecordFocusPage({
     return handleSave(content);
   }, [content, draftReady, handleSave]);
 
+  const contentMove = useContext(ProjectContentMoveContext);
   const leaveEditorRef = useRef<() => void>(() => undefined);
   leaveEditorRef.current = () => {
+    if (contentMove?.committed) return;
     if (!editingReady || !submitCurrentRecord()) return;
     void canonical.checkpoint("leave_editor").catch(() => setPersistState("error"));
   };

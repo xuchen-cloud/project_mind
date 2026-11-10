@@ -1,0 +1,12 @@
+[
+  {
+    "name": "root-tsc",
+    "exit": 0,
+    "log": "/tmp/project-mind-wavedrom-final-root-tsc.log"
+  },
+  {
+    "name": "shipping-build",
+    "exit": 1,
+    "log": "/tmp/project-mind-wavedrom-final-shipping-build.log"
+  }
+]

@@ -1,3 +1,4 @@
+import { flushPendingEditorDom, setEditablePreservingPendingDom } from "./pending-editor-dom";
 import { buildEditorTextContextMenuActions, buildTableContextMenuActions, buildTableToolbarGroups } from "./editorContextMenu";
 import { validateInternalReferenceSourceRef } from "../../lib/internalReferences";
 import { agentApi } from "../../services/agentApi";
@@ -13,9 +14,8 @@ import { prepareRecordCutHtml, registerRecordCutHtml, type RecordCutTransport } 
 import { readRecordCutClipboard, recordCutPasteEvent } from "./recordCutClipboard";
 import { DOMSerializer, Slice } from "@tiptap/pm/model";
 import { NodeSelection, Plugin, PluginKey, TextSelection, type EditorState } from "@tiptap/pm/state";
-import { CellSelection } from "@tiptap/pm/tables";
 import { Mapping } from "@tiptap/pm/transform";
-import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
+import type { EditorView } from "@tiptap/pm/view";
 import { EditorContent, useEditor } from "@tiptap/react";
 import {
   Bold,
@@ -24,7 +24,6 @@ import {
   Code2,
   Copy,
   ExternalLink,
-  File as FileIcon,
   FolderOpen,
   Grid2X2Plus,
   Heading1,
@@ -32,7 +31,6 @@ import {
   Heading3,
   Heading4,
   Highlighter,
-  Image,
   ImageUp,
   ImagePlus,
   Italic,
@@ -42,7 +40,6 @@ import {
   LoaderCircle,
   Lightbulb,
   Maximize2,
-  Minus,
   MoreHorizontal,
   Paperclip,
   Pencil,
@@ -54,7 +51,6 @@ import {
   Strikethrough,
   Table2,
   Trash2,
-  Type,
   WandSparkles,
   X,
   type LucideIcon,
@@ -129,7 +125,6 @@ import {
   setEditorRewriteProtectedRange,
 } from "./editorRewriteProtection";
 import {
-  codeLanguageLabel,
   filterCodeLanguageOptions,
   normalizeCodeLanguage,
 } from "./codeHighlight";
@@ -403,7 +398,7 @@ interface RichEditorProps {
   selectionActions?: RichEditorSelectionAction[];
   renderToolbarExtras?: (context: {
     persistState: RichEditorPersistState;
-    save: (options?: { force?: boolean }) => Promise<unknown>;
+    save: (options?: { force?: boolean; allowReadOnly?: boolean }) => Promise<unknown>;
   }) => ReactNode;
   defaultCodeLanguage?: string | null;
   onDefaultCodeLanguageChange?: (language: string | null) => void;
@@ -439,7 +434,7 @@ export interface RichEditorController {
   focus: (position?: "start" | "end" | number | RichEditorAutoFocusPoint) => void;
   revealBlock: (blockId: string) => boolean;
   appendMarkdown: (markdown: string) => RichEditorValue | null;
-  save: (options?: { force?: boolean }) => Promise<unknown> | undefined;
+  save: (options?: { force?: boolean; allowReadOnly?: boolean }) => Promise<unknown> | undefined;
   replaceCommittedContent: (html: string) => void;
   setEditable: (editable: boolean) => void;
 }
@@ -490,7 +485,6 @@ export function RichEditor({
   selectionActions,
   renderToolbarExtras,
   defaultCodeLanguage,
-  onDefaultCodeLanguageChange,
 }: RichEditorProps) {
   const { pushToast } = useFeedbackStore();
   const [persistState, setPersistState] = useState<RichEditorPersistState>("idle");
@@ -707,7 +701,6 @@ export function RichEditor({
         .sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name, "zh-Hans-CN")),
     [aiSettings?.editorSkills],
   );
-  const editorRewriteVisible = Boolean(aiSettings);
   const editorRewriteReady =
     Boolean(aiSettings) && (aiSettings?.hasUsableDefault || isAiCapabilityConfigured(aiSettings ?? undefined, "default"));
   const imageInterpretationReady =
@@ -1983,11 +1976,18 @@ export function RichEditor({
   }, []);
 
   const persistEditor = useCallback(
-    async (reason: SaveReason, options?: { force?: boolean }) => {
-      if (!editor || !onSave || readOnly) {
+    async (reason: SaveReason, options?: { force?: boolean; allowReadOnly?: boolean }) => {
+      if (!editor || !onSave || (readOnly && !options?.allowReadOnly)) {
         return undefined;
       }
 
+      if (editor.isDestroyed) throw new Error("编辑器已关闭，无法保存");
+      if (options?.allowReadOnly && (editor.view.composing || assetBusyRef.current !== null)) {
+        throw new Error("QuickNote 正在输入或处理附件，请稍后重试保存");
+      }
+      if (!flushPendingEditorDom(editor)) {
+        throw new Error("编辑器正在输入，请稍后重试保存");
+      }
       clearChangePublishTimer();
       clearPersistTimer();
       clearBlurPersistTimer();
@@ -2064,8 +2064,15 @@ export function RichEditor({
           }
 
           if (latestSnapshot.html !== lastPersistedHtmlRef.current) {
-            void persistEditor("queued").catch(() => {
-              // The caller owns error presentation.
+            const queuedCycle = saveCycleRef.current;
+            void persistEditor("queued").catch((error) => {
+              // A queued preflight can fail before owning a native save/finally.
+              // Settle its waiting callers only if no later save took ownership.
+              if (queuedCycle && saveCycleRef.current === queuedCycle && !saveInFlightRef.current) {
+                saveCycleRef.current = null;
+                updatePersistState("error");
+                queuedCycle.reject(queuedCycle.error ?? error);
+              }
             });
             return;
           }
@@ -2236,7 +2243,7 @@ export function RichEditor({
       return;
     }
 
-    editor.setEditable(!effectiveReadOnly);
+    setEditablePreservingPendingDom(editor, !effectiveReadOnly);
   }, [editor, effectiveReadOnly]);
 
   useEffect(() => {
@@ -2455,8 +2462,8 @@ export function RichEditor({
     shouldPersistOnBlur,
   ]);
 
-  const handleManualSave = useCallback(async (options?: { force?: boolean }) => {
-    if (!onSave || readOnly) {
+  const handleManualSave = useCallback(async (options?: { force?: boolean; allowReadOnly?: boolean }) => {
+    if (!onSave || (readOnly && !options?.allowReadOnly)) {
       return undefined;
     }
 
@@ -2513,7 +2520,7 @@ export function RichEditor({
         ? Object.keys(EDITOR_REWRITE_PROTECTION_PLUGIN_KEY.getState(editor.state) ?? {}).length
         : 0,
       getPendingAiReviewCount: () => rewriteSessionsRef.current.length,
-      hasUnsavedCommittedContent: () => !!editor && captureCommittedValue(editor).html !== lastPersistedHtmlRef.current,
+      hasUnsavedCommittedContent: () => !!editor && (!flushPendingEditorDom(editor) || captureCommittedValue(editor).html !== lastPersistedHtmlRef.current),
       acknowledgeCommittedContent: (value) => {
         lastPersistedHtmlRef.current = value.html;
         if (editor && captureCommittedValue(editor).html === value.html) updatePersistState("saved");
@@ -2571,7 +2578,7 @@ export function RichEditor({
         publishChangeSnapshot(snapshot, { immediate: true, sync: true });
         updatePersistState(nextHtml === EMPTY_RICH_EDITOR_HTML ? "idle" : "saved");
       },
-      setEditable: (editable) => editor?.setEditable(editable && !effectiveReadOnly),
+      setEditable: (editable) => { if (editor) setEditablePreservingPendingDom(editor, editable && !effectiveReadOnly); },
     };
 
     return () => {
@@ -2807,7 +2814,7 @@ export function RichEditor({
 
   const handleAnnotationSave = useCallback(
     (nextAnnotationState: string | null) => {
-      if (!editor || !annotationDialog) {
+      if (!editor || !annotationDialog || readOnly || !editor.isEditable) {
         return;
       }
 
@@ -2816,7 +2823,7 @@ export function RichEditor({
       });
       setAnnotationDialog(null);
     },
-    [annotationDialog, editor],
+    [annotationDialog, editor, readOnly],
   );
 
   const handleEditorDoubleClick = useCallback(
@@ -6354,7 +6361,6 @@ function createEditorRewriteWidgetPlugin(options: {
 }) {
   let widgetRoot: Root | null = null;
   let widgetDom: HTMLDivElement | null = null;
-  let widgetFrame: HTMLElement | null = null;
   let resizeObserver: ResizeObserver | null = null;
 
   const ensureWidgetDom = () => {
@@ -6380,7 +6386,6 @@ function createEditorRewriteWidgetPlugin(options: {
     if (dom.parentElement !== frame) {
       frame.appendChild(dom);
     }
-    widgetFrame = frame;
 
     const protectedRange = options.getProtectedRange();
     const anchorFrom = clampNumber(
@@ -6461,7 +6466,6 @@ function createEditorRewriteWidgetPlugin(options: {
       const frame = view.dom.closest<HTMLElement>(".rich-editor__frame");
       if (frame) {
         frame.appendChild(dom);
-        widgetFrame = frame;
       }
       renderWidget();
       positionWidget(view);
@@ -6484,7 +6488,6 @@ function createEditorRewriteWidgetPlugin(options: {
           resizeObserver?.disconnect();
           resizeObserver = null;
           widgetDom?.remove();
-          widgetFrame = null;
           widgetRoot = null;
           widgetDom = null;
           queueMicrotask(() => {
@@ -8283,8 +8286,7 @@ async function buildPastedImageElement(
   }
 
   const title = resolvePastedImageTitle(image, index, source);
-  const mimeType = inferImageMimeType(source);
-  const file = buildClipboardImageFile(source, title, mimeType);
+  const file = buildClipboardImageFile(source, title);
 
   if (file) {
     const attrs = await buildPastedImageAttrs(file, assetHandlers);
@@ -8340,7 +8342,7 @@ function resolvePastedImageTitle(image: Element, index: number, source: string) 
   return `clipboard-image-${index + 1}.${extensionForMimeType(inferImageMimeType(source) ?? "image/png")}`;
 }
 
-function buildClipboardImageFile(source: string, title: string, mimeType?: string | null) {
+function buildClipboardImageFile(source: string, title: string) {
   if (!source.startsWith("data:")) {
     return null;
   }

@@ -230,7 +230,7 @@ fn version(conn: &Connection, target: &RecordTarget, id: &str) -> AgentResult<Re
     })
 }
 
-fn snapshot(
+pub(super) fn snapshot(
     tx: &Transaction<'_>,
     current: &RecordDocumentHead,
     title: &Option<String>,
@@ -468,6 +468,8 @@ impl Database {
         &self,
         target: &RecordTarget,
     ) -> AgentResult<RecordEditorState> {
+        let resolved = self.record_resolve_location(target)?;
+        let target = &resolved.target;
         let head = self.record_document_head(target)?.ok_or_else(|| {
             AgentError::new(
                 ErrorCode::SourceNotReady,
@@ -494,6 +496,8 @@ impl Database {
         })
     }
     pub(crate) fn record_metadata_get(&self, target: &RecordTarget) -> AgentResult<RecordMetadata> {
+        let resolved = self.record_resolve_location(target)?;
+        let target = &resolved.target;
         metadata(&self.conn, target)
     }
     pub(crate) fn record_version_editor_html(
@@ -501,8 +505,13 @@ impl Database {
         target: &RecordTarget,
         projection: &RecordDocumentProjection,
     ) -> AgentResult<String> {
+        let resolved = self.record_resolve_location(target)?;
+        let target = &resolved.target;
         source(&self.conn, target)?;
         let html = self.record_compatibility_html(target, projection)?;
+        if !self.record_move_retained_assets(target)?.is_empty() {
+            return Ok(self.hydrate_workspace_rich_text_html(&html));
+        }
         match target.scope {
             Scope::Project { project_id } => self
                 .hydrate_project_rich_text_html(project_id, &html)
@@ -650,6 +659,8 @@ impl Database {
         target: &RecordTarget,
         ids: &[i64],
     ) -> AgentResult<Vec<crate::models::DocumentTagRecord>> {
+        let resolved = self.record_resolve_location(target)?;
+        let target = &resolved.target;
         source(&self.conn, target)?;
         let project_id = match target.scope {
             Scope::Workspace => None,
@@ -690,12 +701,19 @@ impl Database {
         document: &Value,
     ) -> AgentResult<Value> {
         source(&self.conn, target)?;
-        self.record_document_scope_from_gui(&target.scope, document)
+        let retained = self.record_move_retained_assets(target)?;
+        self.record_document_scope_from_gui_retained(&target.scope, document, &retained)
     }
     pub(crate) fn record_document_scope_from_gui(
         &self,
         scope: &Scope,
         document: &Value,
+    ) -> AgentResult<Value> {
+        self.record_document_scope_from_gui_retained(scope, document, &std::collections::BTreeMap::new())
+    }
+    fn record_document_scope_from_gui_retained(
+        &self, scope: &Scope, document: &Value,
+        retained: &std::collections::BTreeMap<String, Scope>,
     ) -> AgentResult<Value> {
         scope.validate()?;
         if serde_json::to_vec(document)
@@ -725,6 +743,7 @@ impl Database {
             node: &mut Value,
             root: &std::path::Path,
             project: Option<&std::path::Path>,
+            retained: &std::collections::BTreeMap<String, Scope>,
             depth: usize,
             count: &mut usize,
         ) -> AgentResult<()> {
@@ -759,7 +778,7 @@ impl Database {
                         if !relative_asset(&relative) {
                             return Err(invalid("Invalid managed editor asset path"));
                         }
-                        if project.is_some_and(|project| !root.join(&relative).starts_with(project))
+                        if !retained.contains_key(&relative) && project.is_some_and(|project| !root.join(&relative).starts_with(project))
                         {
                             return Err(AgentError::new(
                                 ErrorCode::ScopeDenied,
@@ -773,7 +792,7 @@ impl Database {
             }
             if let Some(children) = node.get_mut("content").and_then(Value::as_array_mut) {
                 for child in children {
-                    visit(child, root, project, depth + 1, count)?;
+                    visit(child, root, project, retained, depth + 1, count)?;
                 }
             }
             Ok(())
@@ -783,10 +802,11 @@ impl Database {
             &mut portable,
             &self.workspace_root,
             project_root.as_deref(),
+            retained,
             0,
             &mut 0,
         )?;
-        self.record_validate_assets(scope, &portable)?;
+        self.record_validate_assets(scope, &portable, retained)?;
         validate_references(
             &self.conn,
             scope,
@@ -810,12 +830,16 @@ impl Database {
         &self,
         target: &RecordTarget,
     ) -> AgentResult<RecordLegacySource> {
+        let resolved = self.record_resolve_location(target)?;
+        let target = &resolved.target;
         source(&self.conn, target)
     }
     pub(crate) fn record_document_head(
         &self,
         target: &RecordTarget,
     ) -> AgentResult<Option<RecordDocumentHead>> {
+        let resolved = self.record_resolve_location(target)?;
+        let target = &resolved.target;
         source(&self.conn, target)?;
         head_unchecked(&self.conn, target)
     }
@@ -875,6 +899,7 @@ impl Database {
         )?;
         Ok(())
     }
+    #[cfg(test)]
     pub(crate) fn record_patch_commit(
         &self,
         caller: &str,
@@ -1057,6 +1082,8 @@ impl Database {
         before: Option<u64>,
         limit: u32,
     ) -> AgentResult<RecordVersionPage> {
+        let resolved = self.record_resolve_location(target)?;
+        let target = &resolved.target;
         source_unchecked(&self.conn, target)?;
         if !(1..=100).contains(&limit)
             || before.is_some_and(|cursor| cursor == 0 || cursor > i64::MAX as u64)
@@ -1110,6 +1137,8 @@ impl Database {
         target: &RecordTarget,
         id: &str,
     ) -> AgentResult<RecordVersion> {
+        let resolved = self.record_resolve_location(target)?;
+        let target = &resolved.target;
         source_unchecked(&self.conn, target)?;
         version(&self.conn, target, id)
     }
@@ -1117,6 +1146,8 @@ impl Database {
         &self,
         target: &RecordTarget,
     ) -> AgentResult<RecordVersionCapacity> {
+        let resolved = self.record_resolve_location(target)?;
+        let target = &resolved.target;
         source_unchecked(&self.conn, target)?;
         let key = target.key()?;
         let (version_count,snapshot_bytes): (i64,i64) = self.conn.query_row("SELECT count(*),COALESCE(sum(length(CAST(document_snapshot AS BLOB))+length(CAST(html AS BLOB))+length(CAST(markdown AS BLOB))+length(CAST(text AS BLOB))),0) FROM record_versions WHERE record_key=?1", [&key], |row|Ok((row.get(0)?,row.get(1)?))).map_err(io_error)?;
@@ -1158,6 +1189,7 @@ impl Database {
             Ok((RecordCheckpointResult{head:(&updated).into(),version_id:Some(id),checkpointed:true},Some(OperationChange{object_key:input.target.object_key(workspace_id)?,scope:input.target.scope.clone(),revision:current.projection.body_hash})))
         })
     }
+    #[cfg(test)]
     pub(crate) fn record_version_restore(
         &self,
         caller: &str,
@@ -1216,7 +1248,7 @@ impl Database {
             )
         })
     }
-    fn record_validate_assets(&self, scope: &Scope, document: &Value) -> AgentResult<()> {
+    fn record_validate_assets(&self, scope: &Scope, document: &Value, retained: &std::collections::BTreeMap<String, Scope>) -> AgentResult<()> {
         let mut statement = self
             .conn
             .prepare("SELECT id,root_path FROM projects")
@@ -1245,6 +1277,7 @@ impl Database {
             project_root: Option<&std::path::Path>,
             project_roots: &[(i64, std::path::PathBuf)],
             node: &Value,
+            retained: &std::collections::BTreeMap<String, Scope>,
         ) -> AgentResult<()> {
             if matches!(
                 node.get("type").and_then(Value::as_str),
@@ -1265,6 +1298,10 @@ impl Database {
                 if let Some(relative) = node.pointer("/attrs/path").and_then(Value::as_str) {
                     if !relative_asset(relative) {
                         return Err(invalid("Invalid retained asset path"));
+                    }
+                    if let Some(origin) = retained.get(relative).filter(|origin| *origin != scope) {
+                        // Exact path provenance does not grant any other source-owner resource.
+                        return database.record_validate_assets(origin, node, &std::collections::BTreeMap::new());
                     }
                     let local = database.workspace_root.join(relative);
                     let nearest_depth = project_roots
@@ -1383,12 +1420,12 @@ impl Database {
             }
             if let Some(children) = node.get("content").and_then(Value::as_array) {
                 for child in children {
-                    visit(database, scope, project_root, project_roots, child)?;
+                    visit(database, scope, project_root, project_roots, child, retained)?;
                 }
             }
             Ok(())
         }
-        visit(self, scope, project_root.as_deref(), &roots, document)
+        visit(self, scope, project_root.as_deref(), &roots, document, retained)
     }
 
     pub(super) fn record_compatibility_html(
@@ -1397,13 +1434,14 @@ impl Database {
         projection: &RecordDocumentProjection,
     ) -> AgentResult<String> {
         let assets = projection.validate()?;
-        self.record_validate_assets(&target.scope, &projection.document)?;
+        let retained = self.record_move_retained_assets(target)?;
+        self.record_validate_assets(&target.scope, &projection.document, &retained)?;
         if let Scope::Project { project_id } = target.scope {
             let root = self
                 .project_root_path(project_id)
                 .map_err(|_| AgentError::new(ErrorCode::NotFound, "Project is missing"))?;
             for asset in &assets {
-                if !self.workspace_root.join(asset).starts_with(&root) {
+                if !retained.contains_key(asset) && !self.workspace_root.join(asset).starts_with(&root) {
                     return Err(AgentError::new(
                         ErrorCode::ScopeDenied,
                         "Record asset is outside this Project",
@@ -1429,6 +1467,9 @@ impl Database {
                 ),
             )
         });
+        if !retained.is_empty() {
+            return Ok(self.persist_workspace_rich_text_html(&hydrated));
+        }
         Ok(match target.scope {
             Scope::Project { project_id } => self
                 .persist_project_rich_text_html(project_id, &hydrated)
@@ -1482,6 +1523,7 @@ impl Database {
             Ok((RecordCommittedHead::from(&initial),Some(OperationChange{object_key:target.object_key(workspace_id)?,scope:target.scope.clone(),revision:projection.body_hash.clone()})))
         })
     }
+    #[cfg(test)]
     pub(crate) fn record_document_commit(
         &self,
         caller: &str,
@@ -1881,7 +1923,7 @@ mod tests {
     }
     #[test]
     fn quick_note_transfer_is_atomic_replayable_and_preserves_existing_block_ids() {
-        let (_directory, mut database, target, projection) = setup();
+        let (_directory, database, target, projection) = setup();
         let source = database.record_document_source(&target).unwrap();
         database
             .record_document_initialize(
@@ -1983,7 +2025,7 @@ mod tests {
     }
     #[test]
     fn quick_note_transfer_conflicts_leave_the_source_metadata_and_versions_untouched() {
-        let (_directory, mut database, target, projection) = setup();
+        let (_directory, database, target, projection) = setup();
         let source = database.record_document_source(&target).unwrap();
         database
             .record_document_initialize(
@@ -2077,7 +2119,7 @@ mod tests {
 
     #[test]
     fn quick_note_transfer_to_a_new_record_creates_baseline_and_action_versions_once() {
-        let (_directory, mut database, _target, _projection) = setup();
+        let (_directory, database, _target, _projection) = setup();
         database
             .workspace_quick_note_upsert(crate::models::WorkspaceQuickNoteUpsertInput {
                 markdown: "Captured".into(),

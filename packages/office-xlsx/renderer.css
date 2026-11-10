@@ -21,8 +21,10 @@ html,body,#root {margin:0;min-width:0;width:100%;height:100%;overflow:hidden}
 /* Both presentations share the live workbook, sheet scroll and native zoom.
    Only editing chrome changes; host outputs and the sheet/status rails stay. */
 :root[data-presentation-mode="preview"] .excel-header,
-:root[data-presentation-mode="preview"] [data-u-comp="formula-bar"],
 :root[data-presentation-mode="preview"] [data-u-comp="sheet-bar-append-button"]{display:none!important}
+/* The live formula document still resizes with sheet zoom in preview.
+   Keep its width measurable so its text layout never receives a zero page width. */
+:root[data-presentation-mode="preview"] [data-u-comp="formula-bar"]{height:0!important;min-height:0!important;flex-basis:0!important;padding-block:0!important;border-block-width:0!important;overflow:hidden!important;visibility:hidden!important;pointer-events:none!important}
 :root[data-host-readonly="true"] .xlsx-print-visual{pointer-events:none!important}
 :root[data-host-readonly="true"] .chart-edit-button,
 :root[data-host-readonly="true"] .chart-editor{display:none!important}

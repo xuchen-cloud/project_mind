@@ -40,13 +40,13 @@ async function fixture(t) {
   return { ctx, contexts, rpc, workspace, project: { kind: 'project', id: 17, name: 'Project', directory: project }, hydrated, created, rows };
 }
 
-test('one registry routes two native scopes and hydrates only the requested scope', async t => {
+test('one registry routes two native scopes without cold hydration', async t => {
   const f = await fixture(t);
   assert.equal((await f.rpc('mind/context', { context: f.project })).ok, true);
   const list = await f.rpc('mind/session/list', { context: f.project });
   assert.equal(list.ok, true);
   assert.deepEqual(list.value.items.map(row => row.sessionId), ['project-session']);
-  assert.deepEqual(f.hydrated, ['project-session']);
+  assert.deepEqual(f.hydrated, []);
   assert.equal((await f.contexts.forSession('workspace-session')).kind, 'workspace');
   assert.equal((await f.contexts.forSession('project-session')).id, 17);
   assert.equal((await f.rpc('mind/session/create', { context: f.project })).ok, true);

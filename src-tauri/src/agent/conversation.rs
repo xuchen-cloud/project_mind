@@ -63,6 +63,7 @@ pub enum MessageRole {
     Assistant,
     Tool,
 }
+#[cfg(test)]
 impl MessageRole {
     pub(crate) fn sql(&self) -> &'static str {
         match self {
@@ -154,17 +155,20 @@ pub struct RunEventPage {
     pub first_available_seq: Option<u64>,
 }
 
+#[cfg(test)]
 /// Rust Host input only: adapters cannot deserialize caller grants or settle runs.
 pub(crate) struct RunPreparation {
     pub run_id: String,
     pub context_manifest: Value,
 }
+#[cfg(test)]
 /// Constructed only after Host verifies every Node page against its checkpoint.
 /// Content is source-specific codec output; never globally rewrite user text.
 pub(crate) struct VerifiedSessionProjection {
     pub checkpoint: SessionCheckpoint,
     pub messages: Vec<ProjectionMessage>,
 }
+#[cfg(test)]
 pub(crate) struct RunSettlement {
     pub state: RunState,
     pub runtime_settled: bool,

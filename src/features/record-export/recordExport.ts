@@ -1,3 +1,4 @@
+import { prepareExportDiagrams } from "./diagramExport";
 import { generateMarkdown } from "./markdownGenerator";
 import { projectRecordExportDocument, type ExportBlock, type RecordExportSource } from "./recordExportModel";
 
@@ -153,10 +154,11 @@ async function generateDocxOutput(
   sourceBytes: number,
 ) {
   const { images, missing } = await resolveImages(document.blocks, platform, request);
-  await ensureGenerationWorkspace(platform, request.targetPath, sourceBytes, Array.from(images.values(), (image) => image.bytes));
+  const prepared = await prepareExportDiagrams(document, images, request.signal);
+  await ensureGenerationWorkspace(platform, request.targetPath, sourceBytes, Array.from(prepared.images.values(), (image) => image.bytes));
   request.onProgress?.({ stage: "generating" });
   const { generateDocx } = await import("./docxGenerator");
-  return { bytes: await generateDocx(document, images, request.signal), missing, fontSubstituted: false };
+  return { bytes: await generateDocx(prepared.document, prepared.images, request.signal), missing, fontSubstituted: false };
 }
 
 async function generatePdfOutput(
@@ -166,11 +168,12 @@ async function generatePdfOutput(
   sourceBytes: number,
 ) {
   const { images, missing } = await resolveImages(document.blocks, platform, request);
+  const prepared = await prepareExportDiagrams(document, images, request.signal);
   await ensureGenerationWorkspace(
     platform,
     request.targetPath,
     sourceBytes,
-    Array.from(images.values(), (image) => image.bytes),
+    Array.from(prepared.images.values(), (image) => image.bytes),
     PDF_BUNDLED_FONT_BYTES,
   );
   request.onProgress?.({ stage: "generating" });
@@ -180,7 +183,7 @@ async function generatePdfOutput(
   ]);
   const requestedFonts = [document.style.body.fontFamily, document.style.headings.fontFamily, document.style.list.fontFamily];
   const fontSubstituted = requestedFonts.some((selection) => selection.source === "system" || selection.value === "work_sans" || selection.value === "source_serif");
-  return { bytes: await generatePdf(document, images, fontBytes, request.signal), missing, fontSubstituted };
+  return { bytes: await generatePdf(prepared.document, prepared.images, fontBytes, request.signal), missing, fontSubstituted };
 }
 
 async function resolveImages(

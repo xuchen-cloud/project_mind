@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { createSessionSummaries } from './session-summaries.mjs';
 import { normalizeDirectory } from './context-directory.mjs';
 import { watch } from 'node:fs';
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -99,7 +100,11 @@ export async function bindContext(ctx, initial, { home, cli } = {}) {
       if (change.operation === 'deleted') revokedWorkspaces.add(change.key);
       else { revokedWorkspaces.delete(change.key); workspacePaths.set(change.key, change.value.path); }
     }
-    invalidate();
+    // Registry admission/pins/archive changes do not change persisted headers or
+    // titles. Keep the corpus snapshot, but revoke in-flight scoped responses.
+    catalogGeneration++; contentRevision++;
+    if (catalog) catalog = { ...catalog, generation: catalogGeneration };
+    inventoryCache.cache.clear();
   });
   const readCatalog = async (signal, refresh = false) => {
     signal?.throwIfAborted();
@@ -131,7 +136,7 @@ export async function bindContext(ctx, initial, { home, cli } = {}) {
             if (persistedRevision !== undefined && revision !== persistedRevision) invalidate();
             persistedRevision = revision;
             checkedAt = performance.now();
-            catalog = { generation: catalogGeneration, watchGeneration, serial, value, byId: new Map(value.items.map(row => [row.sessionId, row])) };
+            catalog = { generation: catalogGeneration, watchGeneration, serial, value, persisted: new Map((persisted ?? []).map(item => [item.header.id, item])), byId: new Map(value.items.map(row => [row.sessionId, row])) };
             for (const id of sessionVersions.keys()) if (!catalog.byId.has(id)) sessionVersions.delete(id);
           }
         })().finally(() => { if (catalogPending === pending) catalogPending = undefined; });
@@ -202,7 +207,6 @@ export async function bindContext(ctx, initial, { home, cli } = {}) {
       const value = { ...context, workspaceId, ...(binding ? { cli: binding } : existing?.cli ? { cli: existing.cli } : {}) };
       contexts.set(key(context), value);
       directories.set(value.directory, value);
-      invalidate();
       return value;
     });
     chain = next.catch(() => {});
@@ -282,6 +286,39 @@ export async function bindContext(ctx, initial, { home, cli } = {}) {
       if (!available(context) || isRemoved(agent.session.id)) throw new Error('Agent belongs to another context');
       return context;
     },
+  };
+  const summaries = createSessionSummaries(ctx, { home,
+    canPublish: header => available(directories.get(header.cwd)) && !isRemoved(header.id),
+    changed: () => { contentRevision++; },
+  });
+  const listSummaries = async (request, signal) => {
+    const context = select(request.context);
+    const state = await readCatalog(signal, request.refresh === true);
+    const items = [];
+    for (const row of state.value.items) {
+      if (row.cwd !== context.directory || isRemoved(row.sessionId)) continue;
+      items.push(ctx.sessions?.get(row.sessionId) ? row : await summaries.hint(row, state.persisted.get(row.sessionId)));
+      signal?.throwIfAborted();
+    }
+    // Recheck the admission and corpus after disk hint I/O. Never publish an old
+    // scope/generation just because its title was available in a derived index.
+    select(request.context);
+    if (state.generation !== catalogGeneration || state.watchGeneration !== watchGeneration) {
+      throw new Error('Session summaries changed while reading');
+    }
+    const pins = new Map((ctx.workspaceRegistry.pinnedSessionIds ?? []).map((id, index) => [id, index]));
+    const visible = items.filter(row => !isRemoved(row.sessionId)).map(row => {
+      const live = ctx.sessions?.get(row.sessionId);
+      if (!live) return { ...row, pinned: pins.has(row.sessionId) };
+      // Read live metadata after every disk hint await. Body tokens in another
+      // scope do not revoke this response or force another corpus scan.
+      const projection = ctx.sessionProjections?.cachedSnapshot(live);
+      const agent = ctx.agents?.get(row.sessionId);
+      return { ...row, running: agent?.status === 'running', pinned: pins.has(row.sessionId),
+        ...(projection ? { title: projection.values.title, projections: { kind: 'sequenced', ...projection } } : {}) };
+    });
+    visible.sort((a, b) => (pins.get(a.sessionId) ?? pins.size) - (pins.get(b.sessionId) ?? pins.size));
+    return { revision: `${contentRevision}:${watchGeneration}:${state.serial}:${summaries.revision()}`, items: visible };
   };
   ctx.mindContexts = registry;
   const initialize = async (context, signal) => ({ workspace: (await registry.snapshot(context, signal)).items[0] });
@@ -369,7 +406,8 @@ export async function bindContext(ctx, initial, { home, cli } = {}) {
     return { context: { kind, id, name, directory } };
   });
   route('mind/workspace/initializeDefault', (request, signal) => initialize(select(request.context), signal));
-  route('mind/session/list', (request, signal) => sessions.list({ cwd: select(request.context).directory }, signal));
+  route('mind/session/summaries', listSummaries);
+  route('mind/session/list', listSummaries);
   route('mind/session/create', request => create(request, select(request.context)));
   route('mind/session/search', (request, signal) => searchContextSessions(ctx, registry, select(request.context), request, signal));
   route('mind/session/fileAccess', async (request, signal) => {
@@ -430,8 +468,9 @@ export async function bindContext(ctx, initial, { home, cli } = {}) {
       return { page: await sessionInventory(controller, context, input, authorization, signal) };
     } catch (error) { return { error: { code: error.code ?? 'RUNTIME_UNAVAILABLE', message: String(error.message ?? error), retryable: false, ...(error.details ? { details: error.details } : {}) } }; }
   });
-  ctx.effect(() => () => {
+  ctx.effect(() => async () => {
     persistenceWatcher?.close();
+    await summaries.dispose();
     if (persistence) persistence.list = originalPersistenceList;
     liveArtifacts.clear();
     invalidate(); directories.clear(); contexts.clear(); workspacePaths.clear(); inventoryControllers.clear();

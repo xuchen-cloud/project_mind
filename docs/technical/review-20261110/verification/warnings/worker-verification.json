@@ -1,0 +1,35 @@
+[
+  {
+    "log": "production-after.log",
+    "command": [
+      "cargo",
+      "check",
+      "--lib",
+      "--offline",
+      "--manifest-path",
+      "src-tauri/Cargo.toml"
+    ],
+    "exit_code": 0,
+    "seconds": 16.02
+  },
+  {
+    "log": "tests-after.log",
+    "command": [
+      "cargo",
+      "test",
+      "--lib",
+      "--offline",
+      "--manifest-path",
+      "src-tauri/Cargo.toml",
+      "--",
+      "--test-threads=1",
+      "agent::",
+      "db::agent_",
+      "source_session_read::",
+      "overview_maintenance::tests::",
+      "overview_generation::tests::"
+    ],
+    "exit_code": 101,
+    "seconds": 142.75
+  }
+]

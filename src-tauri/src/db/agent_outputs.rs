@@ -352,12 +352,14 @@ pub(super) fn authorize_session_run_read(
     frozen(request, &current).authorize(binding, &current.scope, permission)?;
     frozen(request, &current).authorize(binding, scope, permission)
 }
+#[cfg(test)]
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct DecisionStatusSummary {
     pub outputs: Vec<DecisionStatusItem>,
     pub has_more: bool,
 }
+#[cfg(test)]
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct DecisionStatusItem {
@@ -683,6 +685,7 @@ impl Database {
         }
         Ok(output)
     }
+    #[cfg(test)]
     /// Host context contains GUI decision/status metadata, never candidate or user text.
     pub(crate) fn agent_output_decision_summary(
         &self,

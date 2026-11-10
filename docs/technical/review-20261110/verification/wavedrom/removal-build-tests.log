@@ -1,0 +1,10 @@
+✔ diagram and DOCX browser graphs retain Mermaid without WaveDrom or its evaluator (286.152958ms)
+✔ declared runtime dependencies and lockfile drop the exclusive WaveDrom packages (2.762708ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 2
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 329.136542

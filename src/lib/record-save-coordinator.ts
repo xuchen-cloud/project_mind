@@ -185,6 +185,7 @@ export class RecordSaveCoordinator {
     };
     const tasks = this.tasksByRecord.get(recordKey) ?? [];
     tasks.push(task);
+    this.replaceRejectedValidation(tasks);
     this.tasksByRecord.set(recordKey, tasks);
     this.latestSequenceByRecord.set(recordKey, sequence);
     this.emit();
@@ -287,6 +288,21 @@ export class RecordSaveCoordinator {
     this.emit();
   }
 
+  private replaceRejectedValidation(tasks: SaveTask[]) {
+    const rejected = tasks[0];
+    const next = tasks[1];
+    const before = rejected?.snapshot.canonicalBody;
+    const after = next?.snapshot.canonicalBody;
+    // INVALID_PATCH is an explicit native validation rejection, not an
+    // ambiguous acknowledgement or a CAS conflict. A new capture can correct it.
+    if (rejected?.state === "failed" && rejected.error instanceof RecordSaveFailure
+      && !rejected.error.retryable && rejected.error.code === "INVALID_PATCH"
+      && next?.state === "queued" && before && after
+      && before.requestId !== after.requestId && before.baseRevision === after.baseRevision
+      && before.binding.workspaceId === after.binding.workspaceId
+      && before.binding.generation === after.binding.generation) tasks.shift();
+  }
+
   private async runRecord(recordKey: string) {
     const tasks = this.tasksByRecord.get(recordKey) ?? [];
     if (tasks.some((task) => task.state === "running")) {
@@ -310,7 +326,9 @@ export class RecordSaveCoordinator {
     } catch (error) {
       task.state = "failed";
       task.error = error;
+      this.replaceRejectedValidation(tasks);
       this.emit();
+      if (tasks[0] !== task) this.scheduleRecord(recordKey);
       return;
     }
     task.state = "saved";

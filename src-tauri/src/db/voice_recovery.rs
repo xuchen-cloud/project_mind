@@ -277,6 +277,7 @@ impl Database {
             .transpose()
     }
 
+    #[cfg(test)]
     pub(crate) fn voice_cloud_commit(
         &mut self,
         gap: &CloudGap,

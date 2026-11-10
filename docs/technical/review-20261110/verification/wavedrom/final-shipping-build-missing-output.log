@@ -1,0 +1,23 @@
+✗ Build failed in 2.78s
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+Build failed with 1 error:
+
+[plugin capture-host-build-boundaries]
+Error: ENOENT: no such file or directory, open '/private/tmp/project-mind-review-combined/scripts/office-performance/output/host-bundle-after.json'
+    at async open (node:internal/fs/promises:1345:25)
+    at async writeFile (node:internal/fs/promises:1965:14)
+    at async plugin (file:///private/tmp/project-mind-review-combined/node_modules/rolldown/dist/shared/bindingify-input-options-e7ze4hPR.mjs:1317:4)
+    at async plugin.<computed> (file:///private/tmp/project-mind-review-combined/node_modules/rolldown/dist/shared/bindingify-input-options-e7ze4hPR.mjs:1593:12)
+    at aggregateBindingErrorsIntoJsError (file:///private/tmp/project-mind-review-combined/node_modules/rolldown/dist/shared/error-BLhcSyeg.mjs:48:18)
+    at unwrapBindingResult (file:///private/tmp/project-mind-review-combined/node_modules/rolldown/dist/shared/error-BLhcSyeg.mjs:18:128)
+    at #build (file:///private/tmp/project-mind-review-combined/node_modules/rolldown/dist/shared/rolldown-build-CPrIX9V6.mjs:3313:34)
+    at async buildEnvironment (file:///private/tmp/project-mind-review-combined/node_modules/vite/dist/node/chunks/node.js:32849:64)
+    at async Object.build (file:///private/tmp/project-mind-review-combined/node_modules/vite/dist/node/chunks/node.js:33271:19)
+    at async file:///private/tmp/project-mind-review-combined/scripts/office-performance/build-host-graph.mjs:5:1 {
+  errors: [Getter/Setter]
+}
+
+Node.js v24.21.0

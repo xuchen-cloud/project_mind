@@ -53,16 +53,6 @@
       "group": "block list"
     },
     {
-      "name": "codeBlock",
-      "attrs": {
-        "languageExplicit": false,
-        "blockId": null,
-        "language": null
-      },
-      "content": "text*",
-      "group": "block"
-    },
-    {
       "name": "doc",
       "attrs": {},
       "content": "block+"
@@ -109,6 +99,16 @@
       "name": "text",
       "attrs": {},
       "group": "inline"
+    },
+    {
+      "name": "codeBlock",
+      "attrs": {
+        "languageExplicit": false,
+        "blockId": null,
+        "language": null
+      },
+      "content": "text*",
+      "group": "block"
     },
     {
       "name": "taskList",

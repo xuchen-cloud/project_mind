@@ -60,7 +60,7 @@ impl OfficeUtility for Engine {
     ) -> AgentResult<Value> {
         assert_eq!(format, "docx");
         let original = STANDARD.decode(base64).unwrap();
-        if method == "office.inspect" {
+        if method == "office.inspect" || method == "office.inspectView" {
             return Ok(json!({"model":{"text":std::str::from_utf8(&original).unwrap()}}));
         }
         assert_eq!(original, b"first document");
@@ -382,6 +382,21 @@ impl BoundFileCommitStore for RecalcRevoked<'_> {
     }
 }
 impl OfficeUtility for RecalcRevoked<'_> {
+    async fn view(
+        &self,
+        _: &crate::office_worker::OfficeBaseline,
+        _: &str,
+        _: &str,
+        _: &str,
+        read: Option<&crate::office_view::OfficeViewRead>,
+    ) -> AgentResult<Value> {
+        self.1.store(true, std::sync::atomic::Ordering::SeqCst);
+        Ok(if read.is_some() {
+            json!({"result":{"cells":[]}})
+        } else {
+            json!({"model":{"coverage":{"kind":"partial"}}})
+        })
+    }
     async fn request(
         &self,
         id: &str,
@@ -409,6 +424,58 @@ async fn office_recalculate_rechecks_workspace_generation_after_async_computatio
             .code,
         ErrorCode::WorkspaceChanged
     );
+    assert_eq!(std::fs::read(&f.path).unwrap(), b"first workbook");
+}
+
+#[tokio::test]
+async fn office_view_rejects_history_projection_and_ranges_after_generation_changes() {
+    for range_read in [false, true] {
+        let f = fixture_bytes("workbook.xlsx", b"first workbook");
+        let host = RecalcRevoked(&f.store, std::sync::atomic::AtomicBool::new(false));
+        let input = FileOfficeViewInput {
+            object: f.input.object.clone(),
+            version_number: 1,
+            expected_content_hash: f.input.expected_content_hash.clone(),
+            read: range_read.then(|| {
+                serde_json::from_value(json!({
+                    "kind":"range","sheetId":"sheet-1",
+                    "range":{"startRow":0,"endRow":0,"startColumn":0,"endColumn":0}
+                }))
+                .unwrap()
+            }),
+        };
+        let mut request = f.request.clone();
+        request.scope_grant.operations = vec!["source.read".into()];
+        let result = FileOfficeService::new(&host, &host)
+            .view(&request, &input)
+            .await;
+        assert!(
+            host.1.load(std::sync::atomic::Ordering::SeqCst),
+            "read-only GUI reaches the worker"
+        );
+        assert_eq!(result.unwrap_err().code, ErrorCode::WorkspaceChanged);
+        assert_eq!(std::fs::read(&f.path).unwrap(), b"first workbook");
+    }
+}
+
+#[tokio::test]
+async fn office_view_rejects_working_range_after_generation_changes() {
+    use crate::file_working::{self, WorkingReadView};
+    let f = fixture_bytes("workbook.xlsx", b"first workbook");
+    let opened = file_working::with_db(&f.store, &f.request, |db| {
+        db.file_working_begin_session(&f.request, &f.request.binding, &f.input.object)
+    })
+    .unwrap();
+    let host = RecalcRevoked(&f.store, std::sync::atomic::AtomicBool::new(false));
+    let input: WorkingReadView = serde_json::from_value(json!({
+        "object":f.input.object,"sessionId":opened.session_id,
+        "read":{"kind":"range","sheetId":"sheet-1",
+            "range":{"startRow":0,"endRow":0,"startColumn":0,"endColumn":0}}
+    }))
+    .unwrap();
+    let result = file_working::read_view(&host, &host, &f.request, &input).await;
+    assert!(host.1.load(std::sync::atomic::Ordering::SeqCst));
+    assert_eq!(result.unwrap_err().code, ErrorCode::WorkspaceChanged);
     assert_eq!(std::fs::read(&f.path).unwrap(), b"first workbook");
 }
 
@@ -441,10 +508,16 @@ async fn compact_office_receipt_rehydrates_its_committed_version_after_head_adva
     let service = FileOfficeService::new(&f.store, &Engine);
     let saved = service.save(&f.request, &f.input).await.unwrap();
     std::fs::write(&f.path, b"third document").unwrap();
-    let Scope::Project { project_id } = f.input.object.scope else { panic!("project fixture") };
-    let registered = f.store.db.lock().unwrap().project_file_register(
-        &f.store.binding.workspace_id, project_id, "document.docx",
-    ).unwrap();
+    let Scope::Project { project_id } = f.input.object.scope else {
+        panic!("project fixture")
+    };
+    let registered = f
+        .store
+        .db
+        .lock()
+        .unwrap()
+        .project_file_register(&f.store.binding.workspace_id, project_id, "document.docx")
+        .unwrap();
     assert_eq!(registered.version_number, 3);
     let replay = service.save(&f.request, &f.input).await.unwrap();
     assert_eq!(replay.commit.receipt, saved.commit.receipt);
@@ -461,8 +534,13 @@ async fn office_save_replays_same_receipt_and_rejects_reusing_id_for_different_e
         "SELECT result_json FROM agent_operation_receipts WHERE operation='file.office.candidate'",
         [], |row| row.get(0),
     ).unwrap();
-    assert!(serde_json::from_str::<Value>(&stored).unwrap().get("model").is_none(),
-        "candidate receipts must retain identities, not another complete Office model");
+    assert!(
+        serde_json::from_str::<Value>(&stored)
+            .unwrap()
+            .get("model")
+            .is_none(),
+        "candidate receipts must retain identities, not another complete Office model"
+    );
     let replay = service.save(&f.request, &f.input).await.unwrap();
     assert_eq!(replay.commit.receipt, saved.commit.receipt);
     assert_eq!(replay.model, saved.model);
@@ -477,10 +555,24 @@ async fn office_save_replays_same_receipt_and_rejects_reusing_id_for_different_e
 #[tokio::test]
 async fn office_inspection_burst_bounds_loaded_baselines_and_releases_database() {
     use std::sync::atomic::{AtomicUsize, Ordering};
-    struct CountingEngine<'a> { store: &'a Store, active: AtomicUsize, peak: AtomicUsize }
+    struct CountingEngine<'a> {
+        store: &'a Store,
+        active: AtomicUsize,
+        peak: AtomicUsize,
+    }
     impl OfficeUtility for CountingEngine<'_> {
-        async fn request(&self, id: &str, method: &str, format: &str, bytes: &str, payload: OfficePayload<'_>) -> AgentResult<Value> {
-            assert!(self.store.db.try_lock().is_ok(), "Office computation must not retain the shared database lock");
+        async fn request(
+            &self,
+            id: &str,
+            method: &str,
+            format: &str,
+            bytes: &str,
+            payload: OfficePayload<'_>,
+        ) -> AgentResult<Value> {
+            assert!(
+                self.store.db.try_lock().is_ok(),
+                "Office computation must not retain the shared database lock"
+            );
             let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
             self.peak.fetch_max(active, Ordering::SeqCst);
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
@@ -490,10 +582,15 @@ async fn office_inspection_burst_bounds_loaded_baselines_and_releases_database()
         }
     }
     let f = fixture();
-    let worker = CountingEngine { store: &f.store, active: AtomicUsize::new(0), peak: AtomicUsize::new(0) };
+    let worker = CountingEngine {
+        store: &f.store,
+        active: AtomicUsize::new(0),
+        peak: AtomicUsize::new(0),
+    };
     let service = FileOfficeService::new(&f.store, &worker);
     let input = f.input.baseline();
-    let results = futures_util::future::join_all((0..20).map(|_| service.inspect(&f.request, &input))).await;
+    let results =
+        futures_util::future::join_all((0..20).map(|_| service.inspect(&f.request, &input))).await;
     assert!(results.iter().all(Result::is_ok));
     assert!((1..=2).contains(&worker.peak.load(Ordering::SeqCst)));
     assert_eq!(worker.active.load(Ordering::SeqCst), 0);
@@ -534,16 +631,23 @@ impl OfficeUtility for DeletedDisk {
 async fn office_save_original_missing_before_save_has_explicit_reason() {
     let f = fixture();
     let service = FileOfficeService::new(&f.store, &Engine);
-    service.inspect(&f.request, &f.input.baseline()).await.unwrap();
+    service
+        .inspect(&f.request, &f.input.baseline())
+        .await
+        .unwrap();
     std::fs::remove_file(&f.path).unwrap();
     let failure = service.save(&f.request, &f.input).await.unwrap_err();
     assert_eq!(failure.code, ErrorCode::SourceNotReady);
     assert_eq!(failure.details, Some(json!({"reason":"original_missing"})));
     assert!(!f.path.exists());
     assert_eq!(
-        f.store.db.lock().unwrap()
+        f.store
+            .db
+            .lock()
+            .unwrap()
             .file_version_registered_target(&f.request, &f.store.binding, &f.input.object)
-            .unwrap().current_version_number,
+            .unwrap()
+            .current_version_number,
         1
     );
 }
@@ -552,14 +656,20 @@ async fn office_save_original_missing_before_save_has_explicit_reason() {
 async fn office_save_original_missing_during_utility_has_explicit_reason() {
     let f = fixture();
     let failure = FileOfficeService::new(&f.store, &DeletedDisk(f.path.clone()))
-        .save(&f.request, &f.input).await.unwrap_err();
+        .save(&f.request, &f.input)
+        .await
+        .unwrap_err();
     assert_eq!(failure.code, ErrorCode::SourceNotReady);
     assert_eq!(failure.details, Some(json!({"reason":"original_missing"})));
     assert!(!f.path.exists());
     assert_eq!(
-        f.store.db.lock().unwrap()
+        f.store
+            .db
+            .lock()
+            .unwrap()
             .file_version_registered_target(&f.request, &f.store.binding, &f.input.object)
-            .unwrap().current_version_number,
+            .unwrap()
+            .current_version_number,
         1
     );
 }
@@ -568,8 +678,10 @@ async fn office_save_original_missing_during_utility_has_explicit_reason() {
 fn office_save_original_missing_does_not_reclassify_generic_snapshot_io() {
     use crate::file_version_service::{FileBytesReader, FilesystemFileReader};
     let temp = tempfile::tempdir().unwrap();
-    let failure = FilesystemFileReader.capture(&temp.path().join("missing-version-snapshot"))
-        .err().unwrap();
+    let failure = FilesystemFileReader
+        .capture(&temp.path().join("missing-version-snapshot"))
+        .err()
+        .unwrap();
     assert_eq!(failure.code, ErrorCode::IoFailed);
     assert_eq!(failure.details, None);
 }
@@ -745,9 +857,12 @@ async fn office_real_format(
         .unwrap();
     if format == "xlsx" {
         let imported = crate::editor_workbook_import::inspect_imported(
-            "main", worker,
+            "main",
+            worker,
             serde_json::from_value(json!({"base64": STANDARD.encode(&bytes)})).unwrap(),
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
         assert_eq!(imported["format"], "xlsx");
         assert_eq!(imported["sheets"], original.model["sheets"]);
         assert!(imported["rendererData"]["file"].is_object());
@@ -1099,6 +1214,11 @@ async fn office_real_formats_working_saves_share_fixed_base_and_archive_once() {
         let original_bytes = std::fs::read(root.join(relative)).unwrap();
         let f = fixture_bytes(&format!("working.{format}"), &original_bytes);
         let old = f.input.baseline();
+        let original_model = FileOfficeService::new(&f.store, &worker)
+            .inspect(&f.request, &old)
+            .await
+            .unwrap()
+            .model;
         let opened = file_working::open(
             &f.store,
             &worker,
@@ -1212,7 +1332,15 @@ async fn office_real_formats_working_saves_share_fixed_base_and_archive_once() {
             "xlsx" => {
                 assert_eq!(xlsx_cell(&current, "明细", 2, 0)["value"], "连续保存保留A");
                 assert_eq!(xlsx_cell(&current, "明细", 2, 1)["value"], 10);
-                assert_eq!(xlsx_cell(&current, "说明", 2, 1)["value"], 35);
+                assert!(
+                    current["ranges"].get("sheet-2").is_none(),
+                    "other sheet was not loaded for either save"
+                );
+                let dependency = file_working::read_view(&f.store,&worker,&second_request,&file_working::WorkingReadView {
+                    object:old.object.clone(),session_id:reader.session_id.clone(),
+                    read:serde_json::from_value(json!({"kind":"range","sheetId":"sheet-2","range":{"startRow":2,"endRow":2,"startColumn":1,"endColumn":1}})).unwrap(),
+                }).await.unwrap();
+                assert_eq!(dependency["cells"][0]["value"], 35);
             }
             _ => unreachable!(),
         }
@@ -1228,23 +1356,41 @@ async fn office_real_formats_working_saves_share_fixed_base_and_archive_once() {
         .unwrap();
         assert_eq!(archived.archived_version_number, 2);
         let service = FileOfficeService::new(&f.store, &worker);
-        assert_eq!(
-            service
-                .inspect(
-                    &second_request,
-                    &FileOfficeInput {
-                        object: old.object.clone(),
-                        version_number: 2,
-                        expected_content_hash: second.content_hash.clone()
-                    }
-                )
-                .await
+        let committed = service
+            .inspect(
+                &second_request,
+                &FileOfficeInput {
+                    object: old.object.clone(),
+                    version_number: 2,
+                    expected_content_hash: second.content_hash.clone(),
+                },
+            )
+            .await
+            .unwrap()
+            .model;
+        match format {
+            "docx" => assert!(committed["nodes"]
+                .as_array()
                 .unwrap()
-                .model,
-            current
-        );
+                .iter()
+                .any(|n| n["text"] == "连续保存：第二次。")),
+            "pptx" => assert!(committed["textElements"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|n| n["text"] == "连续保存：第二次。")),
+            "xlsx" => {
+                assert_eq!(
+                    xlsx_cell(&committed, "明细", 2, 0)["value"],
+                    "连续保存保留A"
+                );
+                assert_eq!(xlsx_cell(&committed, "明细", 2, 1)["value"], 10);
+                assert_eq!(xlsx_cell(&committed, "说明", 2, 1)["value"], 35);
+            }
+            _ => unreachable!(),
+        }
         let history = service.inspect(&second_request, &old).await.unwrap();
-        assert_eq!(history.model, *model);
+        assert_eq!(history.model, original_model);
         assert_eq!(
             STANDARD
                 .decode(
@@ -1259,16 +1405,23 @@ async fn office_real_formats_working_saves_share_fixed_base_and_archive_once() {
                 .unwrap(),
             original_bytes
         );
-        file_working::with_db(&f.store, &second_request, |db| {
-            db.file_working_close(
-                &second_request,
-                &f.store.binding,
-                &WorkingSession {
-                    object: old.object.clone(),
-                    session_id: opened.session_id,
-                },
-            )
-        })
+        file_working::close(
+            &f.store,
+            &second_request,
+            &WorkingSession {
+                object: old.object.clone(),
+                session_id: reader.session_id,
+            },
+        )
+        .unwrap();
+        file_working::close(
+            &f.store,
+            &second_request,
+            &WorkingSession {
+                object: old.object.clone(),
+                session_id: opened.session_id,
+            },
+        )
         .unwrap();
         // Receipt replay precedes session access and candidate generation.
         assert_eq!(

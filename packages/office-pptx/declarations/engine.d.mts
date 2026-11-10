@@ -1,4 +1,5 @@
 import type { PptxModel, PptxEdit } from '../types';
+export declare function inspectView(bytes: Uint8Array, context?: unknown): Promise<PptxModel>;
 export declare function inspect(bytes: Uint8Array): Promise<PptxModel>;
 export declare function edit(bytes: Uint8Array, edits: PptxEdit[]): Promise<Uint8Array>;
 export declare function create(content: unknown, context?: unknown): Promise<Uint8Array>;

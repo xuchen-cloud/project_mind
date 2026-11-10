@@ -41,7 +41,7 @@ pub(super) async fn request_with_admission(
     admit: impl FnOnce() -> Result<(), String> + Send,
 ) -> Result<serde_json::Value, String> {
     let state = app.state::<DshAssistantState>();
-    let mut runtimes = state.inner.lock().await;
+    let mut runtimes = state.lock_runtimes().await;
     if state.stopping.load(Ordering::SeqCst) {
         return Err("应用正在退出".into());
     }
@@ -107,13 +107,14 @@ async fn restore(app: &tauri::AppHandle) -> Result<(), String> {
     };
     let state = app.state::<DshAssistantState>();
     let host_ready = {
-        let mut runtimes = state.inner.lock().await;
+        let mut runtimes = state.lock_runtimes().await;
         if state.stopping.load(Ordering::SeqCst) {
             return Ok(());
         }
         verify_binding(app, &binding)?;
         if runtimes.scopes.contains_key(&None) {
-            runtimes.scope_mut(None)?.check_ready(app).is_ok()
+            let scope = runtimes.scope_mut(None)?;
+            scope.execution_ready && scope.check_ready(app).is_ok()
         } else {
             false
         }
@@ -125,13 +126,18 @@ async fn restore(app: &tauri::AppHandle) -> Result<(), String> {
         return Ok(());
     }
     let state = app.state::<DshAssistantState>();
-    let mut runtimes = state.inner.lock().await;
+    let mut runtimes = state.lock_runtimes().await;
     if state.stopping.load(Ordering::SeqCst) {
         return Ok(());
     }
     verify_binding(app, &binding)?;
-    // An existing runtime may be reused, but background recovery never replaces it.
-    let inner = runtimes.ensure_scope(app, None, true).await?;
+    // Execution hosts keep their admitted scheduler. A read-only host has no
+    // task runner, so enabled durable tasks explicitly upgrade it once idle.
+    let pending = !crate::lock_mutex(&state.requests).is_empty();
+    let prevent_replacement = pending || !history::is_history(runtimes.host_identity.as_ref());
+    let inner = runtimes
+        .ensure_scope(app, None, prevent_replacement)
+        .await?;
     verify_binding(app, &binding)?;
     inner.check_ready(app)
 }

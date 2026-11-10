@@ -1,7 +1,7 @@
 import './browser-node-shims';
 import React from 'react';
 import {createRoot} from 'react-dom/client';
-import {openPptx} from '@genoffice/pptx-engine';
+import {openViewPptx} from './progressive-open';
 import {createParitySession} from './parity-session';
 import {candidateEdit,captureCandidateBaseline} from './parity-candidate';
 import {samePackage} from './parity-history';
@@ -121,6 +121,8 @@ const ipcRenderer={
  }
 };
 (window as any).slidesApi=createApi(ipcRenderer);
+// Read-only diagnostics for the host's first-content/coverage acceptance.
+(window as any).projectMindPptxViewCoverage=()=>session?.viewCoverage();
 (window as any).projectApi={};
 // Host takes responsibility for saving; standalone app management/AI chat are omitted.
 localStorage.setItem('ai-slides-show-ai','0');
@@ -200,7 +202,7 @@ async function receiveHost(m:any){
    const currentSession=session;
    const same=currentSession&&m.edits.length===0&&await samePackage(await currentSession.save(),m.model.sourceBase64);
    checkContext(context);
-   const nextBaseline=await openPptx(new Uint8Array(Buffer.from(m.model.sourceBase64,'base64')));checkContext(context);
+   const nextBaseline=await openViewPptx(new Uint8Array(Buffer.from(m.model.sourceBase64,'base64')),m.model);checkContext(context);
    if(same){
     // Native acknowledgment keeps App, selection and the bounded upstream undo/redo snapshots.
     baseline=captureCandidateBaseline(nextBaseline);initializing=false;
@@ -212,7 +214,7 @@ async function receiveHost(m:any){
    // Keep the native baseline independent so candidate manifests compare with
    // the original File even before the first native save acknowledgment.
    const source=captureCandidateBaseline(nextBaseline);
-   const opened=candidate?await openPptx(new Uint8Array(Buffer.from(candidate.base64,'base64'))):nextBaseline;checkContext(context);
+   const opened=candidate?await openViewPptx(new Uint8Array(Buffer.from(candidate.base64,'base64'))):nextBaseline;checkContext(context);
    previousSaves.forEach(resolve=>resolve({ok:false,error:'PPTX 编辑内容已替换'}));previousSaves=[];
    abandonTextEdit();root.render(null);
    dirtyVersion=0;snapshotVersion=0;persistedVersion=0;error=null;activeInput=false;composing=false;

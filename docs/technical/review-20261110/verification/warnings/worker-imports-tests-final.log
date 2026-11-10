@@ -1,0 +1,22 @@
+COMMAND ["cargo", "test", "--lib", "--offline", "--manifest-path", "src-tauri/Cargo.toml", "--", "--test-threads=1", "db::agent_run_provenance::", "db::agent_session_model_search::"]
+   Compiling project_mind_alpha v1.0.0 (/private/tmp/project-mind-review-warning-cleanup-final/src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 47.46s
+     Running unittests src/lib.rs (/Users/xuchen/project_mind/src-tauri/target/debug/deps/project_mind_alpha_lib-aba2c528566fbc31)
+
+running 13 tests
+test db::agent_run_provenance::tests::begin_is_owned_idempotent_and_exclusion_hides_run ... ok
+test db::agent_run_provenance::tests::candidate_subset_only_inherits_read_history ... ok
+test db::agent_run_provenance::tests::excluded_tool_message_is_omitted_without_inheritance ... ok
+test db::agent_run_provenance::tests::historical_dependencies_are_copied_and_cascade_with_session ... ok
+test db::agent_run_provenance::tests::legacy_assistant_is_omitted_and_legacy_user_retained ... ok
+test db::agent_run_provenance::tests::memory_policy_invalidates_l0_run_proof_without_removing_original_source ... ok
+test db::agent_run_provenance::tests::schema_34_upgrades_to_35 ... ok
+test db::agent_run_provenance::tests::workspace_l0_retains_published_parent_proof_after_bounding ... ok
+test db::agent_session_model_search::tests::assistant_inherits_recorded_run_source_exclusion ... ok
+test db::agent_session_model_search::tests::changed_workspace_binding_is_rejected ... ok
+test db::agent_session_model_search::tests::excluded_user_and_unknown_assistant_are_hidden_but_legacy_user_remains ... ok
+test db::agent_session_model_search::tests::paging_budget_and_deletion ... ok
+test db::agent_session_model_search::tests::scope_grant_and_cursor_cannot_cross_project ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 1855 filtered out; finished in 0.90s
+

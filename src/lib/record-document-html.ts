@@ -32,6 +32,12 @@ class HtmlTreeNode {
     if ("childNodes" in source) for (const child of source.childNodes) this.appendChild(new HtmlTreeNode(child, depth + 1, budget));
   }
   get firstChild() { return this.childNodes[0] ?? null; }
+  // Tiptap CodeBlock reads the first element's class tokens (not firstChild,
+  // which may be whitespace or a comment). Keep the browser parse rule intact.
+  get firstElementChild(): HtmlTreeNode | null { return this.childNodes.find((node) => node.nodeType === 1) ?? null; }
+  get classList(): readonly string[] {
+    return [...new Set((this.getAttribute("class") ?? "").split(/[\t\n\f\r ]+/).filter(Boolean))];
+  }
   get children() { return this.childNodes.filter((node) => node.nodeType === 1); }
   get parentElement(): HtmlTreeNode | null { return this.parentNode?.nodeType === 1 ? this.parentNode : null; }
   get textContent(): string { return this.nodeType === 3 ? this.nodeValue ?? "" : this.childNodes.map((node) => node.textContent).join(""); }

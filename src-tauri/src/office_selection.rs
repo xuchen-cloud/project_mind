@@ -1,8 +1,10 @@
 //! Window-owned live selections. No document bytes or persistence live here.
+#[cfg(test)]
+use crate::agent::models::Scope;
 use crate::{
     agent::{
         errors::{AgentError, AgentResult, ApiResponse, ErrorCode},
-        models::{ObjectKind, ObjectRef, Scope, WorkspaceBinding},
+        models::{ObjectKind, ObjectRef, WorkspaceBinding},
     },
     db::Database,
     file_office::gui_request,

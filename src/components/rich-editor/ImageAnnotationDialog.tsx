@@ -16,7 +16,6 @@ import { Button, IconButton } from "../../ui/components";
 import { Dialog } from "../../ui/components/Dialog";
 import {
   commitTextAnnotation,
-  createEmptyImageAnnotationDocument,
   createImageAnnotationId,
   fitImageAnnotationViewport,
   imagePointFromViewportPoint,

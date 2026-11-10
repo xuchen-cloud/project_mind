@@ -90,7 +90,6 @@ export function WorkspacePage({
     projectRecentPaths,
     openProjectIds,
     closeProjectTab,
-    projectSidebarCollapsed,
   } = useUiStore();
   const openInternalReference = useInternalReferenceNavigation();
   const contactMentionOptions = useContactMentionOptions();
@@ -477,6 +476,7 @@ export function WorkspacePage({
               editorControllerRef={quickNoteEditorRef}
               key={currentWorkspace?.rootPath}
               identity={`workspace-quick-note:${currentWorkspace?.rootPath}`}
+              scope={{ workspaceRoot: currentWorkspace.rootPath, projectId: null }}
               initialValue={quickNoteDraft}
               records={workspaceRecords}
               persist={saveWorkspaceQuickNote}

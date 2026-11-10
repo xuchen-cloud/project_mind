@@ -8,7 +8,8 @@ use crate::agent::{
 };
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+#[cfg(test)]
+use serde_json::json;
 use std::collections::HashSet;
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -32,42 +33,6 @@ fn current_result(conn: &Connection, receipt: ReviewReceipt) -> AgentResult<Outp
     })
 }
 impl Database {
-    /// A bounded, read-only snapshot for the next model turn. Candidate bodies
-    /// stay in the native output store; the model receives exact IDs/revisions.
-    pub(crate) fn agent_pending_review_plans(
-        &self, request: &RequestContext, binding: &WorkspaceBinding,
-    ) -> AgentResult<Value> {
-        let Caller::BuiltinRun { run_id } = &request.caller else { return Err(AgentError::new(ErrorCode::ScopeDenied, "Assistant run required")); };
-        let (session_id, scope_key, order): (String, String, i64) = self.conn.query_row(
-            "SELECT r.session_id,s.scope_key,r.rowid FROM agent_runs r JOIN agent_sessions s ON s.id=r.session_id WHERE r.id=?1",
-            [run_id], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))
-        ).map_err(io_error)?;
-        let scope = self.agent_output_run_scope(run_id)?;
-        request.authorize(binding, &scope, "output.read")?;
-        let mut stmt = self.conn.prepare("SELECT o.id FROM agent_outputs o JOIN agent_runs r ON r.id=o.run_id JOIN agent_sessions s ON s.id=r.session_id WHERE r.session_id=?1 AND s.scope_key=?2 AND r.rowid<?3 AND json_extract(r.context_manifest_json,'$.mode')='review' AND EXISTS(SELECT 1 FROM agent_messages m WHERE m.session_id=r.session_id AND m.run_id=r.id AND m.role='assistant') AND o.state IN ('staged','failed') AND COALESCE(json_extract(o.payload_json,'$.dismissed'),0)=0 ORDER BY r.rowid,o.ordinal LIMIT 257").map_err(io_error)?;
-        let ids = stmt.query_map(params![session_id,scope_key,order], |r| r.get::<_,String>(0)).map_err(io_error)?
-            .collect::<Result<Vec<_>,_>>().map_err(io_error)?;
-        if ids.len()>256 { return Err(AgentError::new(ErrorCode::BudgetExceeded,"Too many pending review candidates")); }
-        let mut plans:Vec<(String,Vec<Value>)>=Vec::new();
-        for id in ids {
-            let output=read_output(&self.conn,&id)?;
-            let intent=serde_json::to_value(&output.staged.intent).map_err(|_|AgentError::new(ErrorCode::IoFailed,"Cannot read candidate intent"))?;
-            let target= intent.get("title").or_else(||intent.get("content")).or_else(||intent.get("safeName"))
-                .or_else(||intent.get("target")).or_else(||intent.get("patch").and_then(|p|p.get("record").or_else(||p.get("object"))))
-                .or_else(||intent.get("restore").and_then(|p|p.get("object")))
-                .cloned().unwrap_or(Value::Null);
-            let label=target.as_str().map(str::to_owned).unwrap_or_else(|| {
-                let kind=target.get("kind").and_then(Value::as_str).unwrap_or("object");
-                let id=target.get("id").and_then(Value::as_str).unwrap_or("");
-                format!("{kind} {id}")
-            });
-            let clipped:String=label.chars().take(72).collect();
-            let label=if label.chars().count()>72 {format!("{clipped}…")} else {clipped};
-            if plans.last().is_none_or(|(run,_)|run!=&output.staged.run_id) {plans.push((output.staged.run_id.clone(),Vec::new()));}
-            plans.last_mut().unwrap().1.push(json!({"outputId":output.staged.id,"expectedRevision":output.staged.revision,"intent":intent["intent"],"target":label,"state":output.state}));
-        }
-        Ok(json!(plans.into_iter().map(|(run_id,outputs)|json!({"runId":run_id,"outputs":outputs})).collect::<Vec<_>>()))
-    }
     pub(crate) fn agent_output_review(
         &self,
         request: &RequestContext,

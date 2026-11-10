@@ -292,15 +292,6 @@ impl Fixture {
         )
         .await
     }
-    async fn read_grant(
-        &self, grant: &str, id: &str, method: &str, params: Value,
-        utility: &TextUtility,
-    ) -> AgentResult<Value> {
-        let mut input = self.input(id, method, params);
-        input.grant_id = grant.into();
-        dispatch::execute(&*self.store, &self.enabled, TOKEN, input,
-            &UnusedDocument, utility).await
-    }
     fn scope(&self) -> Scope {
         Scope::Project {
             project_id: self.project_id,

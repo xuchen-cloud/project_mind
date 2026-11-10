@@ -9,6 +9,7 @@ mod ai_network;
 mod agent_sessions;
 mod agent_session_maintenance;
 mod agent_session_summary;
+#[cfg(test)]
 pub(crate) mod agent_session_search;
 mod agent_session_search_schema;
 pub(crate) mod agent_run_provenance;
@@ -49,6 +50,9 @@ pub(crate) mod memory_service;
 mod agent_instructions;
 mod record_documents;
 mod record_read;
+mod record_owner_moves;
+#[cfg(test)]
+mod record_owner_moves_tests;
 mod record_references;
 mod workspace_record_references;
 mod sources;
@@ -63,13 +67,20 @@ mod native_changes;
 pub(crate) mod source_registry;
 pub(crate) mod source_maintenance;
 pub(crate) mod file_versions;
+pub(crate) mod file_version_metadata;
+mod file_flow_migration;
+#[cfg(test)]
+mod file_version_metadata_tests;
 pub(crate) mod file_imports;
 pub(crate) mod file_scope;
 mod file_metadata;
 mod file_deletions;
 mod file_relocations;
+pub(crate) mod file_owner_move;
+pub(crate) mod file_drop;
 pub(crate) mod file_content;
 pub(crate) mod project_directory_files;
+pub(crate) mod project_directory_changes;
 pub(crate) mod dsh_source_evidence;
 #[cfg(test)]
 mod startup_tests;
@@ -83,6 +94,9 @@ use std::{
     fs,
     path::{Component, Path, PathBuf},
 };
+
+#[cfg(test)]
+use crate::models::{ContactDeleteInput, ContactSearchInput, ContactUpsertInput, FileTagOptionDeleteInput};
 
 use anyhow::{anyhow, Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
@@ -99,11 +113,10 @@ use crate::{
         AiExecutionSettings, AiJobEnqueueInput, AiJobResult, AiProfileTestInput,
         AiProfileTestResult, AiProviderProfileDeleteInput, AiProviderProfileRecord,
         AiProviderProfileUpsertInput, AiRecordMetadataInput, AiRecordMetadataResult,
-        AiSettingsSnapshot, ContactDeleteInput, ContactRecord, ContactSearchInput,
-        ContactUpsertInput, DocumentImportClipboardNoteImageInput,
+        AiSettingsSnapshot, DocumentImportClipboardNoteImageInput,
         DocumentImportInput, DocumentImportNoteImageInput, DocumentListVersionsInput,
         DocumentRecord, DocumentTagRecord,
-        DocumentVersionRecord, FileTagOptionDeleteInput, FileTagOptionUpsertInput, FileTagRecord,
+        DocumentVersionRecord, FileTagOptionUpsertInput, FileTagRecord,
         FileTagSettingsGetInput, FileTagSettingsSnapshot, InternalReferenceResolveInput,
         InternalReferenceResolveResult, InternalReferenceSearchInput,
         InternalReferenceSearchResult, NoteRecord, ProjectArchiveInput, ProjectCreateInput,
@@ -157,7 +170,7 @@ const VOICE_RECOVERY_SCHEMA_VERSION: i64 = 25;
 const AGENT_FOUNDATION_SCHEMA_VERSION: i64 = 26;
 const RECORD_DOCUMENT_SCHEMA_VERSION: i64 = 28;
 const AGENT_RUNTIME_SCHEMA_VERSION: i64 = 29;
-const CURRENT_SCHEMA_VERSION: i64 = 40;
+const CURRENT_SCHEMA_VERSION: i64 = 41;
 const PROJECT_KIND_NORMAL: &str = "normal";
 const AI_CAPABILITIES: [&str; 2] = ["default", "image_default"];
 const RICH_TEXT_FONT_PRESETS: [&str; 4] = [
@@ -388,6 +401,7 @@ impl Database {
             db.bind_native_workspace(&crate::workspace::load_metadata(workspace_root)?.0.workspace_id)?;
         }
         db.migrate()?;
+        db.project_directory_recover_pending(None)?;
         db.file_working_recover_pending()?;
         db.voice_retry_asset_cleanup()?;
         Ok(db)
@@ -432,14 +446,17 @@ impl Database {
         if initial_schema_version == CURRENT_SCHEMA_VERSION {
             return Ok(());
         }
+        if initial_schema_version == 40 {
+            return self.migrate_file_flow_package();
+        }
         if initial_schema_version == 39 {
             self.ensure_file_working_schema()?;
-            return self.set_schema_version(40);
+            return self.migrate_file_flow_package();
         }
         if initial_schema_version == 38 {
             self.ensure_file_working_schema()?;
             self.ensure_contacts_schema()?;
-            return self.set_schema_version(40);
+            return self.migrate_file_flow_package();
         }
         if initial_schema_version > CURRENT_SCHEMA_VERSION {
             anyhow::bail!("Workspace database schema is newer than this application");
@@ -936,8 +953,7 @@ impl Database {
         self.ensure_workspace_file_schema()?;
         self.ensure_file_working_schema()?;
         self.ensure_contacts_schema()?;
-        self.set_schema_version(40)?;
-        Ok(())
+        self.migrate_file_flow_package()
     }
 
     pub fn voice_live_transcription_suppressed(&self) -> Result<bool> {
@@ -2518,6 +2534,8 @@ impl Database {
         if current_dir == next_dir {
             return Ok(None);
         }
+        self.file_owner_require_unshared_root(&current_dir,Some(current.id))?;
+        if current_dir.exists() { self.record_owner_require_unshared_root(&current_dir, Some(current.id))?; }
         self.file_working_require_owner_recovered(Some(current.id))
             .map_err(|error| anyhow!(error.message))?;
         self.file_project_root_available(&next_dir)?;
@@ -2742,7 +2760,7 @@ impl Database {
             .collect::<rusqlite::Result<Vec<_>>>()?;
         for (id, stored_path) in projects {
             let path = self.decode_path_ref(&stored_path);
-            let result = if path.exists() { move_paths_to_trash(&[path]) } else { Ok(()) };
+            let result = self.file_owner_require_unshared_root(&path,Some(id)).and_then(|_| if path.exists() { self.record_owner_require_unshared_root(&path, Some(id))?; move_paths_to_trash(&[path]) } else { Ok(()) });
             match result {
                 Ok(()) => { self.conn.execute("DELETE FROM project_asset_cleanup WHERE project_id=?1", [id])?; }
                 Err(error) => { self.conn.execute("UPDATE project_asset_cleanup SET last_error=?2 WHERE project_id=?1", params![id, error.to_string()])?; }
@@ -2757,6 +2775,8 @@ impl Database {
         self.file_working_require_owner_recovered(Some(input.project_id))
             .map_err(|error| anyhow!(error.message))?;
         let current = self.project_record(input.project_id)?;
+        self.file_owner_require_unshared_root(Path::new(&current.root_path),Some(input.project_id))?;
+        if Path::new(&current.root_path).exists() { self.record_owner_require_unshared_root(Path::new(&current.root_path), Some(input.project_id))?; }
         let active: bool = self.conn.query_row("SELECT EXISTS(SELECT 1 FROM recording_sessions s JOIN voice_records v ON v.id=s.voice_record_id JOIN notes n ON n.id=v.project_note_id WHERE n.project_id=?1 AND s.lifecycle != 'ended')", [input.project_id], |row| row.get(0))?;
         if active { return Err(anyhow!("请先结束语音记录，再删除 Project")); }
         let path = self.encode_path_ref(Path::new(&current.root_path));
@@ -5320,6 +5340,9 @@ impl Database {
         &self,
         input: InternalReferenceResolveInput,
     ) -> Result<Option<InternalReferenceResolveResult>> {
+        if matches!(input.kind.trim(), "note" | "workspace_record") {
+            return self.record_move_reference_route(input.kind.trim(), input.id);
+        }
         if input.kind.trim() == "todo" && self.conn.query_row("SELECT EXISTS(SELECT 1 FROM todos WHERE id=?1)", [input.id], |row| row.get::<_,bool>(0))? {
             agent_todo_undo::require_todo_visible(&self.conn, input.id).map_err(todo_revision_error)?;
         }
@@ -5522,8 +5545,12 @@ impl Database {
                 })
             },
         )?;
-        note.content_html =
-            self.hydrate_project_rich_text_html(note.project_id, &note.content_html)?;
+        let target = crate::record_documents::RecordTarget { scope: crate::agent::models::Scope::Project { project_id: note.project_id }, record_id: note.id };
+        note.content_html = if self.record_move_retained_assets(&target).map_err(|e|anyhow!(e.message))?.is_empty() {
+            self.hydrate_project_rich_text_html(note.project_id, &note.content_html)?
+        } else {
+            self.hydrate_workspace_rich_text_html(&note.content_html)
+        };
         Ok(note)
     }
 
@@ -6087,7 +6114,7 @@ impl Database {
         self.conn
             .query_row(
                 r#"
-                SELECT id, document_id, version_number, name, source_path, managed_path, created_at
+                SELECT id, document_id, version_number, name, source_path, managed_path, created_at, display_name, is_important, metadata_revision
                 FROM document_versions
                 WHERE id = ?1
                 "#,
@@ -6103,6 +6130,9 @@ impl Database {
                         source_path: self.decode_path_ref_to_string(&source_path_ref),
                         managed_path: self.decode_path_ref_to_string(&managed_path_ref),
                         created_at: row.get(6)?,
+                        display_name: row.get(7)?,
+                        is_important: row.get(8)?,
+                        metadata_revision: row.get(9)?,
                     })
                 },
             )
@@ -9730,7 +9760,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
         database.set_schema_version(19).unwrap();
         drop(database);
 
-        let mut reopened = Database::open(
+        let reopened = Database::open(
             &db_path,
             &harness.workspace_root,
             Some("test-secret".to_string()),
@@ -9873,7 +9903,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
 
     #[test]
     fn project_create_uses_windows_safe_directory_name() {
-        let (_harness, mut database) = setup_database();
+        let (_harness, database) = setup_database();
         let project = database
             .project_create(ProjectCreateInput {
                 name: "CON".to_string(),
@@ -10739,7 +10769,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
         assert_eq!(settings.body.font_family.value, "workspace_sans");
         assert_eq!(settings.body.font_size_px, 14);
         assert_eq!(settings.body.line_height, 1.6);
-        assert_eq!(settings.body.paragraph_spacing_before_px, 12);
+        assert_eq!(settings.body.paragraph_spacing_before_px, 8);
         assert_eq!(settings.body.paragraph_spacing_after_px, 0);
         assert_eq!(settings.headings.h1_size_px, 24);
         assert_eq!(settings.headings.h2_size_px, 20);
@@ -12817,7 +12847,7 @@ fn default_rich_text_style_settings() -> RichTextStyleSettings {
             font_family: preset_font_selection("workspace_sans"),
             font_size_px: 14,
             line_height: 1.6,
-            paragraph_spacing_before_px: 12,
+            paragraph_spacing_before_px: 8,
             paragraph_spacing_after_px: 0,
         },
         headings: crate::models::RichTextHeadingStyleSettings {

@@ -1,0 +1,26 @@
+import {Editor} from '@tiptap/core';
+import {it,expect} from 'vitest';
+import {buildRichEditorExtensions,recordDocumentSchema} from '/Users/xuchen/project_mind/src/components/rich-editor/extensions';
+import {validateRecordDocument} from '/Users/xuchen/project_mind/src/lib/record-document';
+import {serializeRecordDocument} from '/Users/xuchen/project_mind/src/lib/record-document-format';
+import {parseRecordHtml} from '/Users/xuchen/project_mind/src/lib/record-document-html';
+const cases=[
+ ['paragraph','<p>hello</p><p>world</p>'],
+ ['line-break','<p>hello<br>world</p>'],
+ ['empty-paragraph','<p>hello</p><p></p><p>world</p>'],
+ ['bold-image','<p><strong>hello</strong></p><strong><img src="https://example.com/a.png"></strong>'],
+ ['list','<ul><li><p>hello</p></li><li><p>world</p></li></ul>'],
+ ['table','<table><tr><td><p>a</p></td><td><p>b</p></td></tr></table>'],
+ ['code','<pre><code class="language-ts">hello\nworld</code></pre>'],
+];
+it.each(cases)('block current schema accepts editor and canonical roundtrip: %s',(_label,html)=>{
+ const editor=new Editor({element:document.createElement('div'),extensions:buildRichEditorExtensions('',{stableBlocks:true,recordKey:'test'}),content:html});
+ const json=editor.getJSON();
+ try{
+ const doc=validateRecordDocument(json,recordDocumentSchema);
+ const projection=serializeRecordDocument(doc,recordDocumentSchema);
+ const reparsed=parseRecordHtml(projection.html,recordDocumentSchema);
+ expect(reparsed).toEqual(doc);
+ console.log(_label,projection.html);
+ }finally{editor.destroy();}
+});

@@ -10,12 +10,13 @@ import { useRecordSaveCoordinator } from "../../lib/record-save-runtime";
 import { queryKeys } from "../../lib/queryKeys";
 import { useDshSessionTitles } from "../../lib/dsh-host-events";
 import type { ProjectPageData, WorkspacePageData } from "../../lib/types";
-import type { AgentSourceRef } from "../../lib/agent-types";
+import type { AgentSourceRef, AgentWorkspaceBinding } from "../../lib/agent-types";
 import { recordDocumentApi } from "../../services/recordDocumentApi";
 import { openProjectContent } from "../../services/projectContentApi";
 import { useProjectContentStore } from "../../state/project-content-store";
 import { ProjectContentLayoutView, type ContentPageProps } from "./ProjectContentLayoutView";
-import { registerProjectContentCloseGuard } from "../../lib/project-content-lifecycle";
+import { completeContentOwnerMove, releaseContentOwnerMove, registerProjectContentCloseGuard, type ContentOwnerMoveRelease, type MovingContentObject } from "../../lib/project-content-lifecycle";
+import { subscribeContentOwnerMoveEvents } from "../../lib/content-owner-move-events";
 
 const WorkspaceRecordPage = lazy(() => import("../workspace/WorkspaceRecordFocusPage").then(module => ({ default: module.WorkspaceRecordFocusPage })));
 const RecordPage = lazy(() => import("./ProjectNoteFocusPage").then(module => ({ default: module.ProjectNoteFocusPage })));
@@ -82,6 +83,9 @@ export function ProjectContentWorkspace({ workspaceRoot, projectId, active, over
   const coordinator = useRecordSaveCoordinator();
   const bindingQuery = useQuery({ queryKey: queryKeys.projectContentBinding(workspaceRoot), queryFn: () => recordDocumentApi.bindingGet(workspaceRoot), retry: false, staleTime: Infinity });
   const binding = bindingQuery.data;
+  const currentOwner = useRef({ workspaceRoot, projectId, binding });
+  currentOwner.current = { workspaceRoot, projectId, binding };
+  const moveEvents = useRef<{ binding: AgentWorkspaceBinding; ready: boolean } | null>(null);
   const scope = useMemo(() => binding ? { workspaceId: binding.workspaceId, projectId } : null, [binding?.workspaceId, projectId]);
   const layout = useProjectContentStore(state => scope ? getContentLayout(state, scope) : null);
   const sessionTitles = useDshSessionTitles(state => state.workspaceRoot === workspaceRoot ? state.byProject[String(projectId)] : undefined);
@@ -90,16 +94,69 @@ export function ProjectContentWorkspace({ workspaceRoot, projectId, active, over
   const routeRecordId = route && (projectId === null ? route.kind === "workspace" : route.kind === "project" && route.projectId === projectId) ? route.recordId : null;
   const routeKey = `${location.pathname}${location.search}`;
   const openedRoute = useRef<string | null>(null);
-  const registerLeaveGuard = useCallback((prepare: () => Promise<void>) => registerProjectContentCloseGuard({ workspaceRoot, projectId,
-    prepare: async () => {
-      await prepare();
+  const closeTab = useCallback((tabId: string) => {
+    if (!scope) return;
+    useProjectContentStore.getState().close(scope, tabId);
+    setOpeningError(null);
+    if (!activeRef.current) return;
+    const next = getContentLayout(useProjectContentStore.getState(), scope);
+    const selectedId = next.panes.find(item => item.id === next.focusedPaneId)?.selectedTabId;
+    const selected = next.tabs.find(item => item.id === selectedId);
+    navigate(selected ? projectContentTabRoute(projectId, selected) : contentHomeRoute(projectId), { replace: true });
+  }, [scope, projectId, navigate]);
+  const checkBinding = useCallback(async () => {
+    const current = await recordDocumentApi.bindingGet(workspaceRoot);
+    const owner = currentOwner.current;
+    const cached = queryClient.getQueryData<AgentWorkspaceBinding>(queryKeys.projectContentBinding(workspaceRoot));
+    if (!binding || current.workspaceId !== binding.workspaceId || current.generation !== binding.generation
+      || cached?.workspaceId !== binding.workspaceId || cached.generation !== binding.generation
+      || owner.workspaceRoot !== workspaceRoot || owner.projectId !== projectId
+      || owner.binding?.workspaceId !== binding.workspaceId || owner.binding.generation !== binding.generation) throw new Error("工作区已切换，关闭已取消");
+  }, [workspaceRoot, projectId, binding, queryClient]);
+  useEffect(() => {
+    if (!binding) return;
+    let disposed = false;
+    let stop: (() => void) | undefined;
+    const session = { binding, ready: false };
+    moveEvents.current = session;
+    const accepts = (event: ContentOwnerMoveRelease) => !disposed
+      && event.binding.workspaceId === binding.workspaceId && event.binding.generation === binding.generation
+      && event.source.workspaceId === binding.workspaceId
+      && (event.source.scope.kind === "project" ? event.source.scope.projectId : null) === projectId;
+    void subscribeContentOwnerMoveEvents({
+      moved: event => { if (accepts(event)) void completeContentOwnerMove(event).catch(failure => { if (!disposed) setOpeningError(String(failure)); }); },
+      released: event => { if (accepts(event)) releaseContentOwnerMove(event); },
+    }).then(dispose => { if (disposed) dispose(); else { stop = dispose; session.ready = true; } })
+      .catch(failure => { if (!disposed) setOpeningError(String(failure)); });
+    return () => { disposed = true; session.ready = false; stop?.(); };
+  }, [workspaceRoot, binding?.workspaceId, binding?.generation, projectId]);
+  const registerLeaveGuard = useCallback((prepare: (object?: MovingContentObject) => Promise<void>, lockObject: (object: MovingContentObject) => () => void, moved: (object: MovingContentObject, nativeSessionsClosed: boolean) => void) => registerProjectContentCloseGuard({ workspaceRoot, projectId, binding,
+    moveEventsReady: () => !!binding && moveEvents.current?.ready === true
+      && moveEvents.current.binding.workspaceId === binding.workspaceId && moveEvents.current.binding.generation === binding.generation,
+    isCurrent: () => currentOwner.current.workspaceRoot === workspaceRoot && currentOwner.current.projectId === projectId
+      && currentOwner.current.binding?.workspaceId === binding?.workspaceId && currentOwner.current.binding?.generation === binding?.generation,
+    viewIdentity: object => scope ? getContentLayout(useProjectContentStore.getState(), scope).tabs
+      .find(tab => tab.object.kind === object.kind && tab.object.id === object.id)?.id : undefined,
+    lockObject, moved,
+    prepare: async object => {
+      await prepare(object);
       if (!scope || !coordinator) return;
       const { flushRecordSavesForClose } = await import("../../lib/deleted-record-close");
       for (const tab of getContentLayout(useProjectContentStore.getState(), scope).tabs) {
-        if (tab.object.kind === "record") await flushRecordSavesForClose(coordinator, contentRecordSaveKey(projectId, Number(tab.object.id)));
+        if (object && (tab.object.kind !== object.kind || tab.object.id !== object.id)) continue;
+        if (tab.object.kind !== "record") continue;
+        const recordKey = contentRecordSaveKey(projectId, Number(tab.object.id));
+        if (object) await coordinator.flush(recordKey);
+        else await flushRecordSavesForClose(coordinator, recordKey);
       }
     },
-  }), [workspaceRoot, projectId, coordinator, scope]);
+    closeMoved: async object => {
+      await checkBinding();
+      if (!scope) return;
+      const tab = getContentLayout(useProjectContentStore.getState(), scope).tabs.find(item => item.object.kind === object.kind && item.object.id === object.id);
+      if (tab) closeTab(tab.id);
+    },
+  }), [workspaceRoot, projectId, coordinator, scope, checkBinding, closeTab]);
   const onOverview = useCallback(() => {
     if (scope) useProjectContentStore.getState().selectHome(scope);
     navigate(`${contentHomeRoute(projectId)}?view=overview`);
@@ -181,15 +238,8 @@ export function ProjectContentWorkspace({ workspaceRoot, projectId, active, over
             const { flushRecordSavesForClose } = await import("../../lib/deleted-record-close");
             await flushRecordSavesForClose(coordinator, contentRecordSaveKey(projectId, Number(tab.object.id)));
           }
-          const current = await recordDocumentApi.bindingGet(workspaceRoot);
-          if (!binding || current.workspaceId !== binding.workspaceId || current.generation !== binding.generation) throw new Error("工作区已切换，关闭已取消");
-          useProjectContentStore.getState().close(scope, tabId);
-          setOpeningError(null);
-          if (!activeRef.current) return;
-          const next = getContentLayout(useProjectContentStore.getState(), scope);
-          const selectedId = next.panes.find(item => item.id === next.focusedPaneId)?.selectedTabId;
-          const selected = next.tabs.find(item => item.id === selectedId);
-          navigate(selected ? projectContentTabRoute(projectId, selected) : contentHomeRoute(projectId), { replace: true });
+          await checkBinding();
+          closeTab(tabId);
         }}
         renderPage={props => <Page {...props} workspaceRoot={workspaceRoot} projectId={projectId} scope={scope} onBack={onOverview} />} />
     </div> : null}

@@ -250,5 +250,163 @@
         "insert": "const sheet = worksheet.getSheet?.()\n  // oneCellAnchor/absoluteAnchor encode the far edge in an offset, so their\n  // to marker can still be the from cell. Include the actual frame, walking\n  // the same visible column/row sizes the print layout uses. Explicit print\n  // areas and Print Selection bypass usedArea and keep their intended clip.\n  const endIndex = (start: number, span: number, size: (index: number) => number, last: number): number => {\n    let index = start\n    while (index < last) {\n      span -= size(index)\n      if (span <= 0) break\n      index += 1\n    }\n    return index\n  }\n  const columnWidth = (column: number): number =>\n    sheet && !sheet.getColVisible(column) ? 0 : finitePt(worksheet.getColumnWidth(column), 64)\n  const rowHeight = (row: number): number =>\n    sheet && !sheet.getRowVisible(row) ? 0 : finitePt(worksheet.getRowHeight(row), 20)\n  return {\n    startRow: 0,\n    startColumn: 0,\n    endRow: Math.max(worksheet.getLastRow(), 0, ...visuals.map((visual) =>\n      Math.max(visual.toRow, endIndex(visual.fromRow,\n        finitePt(visual.offsetYPx, 0) + finitePt(visual.heightPx, 1), rowHeight, 1_048_575)))),\n    endColumn: Math.max(worksheet.getLastColumn(), 0, ...visuals.map((visual) =>\n      Math.max(visual.toColumn, endIndex(visual.fromColumn,\n        finitePt(visual.offsetXPx, 0) + finitePt(visual.widthPx, 1), columnWidth, 16_383))"
       }
     ]
+  },
+  {
+    "destination": "native/engine/src/lib.rs",
+    "reason": "Issue #303 GUI range readiness and editable metadata; complete authoring and ZIP admission retained",
+    "sha256": "0ab60ba2ac1c3d544512f90c6e970a1462bdedf47e86b1d76331f888a46c8955",
+    "changes": [
+      {
+        "at": 6973,
+        "remove": "",
+        "insert": "    ) -> Result<WorkbookMetadata, SidecarError> {\n        self.open_internal(path, locale, short_date_format, cancelled, false)\n    }\n\n    pub fn open_view(\n        &mut self,\n        path: &Path,\n        cancelled: &AtomicBool,\n    ) -> Result<WorkbookMetadata, SidecarError> {\n        self.open_internal(path, \"zh\", None, cancelled, true)\n    }\n\n    fn open_internal(\n        &mut self,\n        path: &Path,\n        locale: &str,\n        short_date_format: Option<&str>,\n        cancelled: &AtomicBool,\n        progressive: bool,\n"
+      },
+      {
+        "at": 9050,
+        "remove": "        let mut stored_cell_budget = STORED_CELL_COUNT_BUDGET;\n",
+        "insert": "        let mut stored_cell_budget = if progressive {\n            0\n        } else {\n            STORED_CELL_COUNT_BUDGET\n        };\n"
+      },
+      {
+        "at": 17717,
+        "remove": "",
+        "insert": "                progressive,\n"
+      },
+      {
+        "at": 23029,
+        "remove": "",
+        "insert": "    progressive: bool,\n"
+      },
+      {
+        "at": 25031,
+        "remove": "",
+        "insert": "        // Tail metadata must be known before an editable first viewport. Skip\n        // sheetData without decoding cells or constructing formula/row indices.\n        if self.progressive {\n            index_worksheet(\n                &path,\n                &worksheet_path,\n                sheet_index,\n                &cache_directory,\n                &shared_strings,\n                &styled_xfs,\n                &color_context,\n                &rich_image_cells,\n                &state,\n                &cancelled,\n                true,\n            )?;\n        }\n"
+      },
+      {
+        "at": 25403,
+        "remove": "",
+        "insert": "                false,\n"
+      },
+      {
+        "at": 27456,
+        "remove": "",
+        "insert": "        let metadata_ready = index.metadata_ready;\n"
+      },
+      {
+        "at": 28233,
+        "remove": "        let conditional_rules = if indexing_complete {\n",
+        "insert": "        let conditional_rules = if index.metadata_ready {\n"
+      },
+      {
+        "at": 28383,
+        "remove": "        let auto_filter = if indexing_complete {\n",
+        "insert": "        let auto_filter = if index.metadata_ready {\n"
+      },
+      {
+        "at": 28507,
+        "remove": "        let auto_filter_columns = if indexing_complete {\n",
+        "insert": "        let auto_filter_columns = if index.metadata_ready {\n"
+      },
+      {
+        "at": 28661,
+        "remove": "        let data_validations = if indexing_complete {\n",
+        "insert": "        let data_validations = if index.metadata_ready {\n"
+      },
+      {
+        "at": 28809,
+        "remove": "        let sheet_protection = if indexing_complete {\n",
+        "insert": "        let sheet_protection = if index.metadata_ready {\n"
+      },
+      {
+        "at": 28951,
+        "remove": "        let row_breaks = if indexing_complete {\n",
+        "insert": "        let row_breaks = if index.metadata_ready {\n"
+      },
+      {
+        "at": 29087,
+        "remove": "        let col_breaks = if indexing_complete {\n",
+        "insert": "        let col_breaks = if index.metadata_ready {\n"
+      },
+      {
+        "at": 29223,
+        "remove": "        let protected_ranges = if indexing_complete {\n",
+        "insert": "        let protected_ranges = if index.metadata_ready {\n"
+      },
+      {
+        "at": 29371,
+        "remove": "        let page_setup = if indexing_complete {\n",
+        "insert": "        let page_setup = if index.metadata_ready {\n"
+      },
+      {
+        "at": 31226,
+        "remove": "",
+        "insert": "            metadata_ready,\n"
+      },
+      {
+        "at": 34007,
+        "remove": "",
+        "insert": "    metadata_ready: bool,\n"
+      }
+    ]
+  },
+  {
+    "destination": "native/engine/src/worksheet.rs",
+    "reason": "Issue #303 GUI range readiness and editable metadata; complete authoring and ZIP admission retained",
+    "sha256": "3d40136a0d982d4757019a5f9e493fb0f24b291382fe5dac8b122e414935244b",
+    "changes": [
+      {
+        "at": 613,
+        "remove": "",
+        "insert": "    metadata_only: bool,\n"
+      },
+      {
+        "at": 4179,
+        "remove": "",
+        "insert": "            Event::Start(element)\n                if metadata_only && element.local_name().as_ref() == b\"sheetData\" =>\n            {\n                reader.read_to_end_into(element.name(), &mut Vec::new())?;\n            }\n"
+      },
+      {
+        "at": 41116,
+        "remove": "",
+        "insert": "            Event::Eof if metadata_only => break,\n"
+      },
+      {
+        "at": 42113,
+        "remove": "",
+        "insert": "    index.metadata_ready = true;\n"
+      },
+      {
+        "at": 42175,
+        "remove": "    index.shared_formula_groups =\n        shared_formulas.groups(|formula| format!(\"={}\", strip_future_function_markers(formula)));\n",
+        "insert": "    if !metadata_only {\n        index.shared_formula_groups = shared_formulas\n            .groups(|formula| format!(\"={}\", strip_future_function_markers(formula)));\n    }\n"
+      }
+    ]
+  },
+  {
+    "destination": "native/engine/src/types.rs",
+    "reason": "Issue #303 GUI range readiness and editable metadata; complete authoring and ZIP admission retained",
+    "sha256": "e97c5e90bbd115865d8465d2ff8a58fe7d396eb8c67369d2702217f905fd88f3",
+    "changes": [
+      {
+        "at": 20559,
+        "remove": "",
+        "insert": "    pub metadata_ready: bool,\n"
+      }
+    ]
+  },
+  {
+    "destination": "native/engine/src/protocol.rs",
+    "reason": "Issue #303 GUI range readiness and editable metadata; complete authoring and ZIP admission retained",
+    "sha256": "74fa6321a448ae4bbe8c67e898e50ce2057b211d1ff214d140daf3892e91a381",
+    "changes": [
+      {
+        "at": 958,
+        "remove": "",
+        "insert": "    OpenView {\n        path: PathBuf,\n    },\n"
+      },
+      {
+        "at": 15922,
+        "remove": "",
+        "insert": "        Command::OpenView { path } => sessions\n            .open_view(&path, &in_flight.flag())\n            .and_then(to_json_value),\n"
+      }
+    ]
   }
 ]

@@ -51,7 +51,7 @@ async function setup(name) {
   const api = createApi({ invoke: (name, ...args) => session.invoke(name, args) });
   const file = { object: { id: 'isolated-fixture' } };
   const mutate = vm.runInNewContext(`${compiled}; mutate`, {
-    config: { format: 'pptx' }, models: new Map([[file.object.id, model]]), slidesApi: () => api,
+    config: { format: 'pptx' }, models: new Map([[file.object, model]]), slidesApi: () => api,
     activeMeasurement: null, waitStage: '', lastTimeout: null, diagnostics: () => ({ scope: 'PPT API/bytes unit test' }),
     console, performance, setTimeout, clearTimeout,
   });

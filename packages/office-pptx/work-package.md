@@ -39,3 +39,31 @@ invalid batches, readonly/preview, composition, mutation/undo/external replaceme
 and destruction. Package build and typecheck; no root build, app launch or review
 subagent. Red evidence: missing registration, missing iframe reply, and flattened
 mixed-run text all failed before their corresponding implementation changes.
+
+## #303 / G04 + G09: progressive GUI opening (2026-11-10)
+
+Dependency: shared host dispatches `engine.inspectView` for GUI and keeps full
+`engine.inspect` for authoring. File CAS/receipts remain host owned. Scope is this
+format package, shared worktree `codex/review-office-progressive`; no commit.
+
+Delivery: view DTO carries exact complete source/hash, presentation catalog and
+first parsed slide. Renderer reuses that seed and materializes other slides with
+the pinned parser's inheritance/dependency traversal when viewed/edited. Loaded
+models are a cache; complete archive plus cumulative dirty state owns saving.
+Candidate comparison inspects archive bytes rather than parsing the entire deck.
+Keep full upstream editing, output, undo/redo and the imported 50–150% zoom patch.
+
+Non-goals: other formats, host/native changes, Windows or visible GUI acceptance,
+release and Issue closure. ZIP inflation remains eager under the existing metered
+resource gate; this package removes eager slide parsing/layout/media encoding.
+
+Acceptance/verification: real fixture and upstream parser/session/handlers; first
+slide editable while tail stays unmaterialized; successive saves and reopen keep
+both edits and untouched tail/media/master/notes/animation/rels/opaque parts;
+exact candidate changedParts and source binding; sources verify, package build,
+Node regressions (single test worker), UI unit tests and package typecheck. Reuse
+unchanged checks and record true red/green evidence and outstanding native GUI
+acceptance. Headless App acceptance is authorized in this package under the shared
+lock, with Vite watching/HMR disabled; visible GUI remains with the parent agent.
+Implementation/test delegation uses
+`gpt-6.1-sol`; review has explicit user authorization for this turn.

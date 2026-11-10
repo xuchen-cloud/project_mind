@@ -125,7 +125,7 @@ pub(crate) fn agent_source_resolve(
     input: SourceResolveInput,
 ) -> ApiResponse<SourceNavigation> {
     let started = std::time::Instant::now();
-    let request = RequestContext {
+    let mut request = RequestContext {
         binding: input.binding,
         request_id: input.request_id.clone(),
         caller: Caller::Gui,
@@ -140,8 +140,26 @@ pub(crate) fn agent_source_resolve(
             operations: vec!["source.read".into()],
         },
     };
-    let result: AgentResult<_> =
-        state.with_current(|binding, db| db.agent_source_resolve(&request, binding, &input.data));
+    let result: AgentResult<_> = state.with_current(|binding, db| {
+        if request.binding != *binding {
+            return Err(super::errors::AgentError::new(
+                super::errors::ErrorCode::WorkspaceChanged,
+                "Workspace binding is no longer current",
+            ));
+        }
+        if matches!(input.data.object.kind, super::models::ObjectKind::Record | super::models::ObjectKind::Transcript) {
+            if let Some(actual) =
+                db.agent_resolve_object(&input.data.object, &binding.workspace_id)?
+            {
+                request.scope_grant.workspace_content = actual.scope == Scope::Workspace;
+                request.scope_grant.project_ids = match actual.scope {
+                    Scope::Project { project_id } => vec![project_id],
+                    _ => vec![],
+                };
+            }
+        }
+        db.agent_source_resolve(&request, binding, &input.data)
+    });
     let paths = crate::lock_mutex(&state.current_workspace).as_ref().filter(|runtime| runtime.agent_binding == request.binding).map(|runtime| runtime.paths.clone());
     if let Some(paths) = paths {
         let unavailable = result.as_ref().is_ok_and(|navigation| !matches!(navigation.status, SourceNavigationStatus::Current | SourceNavigationStatus::Historical));

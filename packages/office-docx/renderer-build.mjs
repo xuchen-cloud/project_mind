@@ -2,6 +2,7 @@ import {readFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import ts from 'typescript';
 import {replaceStatusZoom,markEditorChrome} from '../editor-chrome/build-adapter.mjs';
+import {adaptProgressiveFileActions, adaptProgressivePhases} from './progressive-build.mjs';
 
 // Select JSX nodes from the pinned AST; exact counts fail on upstream changes.
 function chromeAst(source,path){
@@ -47,7 +48,19 @@ export function rendererAdapter(root){
     build.onLoad({filter:/office-docx[\\/]scroll-edges\.ts$/},async({path})=>({contents:(await readFile(path,'utf8')).replaceAll('Math.min(16,width*.35)',"Math.min(Number.parseFloat(style.getPropertyValue('--editor-chrome-fade-size')),width*.35)").replaceAll('Math.min(24,height*.35)',"Math.min(Number.parseFloat(style.getPropertyValue('--editor-chrome-fade-block-size')),height*.35)"),loader:'ts',resolveDir:resolve(path,'..')}));
     build.onLoad({filter:/pdf\.worker\.min\.mjs$/},async({path,suffix})=>suffix==='?url'?{contents:`export default URL.createObjectURL(new Blob([${JSON.stringify(await readFile(path,'utf8'))}],{type:'text/javascript'}));`,loader:'js'}:undefined);
     build.onLoad({filter:/apps[\\/]docs[\\/]src[\\/]renderer[\\/]components[\\/]PrintDialog\.tsx$/},async({path})=>({contents:replace(await readFile(path,'utf8'),'className="modal-backdrop"','className="modal-backdrop pm-output-dialog"'),loader:'tsx',resolveDir:resolve(path,'..')}));
-    build.onLoad({filter:/apps[\\/]docs[\\/]src[\\/]renderer[\\/]components[\\/]ZoomDialog\.tsx$/},async({path})=>({contents:replace(await readFile(path,'utf8'),'className="modal-backdrop"','className="modal-backdrop pm-view-dialog"'),loader:'tsx',resolveDir:resolve(path,'..')}));
+    build.onLoad({filter:/apps[\\/]docs[\\/]src[\\/]renderer[\\/]wheel-zoom\.ts$/},async({path})=>{
+      let source=await readFile(path,'utf8');
+      source=replace(source,'export const DOCS_ZOOM_MIN = 10','export const DOCS_ZOOM_MIN = 50');
+      source=replace(source,'export const DOCS_ZOOM_MAX = 500','export const DOCS_ZOOM_MAX = 150');
+      return{contents:source,loader:'ts',resolveDir:resolve(path,'..')};
+    });
+    build.onLoad({filter:/apps[\\/]docs[\\/]src[\\/]renderer[\\/]components[\\/]ZoomDialog\.tsx$/},async({path})=>{
+      let source=replace(await readFile(path,'utf8'),'className="modal-backdrop"','className="modal-backdrop pm-view-dialog"');
+      source=replace(source,'const PRESETS = [200, 100, 75]','const PRESETS = [150, 100, 75]');
+      source=replace(source,"{radio(200, '200%')}","{radio(150, '150%')}");
+      source=replace(source,'10–500 percent box','50–150 percent box');
+      return{contents:source,loader:'tsx',resolveDir:resolve(path,'..')};
+    });
     build.onLoad({filter:/apps[\\/]docs[\\/]src[\\/]renderer[\\/]components[\\/]ProtectDialog\.tsx$/},async({path})=>{
       let source=await readFile(path,'utf8');
       // User explicitly excludes whole-file encryption. Remove this feature's
@@ -81,7 +94,7 @@ export function rendererAdapter(root){
       return{contents:source,loader:'ts',resolveDir:resolve(path,'..')};
     });
     build.onLoad({filter:/apps[\\/]docs[\\/]src[\\/]renderer[\\/]file-actions\.ts$/},async({path})=>{
-      let source=await readFile(path,'utf8');
+      let source=adaptProgressiveFileActions(await readFile(path,'utf8'),root);
       source=replace(source,"    const pvPages = [...document.querySelectorAll('.pv-page')] as HTMLElement[]",`    const pvPages = [...document.querySelectorAll('.pv-page')] as HTMLElement[]
     if (!pvPages.length) return deferExportToPreview(ctx, outPath)`);
       // Keep original PDF -> pdf.js -> 192dpi PNG logic, collect in a local ZIP.
@@ -94,6 +107,7 @@ export function rendererAdapter(root){
       source=source.slice(0,images.body.getStart(ast)+1)+'try {'+source.slice(images.body.getStart(ast)+1);
       return{contents:source,loader:'ts',resolveDir:resolve(path,'..')};
     });
+    build.onLoad({filter:/apps[\\/]docs[\\/]src[\\/]renderer[\\/]phased-content\.ts$/},async({path})=>({contents:adaptProgressivePhases(await readFile(path,'utf8'),root),loader:'ts'}));
     build.onLoad({filter:/apps[\\/]docs[\\/]src[\\/]renderer[\\/]html-export\.ts$/},async({path})=>{
       let source=await readFile(path,'utf8');
       // This class marks the real paragraph following a page break, not just
@@ -132,7 +146,18 @@ export function rendererAdapter(root){
     build.onLoad({filter:/apps[\\/]docs[\\/]src[\\/]renderer[\\/]App\.tsx$/},async ({path})=>{
       let source=await readFile(path,'utf8');
       source="import {usePreviewView} from "+JSON.stringify(resolve(root,'../editor-chrome/preview-view.ts'))+";\n"+source;
+      source="import {materializeProgressive, progressivePending} from "+JSON.stringify(resolve(root,'progressive-renderer.ts'))+";\n"+source;
+      source=replace(source,'  const [showFind, setShowFind] = useState(false)',`  const [showFind, setShowFindState] = useState(false)
+  const setShowFind: typeof setShowFindState = value => {
+    if (value !== false && progressivePending()) {
+      void materializeProgressive().then(() => setShowFindState(value), error => window.__projectMindDocxHost.reportError(error))
+    } else setShowFindState(value)
+  }`);
       source=embeddedStatus(embeddedAppChrome(source,path),path);
+      source=replace(source,'  const [zoom, setZoom] = useState(100)',`  const [zoom, setZoomState] = useState(100)
+  const setZoom = useCallback((value: Parameters<typeof setZoomState>[0]) => {
+    setZoomState(current => clampDocsZoom(typeof value === 'function' ? value(current) : value))
+  }, [])`);
       source=replaceStatusZoom(ts,source,path,'<StatusZoom value={Math.round(zoom)} min={DOCS_ZOOM_MIN} max={DOCS_ZOOM_MAX} step={10} disabled={!doc} onChange={setZoom} onStep={direction=>setZoom(z=>stepDocsZoom(z,direction))} onValueClick={()=>setShowZoomDialog(true)}/>',resolve(root,'../editor-chrome/StatusZoom.tsx'));
       source=markEditorChrome(ts,source,path);
       // Chrome changes resize only the viewing area; retain the user's current

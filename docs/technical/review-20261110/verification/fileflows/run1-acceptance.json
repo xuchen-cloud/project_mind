@@ -1,0 +1,34 @@
+{
+  "kind": "file-flows-native",
+  "status": "failed",
+  "error": "Error: Timed out: visible native window",
+  "phase": "preflight",
+  "assertions": [],
+  "calls": [],
+  "events": [],
+  "snapshots": {},
+  "runtimeErrors": [],
+  "windowLabel": "main",
+  "visibility": "hidden",
+  "scope": "one main Webview; real ProjectContentWorkspace/ProjectFileContent/Markdown + native IPC + read-only SQLite",
+  "notCovered": [
+    "cross-window / multiple target instances",
+    "Record",
+    "Office formats",
+    "OS keyboard / IME",
+    "native drag hit testing",
+    "Windows",
+    "crash / cross-volume recovery"
+  ],
+  "runner": {
+    "binary": "/private/tmp/project-mind-review-combined/output/g12-file-flows/G12 File Flows.app/Contents/MacOS/project_mind_alpha",
+    "binarySha256": "e304c1738612543866ad1d2b755ff57bf847087ce171f125c21ee99d1ccaf0f7",
+    "harnessCommit": "cc99b732d5a18400af8c7722024e134117c5e73e",
+    "workspaceRoot": "/private/tmp/project-mind-g12-file-flows-run1/workspace",
+    "appData": "/private/tmp/project-mind-g12-file-flows-run1/app-data",
+    "assistantData": "/private/tmp/project-mind-g12-file-flows-run1/assistant-data",
+    "assistantProfile": "/private/tmp/project-mind-g12-file-flows-run1/assistant-profile",
+    "output": "/private/tmp/project-mind-g12-file-flows-run1",
+    "platform": "darwin"
+  }
+}

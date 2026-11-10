@@ -1,0 +1,7 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": { "composite": false },
+  "include": ["native-page.tsx", "../../src/**/*.d.ts"],
+  "exclude": [],
+  "references": []
+}

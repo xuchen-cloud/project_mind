@@ -1,0 +1,3 @@
+COMMAND ["cargo", "check", "--lib", "--offline", "--manifest-path", "src-tauri/Cargo.toml"]
+    Checking project_mind_alpha v1.0.0 (/private/tmp/project-mind-review-warning-cleanup-final/src-tauri)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 14.11s

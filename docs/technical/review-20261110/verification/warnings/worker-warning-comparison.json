@@ -1,0 +1,579 @@
+{
+  "production-before.log": [
+    {
+      "message": "field `agent_cancel_started` is never read",
+      "path": "src/lib.rs",
+      "line": 231
+    },
+    {
+      "message": "method `sql` is never used",
+      "path": "src/agent/conversation.rs",
+      "line": 67
+    },
+    {
+      "message": "struct `RunPreparation` is never constructed",
+      "path": "src/agent/conversation.rs",
+      "line": 158
+    },
+    {
+      "message": "struct `VerifiedSessionProjection` is never constructed",
+      "path": "src/agent/conversation.rs",
+      "line": 164
+    },
+    {
+      "message": "struct `RunSettlement` is never constructed",
+      "path": "src/agent/conversation.rs",
+      "line": 168
+    },
+    {
+      "message": "field `operation_ids` is never read",
+      "path": "src/agent/operation_batches.rs",
+      "line": 75
+    },
+    {
+      "message": "function `execute_review_decision` is never used",
+      "path": "src/agent/output_service.rs",
+      "line": 426
+    },
+    {
+      "message": "constant `SAFE_INTEGER` is never used",
+      "path": "src/agent/record_write_tools.rs",
+      "line": 12
+    },
+    {
+      "message": "function `id` is never used",
+      "path": "src/agent/record_write_tools.rs",
+      "line": 13
+    },
+    {
+      "message": "function `hash` is never used",
+      "path": "src/agent/record_write_tools.rs",
+      "line": 16
+    },
+    {
+      "message": "function `record` is never used",
+      "path": "src/agent/record_write_tools.rs",
+      "line": 19
+    },
+    {
+      "message": "function `enum_string` is never used",
+      "path": "src/agent/record_write_tools.rs",
+      "line": 24
+    },
+    {
+      "message": "function `attribute` is never used",
+      "path": "src/agent/record_write_tools.rs",
+      "line": 28
+    },
+    {
+      "message": "function `attrs` is never used",
+      "path": "src/agent/record_write_tools.rs",
+      "line": 70
+    },
+    {
+      "message": "function `node_definitions` is never used",
+      "path": "src/agent/record_write_tools.rs",
+      "line": 82
+    },
+    {
+      "message": "function `patch` is never used",
+      "path": "src/agent/record_write_tools.rs",
+      "line": 99
+    },
+    {
+      "message": "function `source_ref` is never used",
+      "path": "src/agent/record_write_tools.rs",
+      "line": 128
+    },
+    {
+      "message": "function `todo_date` is never used",
+      "path": "src/agent/record_write_tools.rs",
+      "line": 135
+    },
+    {
+      "message": "function `todo_priority` is never used",
+      "path": "src/agent/record_write_tools.rs",
+      "line": 138
+    },
+    {
+      "message": "function `todo_status` is never used",
+      "path": "src/agent/record_write_tools.rs",
+      "line": 146
+    },
+    {
+      "message": "function `todo_create` is never used",
+      "path": "src/agent/record_write_tools.rs",
+      "line": 149
+    },
+    {
+      "message": "function `todo_update` is never used",
+      "path": "src/agent/record_write_tools.rs",
+      "line": 170
+    },
+    {
+      "message": "function `record_write_tool_descriptions` is never used",
+      "path": "src/agent/record_write_tools.rs",
+      "line": 219
+    },
+    {
+      "message": "function `field` is never used",
+      "path": "src/agent/source_trace.rs",
+      "line": 24
+    },
+    {
+      "message": "function `typed` is never used",
+      "path": "src/agent/source_trace.rs",
+      "line": 27
+    },
+    {
+      "message": "function `object` is never used",
+      "path": "src/agent/source_trace.rs",
+      "line": 138
+    },
+    {
+      "message": "function `array` is never used",
+      "path": "src/agent/source_trace.rs",
+      "line": 144
+    },
+    {
+      "message": "function `revision` is never used",
+      "path": "src/agent/source_trace.rs",
+      "line": 147
+    },
+    {
+      "message": "function `scope` is never used",
+      "path": "src/agent/source_trace.rs",
+      "line": 150
+    },
+    {
+      "message": "function `output_card` is never used",
+      "path": "src/agent/source_trace.rs",
+      "line": 263
+    },
+    {
+      "message": "function `add_history` is never used",
+      "path": "src/agent/source_trace.rs",
+      "line": 289
+    },
+    {
+      "message": "function `result_sources` is never used",
+      "path": "src/agent/source_trace.rs",
+      "line": 303
+    },
+    {
+      "message": "struct `ReadToolDescription` is never constructed",
+      "path": "src/agent/tools.rs",
+      "line": 296
+    },
+    {
+      "message": "function `object` is never used",
+      "path": "src/agent/tools.rs",
+      "line": 302
+    },
+    {
+      "message": "function `nullable` is never used",
+      "path": "src/agent/tools.rs",
+      "line": 305
+    },
+    {
+      "message": "function `text` is never used",
+      "path": "src/agent/tools.rs",
+      "line": 308
+    },
+    {
+      "message": "function `integer` is never used",
+      "path": "src/agent/tools.rs",
+      "line": 311
+    },
+    {
+      "message": "function `array` is never used",
+      "path": "src/agent/tools.rs",
+      "line": 314
+    },
+    {
+      "message": "function `scope_schema` is never used",
+      "path": "src/agent/tools.rs",
+      "line": 317
+    },
+    {
+      "message": "function `source_kinds` is never used",
+      "path": "src/agent/tools.rs",
+      "line": 320
+    },
+    {
+      "message": "function `object_ref_schema` is never used",
+      "path": "src/agent/tools.rs",
+      "line": 323
+    },
+    {
+      "message": "function `locator_schema` is never used",
+      "path": "src/agent/tools.rs",
+      "line": 331
+    },
+    {
+      "message": "function `read_tool_descriptions` is never used",
+      "path": "src/agent/tools.rs",
+      "line": 350
+    },
+    {
+      "message": "function `todo_ref_schema` is never used",
+      "path": "src/agent/todo_tools.rs",
+      "line": 118
+    },
+    {
+      "message": "constant `SAFE_INTEGER` is never used",
+      "path": "src/agent/file_tools.rs",
+      "line": 8
+    },
+    {
+      "message": "constant `CONTENT_BYTES` is never used",
+      "path": "src/agent/file_tools.rs",
+      "line": 9
+    },
+    {
+      "message": "function `file_ref_schema` is never used",
+      "path": "src/agent/file_tools.rs",
+      "line": 82
+    },
+    {
+      "message": "function `content_hash` is never used",
+      "path": "src/agent/file_tools.rs",
+      "line": 87
+    },
+    {
+      "message": "function `stage_id` is never used",
+      "path": "src/agent/file_tools.rs",
+      "line": 90
+    },
+    {
+      "message": "function `version_id` is never used",
+      "path": "src/agent/file_tools.rs",
+      "line": 93
+    },
+    {
+      "message": "function `file_reference` is never used",
+      "path": "src/agent/file_tools.rs",
+      "line": 96
+    },
+    {
+      "message": "function `file_intent_schemas` is never used",
+      "path": "src/agent/file_tools.rs",
+      "line": 99
+    },
+    {
+      "message": "function `file_schema_definitions` is never used",
+      "path": "src/agent/file_tools.rs",
+      "line": 158
+    },
+    {
+      "message": "function `file_tool_descriptions` is never used",
+      "path": "src/agent/file_tools.rs",
+      "line": 161
+    },
+    {
+      "message": "method `agent_profile_verified` is never used",
+      "path": "src/db/agent_profiles.rs",
+      "line": 167
+    },
+    {
+      "message": "function `random_id` is never used",
+      "path": "src/db/agent_sessions.rs",
+      "line": 33
+    },
+    {
+      "message": "function `json_string` is never used",
+      "path": "src/db/agent_sessions.rs",
+      "line": 44
+    },
+    {
+      "message": "function `state_sql` is never used",
+      "path": "src/db/agent_sessions.rs",
+      "line": 51
+    },
+    {
+      "message": "function `projection_validate` is never used",
+      "path": "src/db/agent_sessions.rs",
+      "line": 114
+    },
+    {
+      "message": "function `projection_write` is never used",
+      "path": "src/db/agent_sessions.rs",
+      "line": 157
+    },
+    {
+      "message": "multiple methods are never used",
+      "path": "src/db/agent_sessions.rs",
+      "line": 268
+    },
+    {
+      "message": "function `session_scope` is never used",
+      "path": "src/db/agent_session_maintenance.rs",
+      "line": 15
+    },
+    {
+      "message": "function `session_message_changed` is never used",
+      "path": "src/db/agent_session_maintenance.rs",
+      "line": 45
+    },
+    {
+      "message": "function `session_messages_deleted` is never used",
+      "path": "src/db/agent_session_maintenance.rs",
+      "line": 56
+    },
+    {
+      "message": "method `agent_session_summary_get` is never used",
+      "path": "src/db/agent_session_summary.rs",
+      "line": 13
+    },
+    {
+      "message": "constant `SNIPPET_CHARS_MAX` is never used",
+      "path": "src/db/agent_session_search.rs",
+      "line": 17
+    },
+    {
+      "message": "function `default_search_limit` is never used",
+      "path": "src/db/agent_session_search.rs",
+      "line": 18
+    },
+    {
+      "message": "struct `AgentSessionSearchInput` is never constructed",
+      "path": "src/db/agent_session_search.rs",
+      "line": 24
+    },
+    {
+      "message": "struct `AgentSessionSearchHit` is never constructed",
+      "path": "src/db/agent_session_search.rs",
+      "line": 35
+    },
+    {
+      "message": "struct `AgentSessionSearchCoverage` is never constructed",
+      "path": "src/db/agent_session_search.rs",
+      "line": 50
+    },
+    {
+      "message": "struct `AgentSessionSearchPage` is never constructed",
+      "path": "src/db/agent_session_search.rs",
+      "line": 60
+    },
+    {
+      "message": "method `validate` is never used",
+      "path": "src/db/agent_session_search.rs",
+      "line": 67
+    },
+    {
+      "message": "function `invalid` is never used",
+      "path": "src/db/agent_session_search.rs",
+      "line": 83
+    },
+    {
+      "message": "function `id_valid` is never used",
+      "path": "src/db/agent_session_search.rs",
+      "line": 87
+    },
+    {
+      "message": "function `text_of` is never used",
+      "path": "src/db/agent_session_search.rs",
+      "line": 95
+    },
+    {
+      "message": "struct `ScanCursor` is never constructed",
+      "path": "src/db/agent_session_search.rs",
+      "line": 119
+    },
+    {
+      "message": "struct `SessionScanWork` is never constructed",
+      "path": "src/db/agent_session_search.rs",
+      "line": 126
+    },
+    {
+      "message": "struct `ScanCheckpoint` is never constructed",
+      "path": "src/db/agent_session_search.rs",
+      "line": 137
+    },
+    {
+      "message": "struct `ScanState` is never constructed",
+      "path": "src/db/agent_session_search.rs",
+      "line": 143
+    },
+    {
+      "message": "struct `SessionScanMessage` is never constructed",
+      "path": "src/db/agent_session_search.rs",
+      "line": 152
+    },
+    {
+      "message": "struct `SessionScanPage` is never constructed",
+      "path": "src/db/agent_session_search.rs",
+      "line": 168
+    },
+    {
+      "message": "function `checkpoint_checksum` is never used",
+      "path": "src/db/agent_session_search.rs",
+      "line": 177
+    },
+    {
+      "message": "function `authorize_index` is never used",
+      "path": "src/db/agent_session_search.rs",
+      "line": 185
+    },
+    {
+      "message": "function `index_message` is never used",
+      "path": "src/db/agent_session_search.rs",
+      "line": 205
+    },
+    {
+      "message": "function `projection_index_message` is never used",
+      "path": "src/db/agent_session_search.rs",
+      "line": 277
+    },
+    {
+      "message": "method `agent_session_search` is never used",
+      "path": "src/db/agent_session_search.rs",
+      "line": 290
+    },
+    {
+      "message": "methods `agent_session_scan_work` and `agent_session_scan_commit` are never used",
+      "path": "src/db/agent_session_search.rs",
+      "line": 406
+    },
+    {
+      "message": "methods `agent_run_provenance_begin`, `agent_run_context_check`, and `provenance_insert` are never used",
+      "path": "src/db/agent_run_provenance.rs",
+      "line": 260
+    },
+    {
+      "message": "function `default_limit` is never used",
+      "path": "src/db/agent_session_model_search.rs",
+      "line": 15
+    },
+    {
+      "message": "function `default_budget` is never used",
+      "path": "src/db/agent_session_model_search.rs",
+      "line": 18
+    },
+    {
+      "message": "struct `ModelHistorySearchInput` is never constructed",
+      "path": "src/db/agent_session_model_search.rs",
+      "line": 33
+    },
+    {
+      "message": "method `validate` is never used",
+      "path": "src/db/agent_session_model_search.rs",
+      "line": 51
+    },
+    {
+      "message": "struct `ModelHistorySearchMatch` is never constructed",
+      "path": "src/db/agent_session_model_search.rs",
+      "line": 77
+    },
+    {
+      "message": "struct `ModelHistorySearchPage` is never constructed",
+      "path": "src/db/agent_session_model_search.rs",
+      "line": 88
+    },
+    {
+      "message": "struct `ModelHistoryCoverage` is never constructed",
+      "path": "src/db/agent_session_model_search.rs",
+      "line": 96
+    },
+    {
+      "message": "methods `agent_model_session_source_record` and `agent_model_session_search` are never used",
+      "path": "src/db/agent_session_model_search.rs",
+      "line": 176
+    },
+    {
+      "message": "struct `DecisionStatusSummary` is never constructed",
+      "path": "src/db/agent_outputs.rs",
+      "line": 357
+    },
+    {
+      "message": "struct `DecisionStatusItem` is never constructed",
+      "path": "src/db/agent_outputs.rs",
+      "line": 363
+    },
+    {
+      "message": "method `agent_output_decision_summary` is never used",
+      "path": "src/db/agent_outputs.rs",
+      "line": 687
+    },
+    {
+      "message": "method `agent_pending_review_plans` is never used",
+      "path": "src/db/agent_output_review.rs",
+      "line": 37
+    },
+    {
+      "message": "method `scan` is never used",
+      "path": "src/source_session_read.rs",
+      "line": 22
+    }
+  ],
+  "production-after.log": [
+    {
+      "message": "unused import: `ObjectKind`",
+      "path": "src/db/agent_run_provenance.rs",
+      "line": 9
+    },
+    {
+      "message": "unused import: `Caller`",
+      "path": "src/db/agent_session_model_search.rs",
+      "line": 7
+    }
+  ],
+  "production-final.log": [],
+  "tests-before.log": [
+    {
+      "message": "field `agent_cancel_started` is never read",
+      "path": "src/lib.rs",
+      "line": 231
+    },
+    {
+      "message": "method `agent_session_mark_read_only` is never used",
+      "path": "src/db/agent_sessions.rs",
+      "line": 769
+    },
+    {
+      "message": "method `agent_session_summary_get` is never used",
+      "path": "src/db/agent_session_summary.rs",
+      "line": 13
+    },
+    {
+      "message": "method `agent_pending_review_plans` is never used",
+      "path": "src/db/agent_output_review.rs",
+      "line": 37
+    },
+    {
+      "message": "method `scan` is never used",
+      "path": "src/source_session_read.rs",
+      "line": 22
+    }
+  ],
+  "tests-after.log": [],
+  "baseline-record-blocks-red.log": [
+    {
+      "message": "field `agent_cancel_started` is never read",
+      "path": "src/lib.rs",
+      "line": 231
+    },
+    {
+      "message": "method `agent_session_mark_read_only` is never used",
+      "path": "src/db/agent_sessions.rs",
+      "line": 769
+    },
+    {
+      "message": "method `agent_session_summary_get` is never used",
+      "path": "src/db/agent_session_summary.rs",
+      "line": 13
+    },
+    {
+      "message": "method `agent_pending_review_plans` is never used",
+      "path": "src/db/agent_output_review.rs",
+      "line": 37
+    },
+    {
+      "message": "method `scan` is never used",
+      "path": "src/source_session_read.rs",
+      "line": 22
+    }
+  ],
+  "imports-tests-final.log": [],
+  "record-runtime-tests.log": []
+}

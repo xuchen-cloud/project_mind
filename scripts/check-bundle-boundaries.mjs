@@ -8,7 +8,7 @@ const preloadHrefs = [...html.matchAll(/rel="modulepreload"[^>]+href="([^"]+)"/g
   (match) => match[1] ?? "",
 );
 const forbiddenPreloads = preloadHrefs.filter((href) =>
-  /(canvas|konva|ImageAnnotationDialog|MarkdownEditor|DocxEditor|PptxEditor|XlsxEditor|mermaid|wavedrom|SettingsDialog)/iu.test(href),
+  /(canvas|konva|ImageAnnotationDialog|MarkdownEditor|DocxEditor|PptxEditor|XlsxEditor|mermaid|SettingsDialog)/iu.test(href),
 );
 
 if (forbiddenPreloads.length > 0) {

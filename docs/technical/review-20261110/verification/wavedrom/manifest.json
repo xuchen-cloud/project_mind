@@ -1,0 +1,197 @@
+[
+  {
+    "file": "removal-red.json",
+    "source": "/tmp/project-mind-review-wavedrom-cleanup/output/playwright/wavedrom-cleanup/removal-red.json",
+    "sha256": "e48db4572155178cd78f8384fed286ef0cd4dcfc0ed7a72edd598a1ee83144db"
+  },
+  {
+    "file": "removal-focused.json",
+    "source": "/tmp/project-mind-review-wavedrom-cleanup/output/playwright/wavedrom-cleanup/removal-focused.json",
+    "sha256": "02f6fe6c147c6537e723b048b64cb018ee632663e25bed3acf12f217acf7393a"
+  },
+  {
+    "file": "removal-package-full.json",
+    "source": "/tmp/project-mind-review-wavedrom-cleanup/output/playwright/wavedrom-cleanup/removal-package-full.json",
+    "sha256": "40f131af251796801179f2af3592d4fe50d83075ae0f4fa4ece4376682d685b6"
+  },
+  {
+    "file": "removal-baseline-comparison.json",
+    "source": "/tmp/project-mind-review-wavedrom-cleanup/output/playwright/wavedrom-cleanup/removal-baseline-comparison.json",
+    "sha256": "abe40398443261769634a1db40e7988b38640082ffa6b8663ace506ed7a547cc"
+  },
+  {
+    "file": "baseline-failures.json",
+    "source": "/tmp/project-mind-review-wavedrom-cleanup/output/playwright/wavedrom-cleanup/baseline-failures.json",
+    "sha256": "734d2629794ff281293729dfe5e0bef2482efd4f664e44d0638d8d8dc42dcf22"
+  },
+  {
+    "file": "removal-root-related.log",
+    "source": "/tmp/project-mind-review-wavedrom-cleanup/output/playwright/wavedrom-cleanup/removal-root-related.log",
+    "sha256": "a5fdc73c34d9590053821cf5260d305fa0194189537d36f3ac0d27ec08accbd8"
+  },
+  {
+    "file": "removal-toolbar.log",
+    "source": "/tmp/project-mind-review-wavedrom-cleanup/output/playwright/wavedrom-cleanup/removal-toolbar.log",
+    "sha256": "4f2cfb160525a5e7faf27772d340716a234b19ce4556d8c0cc3cc2a0aefa7df5"
+  },
+  {
+    "file": "removal-build-tests.log",
+    "source": "/tmp/project-mind-review-wavedrom-cleanup/output/playwright/wavedrom-cleanup/removal-build-tests.log",
+    "sha256": "14de622cd63be7a97f6f7c9f3b714195703043ec918a86c494f1f90da7c1d124"
+  },
+  {
+    "file": "removal-final-package-tsc.log",
+    "source": "/tmp/project-mind-review-wavedrom-cleanup/output/playwright/wavedrom-cleanup/removal-final-package-tsc.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "file": "removal-final-root-tsc.log",
+    "source": "/tmp/project-mind-review-wavedrom-cleanup/output/playwright/wavedrom-cleanup/removal-final-root-tsc.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "file": "removal-final-sync.log",
+    "source": "/tmp/project-mind-review-wavedrom-cleanup/output/playwright/wavedrom-cleanup/removal-final-sync.log",
+    "sha256": "7530bcfcb46e3c14eec717094a221e5788c955515e99854b168c39aad45e3bad"
+  },
+  {
+    "file": "removal-export-check.log",
+    "source": "/tmp/project-mind-review-wavedrom-cleanup/output/playwright/wavedrom-cleanup/removal-export-check.log",
+    "sha256": "799c67fb7cdac7e41bdc72deb17caed3eb3a54ad4f0f1a14f0dfc9e6e3d9d9fb"
+  },
+  {
+    "file": "removal-shipping-build.log",
+    "source": "/tmp/project-mind-review-wavedrom-cleanup/output/playwright/wavedrom-cleanup/removal-shipping-build.log",
+    "sha256": "0d58b2b6768def1c29901addd0aeae3f8d90bdb739c8b3e83b5b34bb7da6983a"
+  },
+  {
+    "file": "removal-boundaries.log",
+    "source": "/tmp/project-mind-review-wavedrom-cleanup/output/playwright/wavedrom-cleanup/removal-boundaries.log",
+    "sha256": "b4f16c22a6e5bfec6dc336fe582f1512bbbdc6187cde161f87cb7b2c84b3f90e"
+  },
+  {
+    "file": "removal-host-boundaries.log",
+    "source": "/tmp/project-mind-review-wavedrom-cleanup/output/playwright/wavedrom-cleanup/removal-host-boundaries.log",
+    "sha256": "85b58540c91a43b5e05dca6d6a65141b8800faba84fd0c189635a1bb6f3eeff1"
+  },
+  {
+    "file": "removal-record-worker-build.log",
+    "source": "/tmp/project-mind-review-wavedrom-cleanup/output/playwright/wavedrom-cleanup/removal-record-worker-build.log",
+    "sha256": "aaca729ba77ddf34ff6c505255ecf6db84516f8cee4daba372d12b3c78870d9b"
+  },
+  {
+    "file": "removal-distribution-evidence.json",
+    "source": "/tmp/project-mind-review-wavedrom-cleanup/output/playwright/wavedrom-cleanup/removal-distribution-evidence.json",
+    "sha256": "b8e6d4a4a7ed587f7811d70cd3feed11ffab810c54f99df7ba0f93f14a3b0aa3"
+  },
+  {
+    "file": "removed-lock-packages.json",
+    "source": "/tmp/project-mind-review-wavedrom-cleanup/output/playwright/wavedrom-cleanup/removed-lock-packages.json",
+    "sha256": "88516572e8b5c7ef07fd36ac302326167cf3037961d89e7caa1d8dacf414d106"
+  },
+  {
+    "file": "integration.json",
+    "source": "/tmp/project-mind-wavedrom-integration.json",
+    "sha256": "3a2b35fe0a7c735903c3be8c5362381a734a6d6561aba18eef9266b7c733ae72"
+  },
+  {
+    "file": "record-stage.log",
+    "source": "/tmp/project-mind-wavedrom-record-stage.log",
+    "sha256": "40c1772496883f90fe07cdb21f55d91b7af47b185042f820c5de9ef5b4891eeb"
+  },
+  {
+    "file": "record-runtime.log",
+    "source": "/tmp/project-mind-wavedrom-record-runtime.log",
+    "sha256": "54343fa552862fbf102f63c5dda89ed520cfbd91bd6b195deba00af72216865b"
+  },
+  {
+    "file": "lock-ls.stderr",
+    "source": "/tmp/project-mind-wavedrom-lock-ls.stderr",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "file": "final-record-runtime.log",
+    "source": "/tmp/project-mind-wavedrom-final-record-runtime.log",
+    "sha256": "350f86950e60e25e457bdad41a9407ef41562d0be6a7b1cbfeede3c68945e46e"
+  },
+  {
+    "file": "final-markdown-full.log",
+    "source": "/tmp/project-mind-wavedrom-final-markdown-full.log",
+    "sha256": "c6296041cc2e3447f5631558714fd0efeecfdce70474034fe4a191b7e267c001"
+  },
+  {
+    "file": "final-markdown-tsc.log",
+    "source": "/tmp/project-mind-wavedrom-final-markdown-tsc.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "file": "final-record-native.log",
+    "source": "/tmp/project-mind-wavedrom-final-record-native.log",
+    "sha256": "b31985bc7dccecf80b0c952021044ae00fc7d8d393c002c935f4d889dcb66ca0"
+  },
+  {
+    "file": "final-results.json",
+    "source": "/tmp/project-mind-wavedrom-final-results.json",
+    "sha256": "5e6e13b016619bf776d1099978f4984f19b3db1e6a1d7b6401bf35cb8483cd40"
+  },
+  {
+    "file": "final-root-tsc.log",
+    "source": "/tmp/project-mind-wavedrom-final-root-tsc.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "file": "final-build-first-results.json",
+    "source": "/tmp/project-mind-wavedrom-final-build-first-results.json",
+    "sha256": "45c1cac29ed9dc42780ccb3115c995a7ef7e1bfa93d74c273969e7a6a288f479"
+  },
+  {
+    "file": "final-shipping-build-missing-output.log",
+    "source": "/tmp/project-mind-wavedrom-final-shipping-build-missing-output.log",
+    "sha256": "3f8a3d6728f7ad0295a165aad83a2b937fadd4b749e46b136b1e3e4af107763f"
+  },
+  {
+    "file": "final-shipping-build.log",
+    "source": "/tmp/project-mind-wavedrom-final-shipping-build.log",
+    "sha256": "0d58b2b6768def1c29901addd0aeae3f8d90bdb739c8b3e83b5b34bb7da6983a"
+  },
+  {
+    "file": "final-bundle-boundaries.log",
+    "source": "/tmp/project-mind-wavedrom-final-bundle-boundaries.log",
+    "sha256": "b4f16c22a6e5bfec6dc336fe582f1512bbbdc6187cde161f87cb7b2c84b3f90e"
+  },
+  {
+    "file": "final-host-boundaries.log",
+    "source": "/tmp/project-mind-wavedrom-final-host-boundaries.log",
+    "sha256": "f1469b014685f2d908b5cd91d03e9940f830b1c0bab41a39b770bb21559bae2f"
+  },
+  {
+    "file": "final-build-results.json",
+    "source": "/tmp/project-mind-wavedrom-final-build-results.json",
+    "sha256": "5be52e522bfe6d631b7899909c96ebc98e3e2adf1275621e689b33373e75aea3"
+  },
+  {
+    "file": "baseline-runtime-warnings.log",
+    "source": "/tmp/project-mind-wavedrom-baseline-runtime-warnings.log",
+    "sha256": "e06285b5d9db0eeb41e475d9f722dbff27f606fa2fd7a03e3ea63c76b02a5ae1"
+  },
+  {
+    "file": "source-preservation.json",
+    "source": "Integration audit of exact artifacts and preserved source",
+    "sha256": "db450cbe129cf3fc3eb8bef653c0f2767ac1f58b71ee8f24529c52662f0b8393"
+  },
+  {
+    "file": "lock-graph.json",
+    "source": "Integration audit of exact artifacts and preserved source",
+    "sha256": "86eb228058b31357498b86221346701235d1aab871e668d0b2afae088cf53540"
+  },
+  {
+    "file": "runtime-warning-comparison.json",
+    "source": "Integration audit of exact artifacts and preserved source",
+    "sha256": "0c1296298b0c694c6e694da4c68bdd89b9e0330ba1ec4a56cca3f67f1660ad17"
+  },
+  {
+    "file": "final-distribution-graph.json",
+    "source": "Integration audit of exact artifacts and preserved source",
+    "sha256": "3f3d9410a7e973c25aee911472ce417e865340a339a89c663c726a5361e8b0b6"
+  }
+]

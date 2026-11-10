@@ -1,0 +1,14 @@
+✔ OfficeFileContent production static graph executes no Record rich-editor or Tiptap chunk (7.24525ms)
+✔ DocxEditor production static graph executes no Record rich-editor or Tiptap chunk (0.864833ms)
+✔ XlsxEditor production static graph executes no Record rich-editor or Tiptap chunk (0.444833ms)
+✔ PptxEditor production static graph executes no Record rich-editor or Tiptap chunk (0.371208ms)
+✔ normal startup keeps format editors lazy and main within 250 KiB (43.040167ms)
+✔ shipping compilation strips host marks and measurement compilation retains them (24.814667ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 114.144875

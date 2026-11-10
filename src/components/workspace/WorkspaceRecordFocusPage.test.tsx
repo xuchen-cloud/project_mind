@@ -1,4 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ProjectContentMoveContext } from "../../lib/project-content-move-context";
+import { recordDocumentApi } from "../../services/recordDocumentApi";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useEffect, useRef, useState, type ReactElement } from "react";
@@ -22,6 +24,7 @@ import { RecordSaveFailure, RecordSaveCoordinator, type CommittedRecordSnapshot,
 import { RecordSaveCoordinatorProvider } from "../../lib/record-save-runtime";
 import { RecordFocusResidentPages } from "../record/RecordFocusResidentPages";
 import { WorkspaceRecordFocusPage } from "./WorkspaceRecordFocusPage";
+import { ProjectContentLayoutView } from "../project/ProjectContentLayoutView";
 
 vi.mock("../voice/VoiceRecordPanel", () => ({
   VoiceRecordPanel: ({ onMinutesCommitted }: { onMinutesCommitted?: () => void }) =>
@@ -33,7 +36,7 @@ import type { RecordBodySaveInput, RecordTarget } from "../../lib/record-documen
 const recordMocks = vi.hoisted(() => ({
   queryClient: null as QueryClient | null,
   confirm: vi.fn(), pendingReviewCount: 0, busy: false,
-  saveProjectRecord: vi.fn(), saveWorkspaceRecord: vi.fn(), bodySave: vi.fn(), editorGet: vi.fn(), metadataGet: vi.fn(), metadataApply: vi.fn(),
+  saveCompleted: vi.fn(), saveFailed: vi.fn(), saveProjectRecord: vi.fn(), saveWorkspaceRecord: vi.fn(), bodySave: vi.fn(), editorGet: vi.fn(), editorRegister: vi.fn(async () => null), metadataGet: vi.fn(), metadataApply: vi.fn(),
   sourceReveal: vi.fn((_blockId: string) => true),
 }));
 vi.mock("@tanstack/react-query", async (importOriginal) => {
@@ -46,7 +49,7 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
 vi.mock("../../services/agentApi", async (importOriginal) => ({ ...await importOriginal<typeof import("../../services/agentApi")>(), agentApi: { statusGet: async () => ({ binding: { workspaceId: "fixture-workspace", generation: "open-1" } }) } }));
 vi.mock("../../services/recordDocumentApi", () => ({ recordDocumentApi: {
   editorGet: recordMocks.editorGet, bodySave: recordMocks.bodySave, metadataGet: recordMocks.metadataGet, metadataApply: recordMocks.metadataApply, checkpoint: vi.fn(),
-  editorRegister: vi.fn(async () => null), editorUnregister: vi.fn(async () => null), editorFlushReply: vi.fn(async () => null),
+  editorRegister: recordMocks.editorRegister, editorUnregister: vi.fn(async () => null), editorFlushReply: vi.fn(async () => null),
 } }));
 
 const apiMocks = vi.hoisted(() => ({
@@ -174,8 +177,9 @@ vi.mock("../rich-editor", () => ({
     controllerRef,
     sourceBlockNavigation,
     onSourceBlockResult,
-    onDefaultCodeLanguageChange,
+    onDefaultCodeLanguageChange, onSave,
   }: {
+    onSave?: (value: ReturnType<typeof buildMockRichValue>) => Promise<unknown>;
     html?: string;
     onDefaultCodeLanguageChange?: (value: string | null) => void;
     sourceBlockNavigation?: { blockId: string; key: string } | null;
@@ -223,6 +227,7 @@ vi.mock("../rich-editor", () => ({
     }, [controllerRef]);
 
     return <><textarea aria-label="正文编辑器" value={value} readOnly />
+      <button onClick={() => { void onSave?.(buildMockRichValue(recordExportMocks.committedValue)).then(recordMocks.saveCompleted, recordMocks.saveFailed); }}>测试普通保存</button>
       <button onClick={() => onDefaultCodeLanguageChange?.("rust")}>测试切换代码语言</button></>;
   },
 }));
@@ -324,12 +329,15 @@ describe("WorkspaceRecordFocusPage record switching", () => {
   beforeEach(() => {
     vi.mocked(desktopApi.listenEvent).mockClear();
     recordMocks.queryClient = null;
+    recordMocks.saveCompleted.mockReset();
+    recordMocks.saveFailed.mockReset();
     recordMocks.confirm.mockReset().mockResolvedValue(true);
     recordMocks.pendingReviewCount = 0;
     recordMocks.busy = false;
     recordMocks.bodySave.mockReset();
     recordMocks.sourceReveal.mockReset().mockReturnValue(true);
     recordMocks.editorGet.mockReset();
+    recordMocks.editorRegister.mockReset().mockResolvedValue(null);
     const findRecord = async (target: RecordTarget) => {
       if (target.scope.kind === "project") {
         const page = recordMocks.queryClient?.getQueryData<ProjectPageData>(queryKeys.projectPage(target.scope.projectId));
@@ -391,6 +399,58 @@ describe("WorkspaceRecordFocusPage record switching", () => {
     });
   });
 
+  it("does not checkpoint the old Workspace target when unmounted after a confirmed move", async () => {
+    const moved = { committed: false };
+    const persist = vi.fn(async () => ({ updatedAt: "saved", headRevision: 2 }));
+    const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: { persist } });
+    const view = renderPage(<ProjectContentMoveContext.Provider value={moved}><RecordSaveCoordinatorProvider coordinator={coordinator}><WorkspaceRecordFocusPage /></RecordSaveCoordinatorProvider></ProjectContentMoveContext.Provider>);
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
+    vi.mocked(recordDocumentApi.checkpoint).mockClear(); persist.mockClear();
+    moved.committed = true;
+    view.unmount();
+    await act(async () => { await Promise.resolve(); });
+    expect(recordDocumentApi.checkpoint).not.toHaveBeenCalled(); expect(persist).not.toHaveBeenCalled();
+    expect(coordinator.getStatus().pendingCount).toBe(0);
+  });
+
+  it.each(["during registration", "before first ready render"] as const)("hydrates the saved draft %s and submits the same body again", async (timing) => {
+    const target: RecordTarget = { scope: { kind: "workspace" }, recordId: 7 };
+    const next = fixtureEditorState(target, { ...noteA, title: "Saved title", contentHtml: "<p>Saved draft</p>", contentMarkdown: "Saved draft" }, 2);
+    let finishRegister!: () => void;
+    let finishPersist!: () => void;
+    recordMocks.editorRegister.mockImplementationOnce(() => new Promise((resolve) => { finishRegister = () => resolve(null); }));
+    const persist = vi.fn((snapshot: Readonly<CommittedRecordSnapshot>): Promise<RecordSaveResult> => {
+      if (snapshot.canonicalBody!.requestId === "pending-load") return new Promise((resolve) => {
+        finishPersist = () => { recordMocks.editorGet.mockResolvedValue(next); resolve({ updatedAt: "saved", headRevision: 2, metadata: next.metadata }); };
+      });
+      return Promise.resolve({ updatedAt: "saved-again", headRevision: 3 });
+    });
+    const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: { persist } });
+    coordinator.submit({ scope: "workspace", workspaceKey: "/tmp/workspace", recordId: 7, title: "Saved title", tagIds: [], defaultCodeLanguage: null,
+      committedContent: buildMockRichValue("Saved draft"), canonicalBody: { binding: { workspaceId: "fixture-workspace", generation: "open-1" },
+        requestId: "pending-load", baseRevision: 1, document: fixtureDocument("Saved draft"), editSessionId: null, origin: "manual" } });
+    renderPage(<RecordSaveCoordinatorProvider coordinator={coordinator}><WorkspaceRecordFocusPage /></RecordSaveCoordinatorProvider>);
+    await waitFor(() => expect(recordMocks.editorRegister).toHaveBeenCalledOnce());
+    if (timing === "during registration") {
+      await act(async () => { finishPersist(); await coordinator.flush("workspace:7"); });
+      await act(async () => { finishRegister(); });
+    } else {
+      await act(async () => {
+        finishRegister();
+        for (let i = 0; i < 8; ++i) await Promise.resolve();
+        finishPersist();
+        await coordinator.flush("workspace:7");
+      });
+    }
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
+    expect(screen.getByPlaceholderText("记录标题")).toHaveValue("Saved title");
+    expect(screen.getByRole("textbox", { name: "正文编辑器" })).toHaveValue("Saved draft");
+    recordExportMocks.committedValue = "Saved draft";
+    fireEvent.click(screen.getByText("测试普通保存"));
+    await waitFor(() => expect(recordMocks.saveCompleted).toHaveBeenCalledWith(true));
+    expect(persist.mock.calls[1][0].canonicalBody).toMatchObject({ baseRevision: 2, document: fixtureDocument("Saved draft"), metadataBase: next.metadata });
+  });
+
   it("refreshes a committed voice title and its canonical metadata without saving it again", async () => {
     apiMocks.workspacePageGet.mockResolvedValue({ ...buildWorkspacePage(), records: [{ ...noteA, isVoice: true }] });
     recordExportMocks.editorValue = recordExportMocks.committedValue;
@@ -440,6 +500,34 @@ describe("WorkspaceRecordFocusPage record switching", () => {
     recordMocks.editorGet.mockRejectedValue(new AgentApiError({ code: "NOT_FOUND", message: "record deleted", retryable: false }));
     return { view, coordinator, persist };
   }
+
+  it.each(["NOT_FOUND", "OBJECT_WITHDRAWN"] as const)("keeps a Workspace Record draft without confirm or discard when move saving fails with %s", async code => {
+    const persist = vi.fn(async () => { throw new RecordSaveFailure("Record cannot be saved", { code, retryable: false }); });
+    const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: { persist } });
+    const discard = vi.spyOn(coordinator, "discard");
+    const tab = { id: "moving-workspace-record", object: { kind: "record" as const, id: 7, title: "目标记录" }, view: {} };
+    renderPage(<RecordSaveCoordinatorProvider coordinator={coordinator}>
+      <ProjectContentLayoutView scope={{ workspaceId: "fixture-workspace", projectId: null }} active
+        layout={{ tabs: [tab], panes: [{ id: "left", tabIds: [tab.id], selectedTabId: tab.id }], focusedPaneId: "left", ratio: 0.5 }}
+        onOverview={() => undefined} onSelect={() => undefined} onClose={async () => undefined}
+        registerLeaveGuard={(prepare, lockObject, moved) => contentLifecycle.registerProjectContentCloseGuard({
+          workspaceRoot: "/strict-workspace-page", projectId: null, prepare, lockObject, moved,
+        })} renderPage={props => <WorkspaceRecordFocusPage recordIdOverride={7} embedded registerCloseGuard={props.registerCloseGuard} />} />
+    </RecordSaveCoordinatorProvider>);
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
+    recordExportMocks.committedValue = "必须保留的 Workspace 草稿";
+    recordMocks.editorGet.mockRejectedValue(new AgentApiError({ code, message: "Record unavailable", retryable: false }));
+    recordMocks.confirm.mockResolvedValue(true);
+    const move = vi.fn(async () => undefined);
+    await act(async () => {
+      await expect(contentLifecycle.withProjectContentMove("/strict-workspace-page", null, { kind: "record", id: 7 }, move)).rejects.toThrow("Record cannot be saved");
+    });
+    expect(move).not.toHaveBeenCalled();
+    expect(recordMocks.confirm).not.toHaveBeenCalled();
+    expect(discard).not.toHaveBeenCalled();
+    expect(coordinator.getLatestSnapshot("workspace:7")?.committedContent.markdown).toBe("必须保留的 Workspace 草稿");
+    expect(screen.getByRole("tab", { name: "目标记录" })).toBeInTheDocument();
+  });
 
   it("confirms a deleted record, clears its queue, and does not resubmit on navigation or unmount", async () => {
     const { view, coordinator, persist } = await renderDeletedRecord();
@@ -532,6 +620,44 @@ describe("WorkspaceRecordFocusPage record switching", () => {
     expect(flush).toHaveBeenCalledExactlyOnceWith("workspace:7");
     expect(coordinator.getLatestSnapshot("workspace:8")).toBe(other);
     expect(recordMocks.confirm).not.toHaveBeenCalled();
+  });
+
+  it("ordinary save succeeds independently of another failed record", async () => {
+    const failure = new Error("other record failed");
+    const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: { persist: async (snapshot) => {
+      if (snapshot.recordId === 8) throw failure;
+      return { updatedAt: "saved", headRevision: snapshot.canonicalBody!.baseRevision + 1 };
+    } } });
+    coordinator.submit({ scope: "workspace", workspaceKey: "/tmp/workspace", recordId: 8, title: "other", tagIds: [], defaultCodeLanguage: null, committedContent: buildMockRichValue("other") });
+    await expect(coordinator.flush("workspace:8")).rejects.toBe(failure);
+    const other = coordinator.getLatestSnapshot("workspace:8");
+    renderPage(<RecordSaveCoordinatorProvider coordinator={coordinator}><WorkspaceRecordFocusPage /></RecordSaveCoordinatorProvider>);
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
+    fireEvent.click(screen.getByText("测试普通保存"));
+    await waitFor(() => expect(recordMocks.saveCompleted).toHaveBeenCalledWith(true));
+    expect(recordMocks.saveFailed).not.toHaveBeenCalled();
+    expect(coordinator.getLatestSnapshot("workspace:8")).toBe(other);
+    await expect(coordinator.flush()).rejects.toBe(failure);
+  });
+
+  it("ordinary save can resubmit a corrected validation failure", async () => {
+    const failure = new RecordSaveFailure("Invalid document size", { code: "INVALID_PATCH", retryable: false });
+    const persist = vi.fn(async (snapshot: Readonly<CommittedRecordSnapshot>) => {
+      if (snapshot.committedContent.text === "invalid") throw failure;
+      return { updatedAt: "saved", headRevision: snapshot.canonicalBody!.baseRevision + 1 };
+    });
+    const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: { persist } });
+    renderPage(<RecordSaveCoordinatorProvider coordinator={coordinator}><WorkspaceRecordFocusPage /></RecordSaveCoordinatorProvider>);
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
+    recordExportMocks.committedValue = "invalid";
+    fireEvent.click(screen.getByText("测试普通保存"));
+    await waitFor(() => expect(recordMocks.saveFailed).toHaveBeenCalledWith(failure));
+    recordExportMocks.committedValue = "corrected";
+    fireEvent.click(screen.getByText("测试普通保存"));
+    await waitFor(() => expect(recordMocks.saveCompleted).toHaveBeenCalledWith(true));
+    expect(persist.mock.calls.map(([snapshot]) => snapshot.committedContent.text)).toEqual(["invalid", "corrected"]);
+    expect(persist.mock.calls[1][0].canonicalBody!.requestId).not.toBe(persist.mock.calls[0][0].canonicalBody!.requestId);
+    expect(coordinator.getStatus()).toMatchObject({ pendingCount: 0, failedCount: 0 });
   });
 
   it("preserves a real save error without offering to discard", async () => {

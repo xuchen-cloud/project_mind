@@ -1,0 +1,7 @@
+cwd: /tmp/project-mind-review-markdown-undo
+command: ["/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node", "node_modules/typescript/bin/tsc", "--noEmit", "-p", "tsconfig.json"]
+src/components/office/DocxEditor.tsx(46,29): error TS2307: Cannot find module '../../../packages/office-docx/dist/full-editor.mjs' or its corresponding type declarations.
+src/components/office/OfficeFileContent.tsx(24,34): error TS2307: Cannot find module '../../../packages/office-html2docx/dist/index.mjs' or its corresponding type declarations.
+src/components/office/OfficeFileContent.tsx(57,14): error TS2307: Cannot find module '../../../packages/office-docx/dist/full-editor.mjs' or its corresponding type declarations.
+src/components/office/OfficeFileContent.tsx(60,14): error TS2307: Cannot find module '../../../packages/office-xlsx/dist/browser.mjs' or its corresponding type declarations.
+src/components/office/XlsxEditor.tsx(37,31): error TS2307: Cannot find module '../../../packages/office-xlsx/dist/browser.mjs' or its corresponding type declarations.

@@ -1,4 +1,6 @@
 //! Read-only access to the current DB project's physical directory.
+#[cfg(test)]
+use crate::agent::models::Scope;
 use crate::{
     agent::models::WorkspaceBinding,
     source_file_snapshot::{open_regular, FileStamp},
@@ -389,7 +391,7 @@ fn preview(root: &Path, relative: &str) -> Result<DirectoryPreview> {
     }
 }
 
-fn authorize_identity(
+pub(crate) fn authorize_identity(
     label: &str,
     window_label: &str,
     project_id: Option<i64>,
@@ -1044,7 +1046,7 @@ mod tests {
     }
 }
 
-use crate::agent::models::{ObjectRef, Scope};
+use crate::agent::models::ObjectRef;
 use crate::db::project_directory_files::{
     DirectoryFile, DirectoryScan, FileBytesInput, FileBytesResult, FileServiceError,
 };

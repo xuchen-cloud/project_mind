@@ -1,0 +1,31 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {RecordSaveCoordinator, RecordSaveFailure, workspaceRecordSaveKey} from '/Users/xuchen/project_mind/src/lib/record-save-coordinator.ts';
+
+test('CONFIRM: corrected snapshot remains blocked behind a non-retryable head, including explicit retry', async () => {
+  const failure = new RecordSaveFailure('Invalid document size: limit is 1 MiB', {code:'INVALID_PATCH', retryable:false});
+  const calls: string[] = [];
+  const coordinator = new RecordSaveCoordinator({adapter:{persist:async snapshot => {
+    calls.push(snapshot.canonicalBody!.requestId);
+    if (snapshot.canonicalBody!.requestId === 'rejected') throw failure;
+    return {updatedAt:'saved', headRevision:2};
+  }}});
+  const snapshot = (requestId:string, text:string) => ({scope:'workspace' as const, workspaceKey:'/fixture', recordId:7,
+    title:'fixture',tagIds:[],defaultCodeLanguage:null,committedContent:{html:`<p>${text}</p>`,markdown:text,text},
+    canonicalBody:{binding:{workspaceId:'w',generation:'g'},requestId,baseRevision:1,editSessionId:null,origin:'manual' as const,
+      document:{type:'doc',content:[{type:'paragraph',attrs:{blockId:'a'.repeat(32)},content:[{type:'text',text}]}]}}});
+  const key = workspaceRecordSaveKey(7);
+  coordinator.submit(snapshot('rejected','x'.repeat(1024*1024)));
+  await assert.rejects(coordinator.flush(key), error => error === failure);
+  coordinator.submit(snapshot('corrected','fixed'));
+  await Promise.resolve(); // Let the scheduled runRecord execute.
+  await assert.rejects(coordinator.flush(key), error => error === failure);
+  coordinator.retryFailed(key);
+  await Promise.resolve();
+  await assert.rejects(coordinator.flush(key), error => error === failure);
+  assert.deepEqual(calls,['rejected']);
+  assert.equal(coordinator.getLatestSnapshot(key)?.committedContent.text,'fixed');
+  const {phase,pendingCount,failedCount,retryableFailedCount} = coordinator.getRecordStatus(key);
+  assert.deepEqual({phase,pendingCount,failedCount,retryableFailedCount},{phase:'error',pendingCount:2,failedCount:1,retryableFailedCount:0});
+  console.log(JSON.stringify({persistCalls:calls,latestDraft:'fixed',phase,pendingCount,failedCount,retryableFailedCount,flushRejectsOriginalFailure:true}));
+});

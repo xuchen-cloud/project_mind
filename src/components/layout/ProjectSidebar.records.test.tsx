@@ -1,13 +1,22 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createUiStoreState, useUiStore } from "../../state/ui-store";
 import { useListPinsStore } from "../../state/list-pins-store";
 import { ProjectSidebar } from "./ProjectSidebar";
+import { queryKeys } from "../../lib/queryKeys";
 
-function renderWithProviders(ui: React.ReactElement) {
+const moveApi = vi.hoisted(() => ({ move: vi.fn(), projects: vi.fn() }));
+vi.mock("../../services/contentOwnerMoveApi", () => ({ moveContentOwner: moveApi.move }));
+vi.mock("../../services/recordDocumentApi", () => ({ recordDocumentApi: { bindingGet: vi.fn(async () => ({ workspaceId: "w", generation: "g" })) } }));
+vi.mock("../../services/projectMindApi", async importOriginal => {
+  const actual = await importOriginal<typeof import("../../services/projectMindApi")>();
+  return { projectMindApi: { ...actual.projectMindApi, projectsList: moveApi.projects } };
+});
+
+function renderWithProviders(ui: React.ReactElement, workspaceRoot?: string) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -15,6 +24,7 @@ function renderWithProviders(ui: React.ReactElement) {
     },
   });
 
+  if (workspaceRoot) queryClient.setQueryData(queryKeys.workspaceStatus, { currentWorkspace: { rootPath: workspaceRoot } });
   return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
 }
 
@@ -22,6 +32,28 @@ describe("ProjectSidebar records", () => {
   beforeEach(() => {
     useListPinsStore.setState({ pins: {} });
     useUiStore.setState(createUiStoreState());
+  });
+
+  it.each([undefined, "/real-workspace"])("only moves a Project Record when its real Workspace root is available (%s)", async workspaceRoot => {
+    moveApi.move.mockReset().mockResolvedValue(undefined);
+    moveApi.projects.mockResolvedValue([{ id: 2, name: "目标项目" }]);
+    renderWithProviders(<ProjectSidebar project={{ id: 1, name: "Alpha", rootPath: "/project-not-workspace" }}
+      records={[{ id: 11, title: "待移动记录", typeLabel: "记录", contentMarkdown: "正文", tags: [], updatedAt: "2026-11-10" }]}
+      onOpenProject={vi.fn()} />, workspaceRoot);
+    fireEvent.contextMenu(screen.getByText("待移动记录"));
+    const move = screen.getByRole("menuitem", { name: "移动到…" });
+    if (!workspaceRoot) {
+      expect(move).toBeDisabled();
+      fireEvent.click(move);
+      expect(moveApi.move).not.toHaveBeenCalled();
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      return;
+    }
+    fireEvent.click(move);
+    fireEvent.click(await screen.findByRole("radio", { name: /目标项目/ }));
+    fireEvent.click(screen.getByRole("button", { name: "移动" }));
+    await waitFor(() => expect(moveApi.move).toHaveBeenCalledWith({ workspaceRoot, binding: { workspaceId: "w", generation: "g" },
+      sourceProjectId: 1, destinationProjectId: 2, object: { kind: "record", id: 11 } }));
   });
 
   it("calls onOpenRecord when a record title is clicked", async () => {

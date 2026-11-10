@@ -4,6 +4,7 @@ import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createUserMessage } from '@deepseek-ai/dsh-llm';
 import { bindContext, readContext } from '../scripts/project-workspace.mjs';
 
 test('native project frame resolves an existing absolute directory', async t => {
@@ -479,10 +480,13 @@ async function persistedStreamFixture(t) {
   await ctx.plugin(SessionStore);
   await ctx.plugin(Persistence, { root: path.join(home, 'sessions'), compression: 'none' });
   await ctx.plugin(SessionQuery); await ctx.plugin(Projections);
+  const { default: SessionTitle } = await import('@deepseek-ai/dsh-session-title');
+  await ctx.plugin(SessionTitle, { fallbackMaxWords: 12, fallbackMaxBytes: 128, maxTitleBytes: 256 });
   ctx.provide('agents', { get() {} });
   ctx.provide('typert', { lookups: { configure() {} }, contexts: { configureHost() {} } });
   ctx.provide('fileUploads', { registerAgentResolver() { return () => {}; } });
-  ctx.provide('connection', { fetch: { register() {} } });
+  const routes = new Map();
+  ctx.provide('connection', { fetch: { register(route) { routes.set(route.path, route.fetch); } } });
   const records = new Map();
   ctx.provide('workspaceRegistry', { get: id => records.get(id), archivedSessionIds: [], pinnedSessionIds: [] });
   ctx.provide('workspaceController', { async create({ path: directory }) {
@@ -506,7 +510,7 @@ async function persistedStreamFixture(t) {
   await ctx.sessions.flush(session);
   const registry = await bindContext(ctx, contexts[0], { home });
   for (const context of contexts.slice(1)) await registry.register(context);
-  return { ctx, registry, session, writer, home, contexts,
+  return { ctx, registry, session, writer, home, contexts, routes,
     counts: () => ({ lists, artifacts }), reset() { lists = artifacts = 0; } };
 }
 
@@ -618,4 +622,218 @@ test('lazy unopened mappings keep ownership when a new native scope reuses the d
  await writeFile(path.join(home,'mind-contexts.json'),JSON.stringify({version:1,contexts:[{kind:'project',id:7,directory:root,workspaceId:'old'}]}));
  const ctx={workspaceController:{},sessionController:{list:async()=>{assert.fail('must not list Session history');}}};
  await assert.rejects(bindContext(ctx,{kind:'project',id:8,name:'Other',directory:root},{home}),/belongs to another native scope/);
+});
+
+// G06 exercises the same HTTP metadata boundary consumed by the native host.
+test('summary RPC reuses first A/B/revisit catalog and never hydrates cold projections', async t => {
+  const { mkdir } = await import('node:fs/promises');
+  const f = await indexedFixture(t, 2);
+  const other = path.join(f.directory, 'B'); await mkdir(other);
+  f.rows[1].cwd = other;
+  f.rows[0].projections = { kind: 'cached', asOfSeq: 1, values: { title: 'A hint' } };
+  const read = context => rpcFixture(f, 'mind/session/summaries', { context });
+  const a = await read({ kind: 'project', id: 1 });
+  assert.equal(a.ok, true);
+  assert.deepEqual(a.value.items.map(row => row.sessionId), ['s0']);
+  await f.registry.register({ kind: 'project', id: 2, name: 'B', directory: other });
+  const b = await read({ kind: 'project', id: 2 });
+  const revisit = await read({ kind: 'project', id: 1 });
+  assert.deepEqual(b.value.items.map(row => row.sessionId), ['s1']);
+  assert.equal(revisit.value.items[0].projections.values.title, 'A hint');
+  assert.equal(f.lists(), 1);
+  assert.equal(f.projections(), 0);
+  assert.equal(typeof revisit.value.revision, 'string');
+  f.ctx.workspaceRegistry.pinnedSessionIds = ['s0'];
+  assert.equal((await read({ kind: 'project', id: 1 })).value.items[0].pinned, true);
+  f.ctx.workspaceRegistry.archivedSessionIds.push('s0');
+  assert.deepEqual((await read({ kind: 'project', id: 1 })).value.items, []);
+  f.ctx.emit('domain/changed', { domain: 'workspace', table: 'workspaces', operation: 'deleted', key: 'mapped' });
+  assert.equal((await read({ kind: 'project', id: 1 })).ok, false);
+});
+
+async function waitForSummary(f, context, id, title) {
+  const deadline = performance.now() + 3000;
+  while (performance.now() < deadline) {
+    const result = await rpcFixture(f, 'mind/session/summaries', { context });
+    if (result.ok && result.value.items.find(row => row.sessionId === id)?.projections?.values.title === title) return result.value;
+    await new Promise(resolve => setTimeout(resolve, 15));
+  }
+  assert.fail(`summary ${id} never reconciled to ${title}`);
+}
+
+async function writeColdTitle(f, id, context, title, bodyBytes = 0) {
+  const session = f.ctx.sessions.prepare(id, { meta: { cwd: context.directory } });
+  if (bodyBytes) session.append('user/message', createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'x'.repeat(bodyBytes) }] }), { surfaceOp: 'append' });
+  session.append('session/title', { title, messageSeqs: [], source: { kind: 'user' } });
+  const writer = await f.ctx.sessionPersistence.create(session.header);
+  await writer.append(session.snapshotEvents()); await writer.close();
+  return session;
+}
+
+test('real summary RPC repairs durable title hints, reconciles external edits and keeps live precedence', async t => {
+  const { readFile, readdir, unlink } = await import('node:fs/promises');
+  const f = await persistedStreamFixture(t);
+  const a = f.contexts[0], b = f.contexts[1];
+  let titleReads = 0;
+  const readTitle = f.ctx.sessionQuery.readTitleSnapshot;
+  f.ctx.sessionQuery.readTitleSnapshot = function (...args) { titleReads++; return readTitle.apply(this, args); };
+  const cold = await writeColdTitle(f, 'summary-cold', a, 'Same scope title');
+  await writeColdTitle(f, 'summary-other', b, 'Same scope title');
+  let result = await rpcFixture(f, 'mind/session/summaries', { context: a, refresh: true });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.value.items.map(row => row.sessionId).sort(), ['streaming', cold.id].sort());
+  const repaired = await waitForSummary(f, a, cold.id, 'Same scope title');
+  await rpcFixture(f, 'mind/session/summaries', { context: a });
+  await new Promise(resolve => setTimeout(resolve, 40));
+  assert.equal(titleReads, 1, 'a verified revision must not keep repairing on every list');
+  const files = await readdir(path.join(f.home, 'mind-session-summaries'));
+  const entries = await Promise.all(files.filter(file => file.endsWith('.json')).map(file => readFile(path.join(f.home, 'mind-session-summaries', file), 'utf8').then(JSON.parse)));
+  const stored = entries.find(value => value.header.id === cold.id);
+  assert.equal(stored.title.title, 'Same scope title');
+  assert.equal(stored.revision, (await f.ctx.sessionPersistence.stat(cold.id)).revision);
+  // A fresh binding consumes the durable hint without a CLI, Agent, provider,
+  // projection cache or synchronous title-query capability.
+  const routes = new Map(); let dispose;
+  const restarted = {
+    workspaceRegistry: f.ctx.workspaceRegistry, workspaceController: {},
+    sessionPersistence: f.ctx.sessionPersistence,
+    sessionController: { async list() { return { items: [{ sessionId: cold.id, cwd: a.directory, agentAvailable: false,
+      projections: { kind: 'cached', asOfSeq: -1, values: { title: 'Stale predecessor' } } }] }; } },
+    connection: { fetch: { register(route) { routes.set(route.path, route.fetch); } } },
+    effect(setup) { dispose = setup(); },
+  };
+  await bindContext(restarted, a, { home: f.home });
+  try {
+    const restored = await rpcFixture({ routes }, 'mind/session/summaries', { context: a });
+    assert.equal(restored.ok, true);
+    assert.equal(restored.value.items[0].title, 'Same scope title');
+  } finally { await dispose(); }
+
+  const writer = await f.ctx.sessionPersistence.open(cold.id, 'write');
+  await writer.append([cold.append('session/title', { title: 'Externally renamed', messageSeqs: [], source: { kind: 'user' } })]);
+  await writer.close();
+  // A forced metadata refresh also covers platforms with a lost watcher event.
+  await rpcFixture(f, 'mind/session/summaries', { context: a, refresh: true });
+  result = await waitForSummary(f, a, cold.id, 'Externally renamed');
+  assert.notEqual(result.revision, repaired.revision);
+  f.session.append('session/title', { title: 'Live wins', messageSeqs: [], source: { kind: 'user' } });
+  result = await rpcFixture(f, 'mind/session/summaries', { context: a });
+  assert.equal(result.value.items.find(row => row.sessionId === f.session.id).projections.values.title, 'Live wins');
+  await unlink(f.ctx.sessionPersistence.locate(cold.header).path);
+  result = await rpcFixture(f, 'mind/session/summaries', { context: a, refresh: true });
+  assert.ok(!result.value.items.some(row => row.sessionId === cold.id));
+});
+
+test('summary RPC body-growth foreground bytes stay bounded, first A/B/revisit share catalog', async t => {
+  const fs = await import('node:fs/promises');
+  const { syncBuiltinESMExports } = await import('node:module');
+  const f = await persistedStreamFixture(t);
+  const a = f.contexts[0], b = f.contexts[1];
+  await writeColdTitle(f, 'summary-small', a, 'Small', 32 * 1024);
+  const growing = await writeColdTitle(f, 'summary-large', b, 'Large', 32 * 1024);
+  await new Promise(resolve => setTimeout(resolve, 30));
+  t.mock.timers.enable({ apis: ['setTimeout'] }); // isolate foreground I/O from deferred index repairs
+  let bytes = 0, fullReads = 0, projected = 0;
+  // Count actual filesystem bytes, including bounded JSONL header overreads.
+  const probe = await fs.open(path.join(f.home, 'mind-contexts.json'), 'r');
+  const proto = Object.getPrototypeOf(probe); await probe.close();
+  const read = proto.read;
+  t.mock.method(proto, 'read', async function (...args) { const result = await read.apply(this, args); bytes += result.bytesRead; return result; });
+  const readFile = fs.default.readFile;
+  t.mock.method(fs.default, 'readFile', async function (...args) { const result = await readFile.apply(this, args); bytes += Buffer.byteLength(result); return result; });
+  syncBuiltinESMExports();
+  t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
+  const open = f.ctx.sessionPersistence.open;
+  f.ctx.sessionPersistence.open = function (id, access, ...rest) { if (access === 'read') fullReads++; return open.call(this, id, access, ...rest); };
+  const projections = f.ctx.sessionController.projections;
+  f.ctx.sessionController.projections = function (...args) { projected++; return projections.apply(this, args); };
+  f.reset();
+  const measure = async context => {
+    const before = bytes, start = performance.now();
+    const response = await rpcFixture(f, 'mind/session/summaries', { context });
+    assert.equal(response.ok, true);
+    return { bytes: bytes - before, ms: +(performance.now() - start).toFixed(2) };
+  };
+  const firstA = await measure(a), firstB = await measure(b), revisitA = await measure(a);
+  assert.equal((await rpcFixture(f, 'mind/session/list', { context: a })).ok, true, 'legacy native list uses the same metadata path');
+  assert.deepEqual(f.counts(), { lists: 1, artifacts: 1 });
+  assert.equal(fullReads, 0); assert.equal(projected, 0);
+  assert.ok(firstA.bytes <= 3 * 8192 + 4096, JSON.stringify(firstA));
+  assert.equal(firstB.bytes, 0); assert.equal(revisitA.bytes, 0);
+  // Grow only body content, retaining the exact same catalog/header count.
+  const writer = await f.ctx.sessionPersistence.open(growing.id, 'write');
+  await writer.append([growing.append('user/message', createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'y'.repeat(2 * 1024 * 1024) }] }), { surfaceOp: 'append' })]);
+  await writer.close();
+  const before = bytes;
+  assert.equal((await rpcFixture(f, 'mind/session/summaries', { context: b, refresh: true })).ok, true);
+  assert.ok(bytes - before <= 3 * 8192 + 4096);
+  assert.equal(fullReads, 0);
+  t.diagnostic(JSON.stringify({ bodyBytesBeforeAfter: [32768, 32768 + 2097152], firstA, firstB, revisitA, forcedRefreshBytes: bytes - before, fullReads, projected }));
+});
+
+test('summary RPC remains usable during unrelated live events across disk hint I/O', async t => {
+  const f = await indexedFixture(t, 2);
+  f.rows[1].cwd = '/another-project';
+  let emitted = 0;
+  f.ctx.sessionPersistence = {
+    async list() { return [{ header: { id: 's0', cwd: f.directory, createdAt: 1 }, revision: 'one' }]; },
+    get stat() {
+      // hint() checks the public repair capability after awaiting its disk hint.
+      // Emit an unrelated streaming burst at exactly that metadata boundary.
+      for (let index = 0; index < 100; index++) f.ctx.emit('session/event', { id: 's1' }, { type: 'assistant/message' });
+      emitted++;
+      return async () => undefined;
+    },
+  };
+  f.ctx.sessionQuery = { async readTitleSnapshot() { assert.fail('background work must not block response'); } };
+  const result = await rpcFixture(f, 'mind/session/summaries', { context: { kind: 'project', id: 1 } });
+  assert.equal(emitted, 1);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.deepEqual(result.value.items.map(row => row.sessionId), ['s0']);
+  assert.equal(f.projections(), 0);
+});
+
+test('summary RPC rechecks scope revocation after hint I/O', async t => {
+  const f = await indexedFixture(t, 1);
+  f.ctx.sessionPersistence = {
+    async list() { return [{ header: { id: 's0', cwd: f.directory }, revision: 'one' }]; },
+    get stat() {
+      f.ctx.emit('domain/changed', { domain: 'workspace', table: 'workspaces', operation: 'deleted', key: 'mapped' });
+      return async () => undefined;
+    },
+  };
+  f.ctx.sessionQuery = { async readTitleSnapshot() {} };
+  const result = await rpcFixture(f, 'mind/session/summaries', { context: { kind: 'project', id: 1 } });
+  assert.equal(result.ok, false);
+  assert.match(result.error.message, /not registered/);
+});
+
+test('summary repair rejects source drift and retries a failed title read on a later request', async t => {
+  const { readdir } = await import('node:fs/promises');
+  const f = await indexedFixture(t, 1, true);
+  const context = { kind: 'project', id: 1 };
+  const header = { id: 's0', cwd: f.directory, createdAt: 1 };
+  let revision = 'one', reads = 0, warnings = 0;
+  f.ctx.sessionPersistence = {
+    identity: Symbol('fixture'),
+    async list() { return [{ header, revision }]; },
+    async stat() { return { header, revision }; },
+  };
+  f.ctx.logger = { warn() { warnings++; } };
+  f.ctx.sessionQuery = { async readTitleSnapshot() {
+    reads++;
+    if (reads === 1) revision = 'two';
+    if (reads === 2) throw new Error('transient title read failure');
+    return { session: header, title: { title: reads === 1 ? 'Superseded' : 'Current', eventSeq: reads } };
+  } };
+  await rpcFixture(f, 'mind/session/summaries', { context });
+  await new Promise(resolve => setTimeout(resolve, 60));
+  assert.equal(reads, 1);
+  await assert.rejects(readdir(path.join(f.directory, 'mind-session-summaries')), { code: 'ENOENT' });
+  await rpcFixture(f, 'mind/session/summaries', { context, refresh: true });
+  await new Promise(resolve => setTimeout(resolve, 60));
+  assert.equal(reads, 2); assert.equal(warnings, 1);
+  const repaired = await waitForSummary(f, context, 's0', 'Current');
+  assert.equal(repaired.items[0].title, 'Current');
+  assert.equal(reads, 3);
 });

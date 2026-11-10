@@ -1,6 +1,9 @@
 //! Shared dispatch for Record, Todo and File output services.
+#[cfg(test)]
 use serde::Deserialize;
+#[cfg(test)]
 use serde_json::{json, Value};
+#[cfg(test)]
 use tokio::{sync::watch, time::Instant};
 
 use super::{
@@ -422,6 +425,7 @@ pub(crate) fn restore_created_content<S: BoundRecordStore>(
     result
 }
 
+#[cfg(test)]
 /// Apply a later user decision through native output permissions and receipts.
 pub(super) async fn execute_review_decision<
     S: crate::record_document_service::BoundRecordStore

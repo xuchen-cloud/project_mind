@@ -241,3 +241,25 @@ canvas and produces the existing candidate edit journal. One undo restores the
 transaction. Saving remains the normal native File/CAS flow. Readonly/preview,
 composition, active editing and busy states reject instead of queueing an AI edit
 against unstable input. This bridge adds no model, chat or network image runtime.
+
+### Progressive GUI inspection (#303)
+
+`inspectView(bytes, context?)` is the GUI entry. `inspect(bytes)` remains full
+inspection for authoring/external tools. The view DTO has a complete fixed
+`sourceBase64`/`originalHash`, `slideCatalog` and one parsed initial slide;
+`coverage` explicitly describes the partial cache. It omits render layouts and
+media data URLs. The isolated renderer reuses that initial parsed slide and
+materializes the pinned slide parser's layout/master/theme/chart dependency graph
+on navigation/visible thumbnails. The current canvas uses actual editable nodes.
+Global output and deck operations resolve their complete dependencies on demand.
+
+The full archive is always retained; unloaded slide shells are never serialized
+as blank slides. Save snapshots preserve cumulative edits against that archive,
+including across native acknowledgments, while candidate manifests compare all
+part bytes. Candidate generation no longer parses every slide. The source lock
+continues to verify unmodified vendor bytes; `progressive-build.mjs` exposes the
+existing one-slide parser at build time with a checked transformation. ZIP budget
+validation/inflation and UTF-8/XML admission of every XML/rels part are still eager;
+`coverage.archiveMs` and `coverage.xmlValidationMs` measure these costs separately.
+Windows timing and native GUI acceptance
+remain separate verification work.

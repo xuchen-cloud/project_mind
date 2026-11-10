@@ -1,6 +1,6 @@
 import type {AgentObjectRef, AgentWorkspaceBinding} from '../lib/agent-types';
 import type {OfficeEdit, OfficeModel} from '../lib/office-types';
-import type {RecalculateRequest, RecalculateResult} from '../../packages/office-xlsx/types';
+import type {RecalculateRequest, RecalculateResult, OfficeViewRead} from '../../packages/office-xlsx/types';
 import {callAgentCommand} from './agentApi';
 
 export interface FileWorkingStatus {
@@ -31,6 +31,7 @@ function call<T>(command: string, binding: AgentWorkspaceBinding, data: unknown,
 }
 export const fileWorkingApi = {
   open: (binding: AgentWorkspaceBinding, object: AgentObjectRef) => call<FileWorkingOpen>('file_working_open', binding, {object}),
+  readView: (binding: AgentWorkspaceBinding, data: {object: AgentObjectRef; sessionId: string; read: OfficeViewRead}) => call<unknown>('file_working_read_view', binding, data),
   saveOffice: (binding: AgentWorkspaceBinding, data: FileWorkingSaveInput & {edits: OfficeEdit[]}, requestId: string) => call<FileWorkingSaved>('file_working_save_office', binding, data, requestId),
   saveText: (binding: AgentWorkspaceBinding, data: FileWorkingSaveInput & {text: string}, requestId: string) => call<FileWorkingSaved>('file_working_save_text', binding, data, requestId),
   activity: (binding: AgentWorkspaceBinding, data: {object: AgentObjectRef; sessionId: string}) => call<FileWorkingStatus>('file_working_activity', binding, data),

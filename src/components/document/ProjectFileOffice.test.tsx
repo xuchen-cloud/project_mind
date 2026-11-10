@@ -11,10 +11,11 @@ import {queryKeys} from '../../lib/queryKeys';
 vi.mock('../../services/fileDocumentApi',()=>({fileDocumentApi:{versionsList:vi.fn()}}));
 vi.mock('../../services/recordDocumentApi',()=>({recordDocumentApi:{bindingGet:vi.fn()}}));
 vi.mock('../../services/projectFileApi',()=>({projectFileApi:{resolve:vi.fn(),readBytes:vi.fn(),applications:vi.fn(),openWith:vi.fn(),openLocal:vi.fn()},fileBytes:()=>new Uint8Array([80,75])}));
-vi.mock('../../services/officeFileApi',()=>({officeFileApi:{inspect:vi.fn()}}));
+vi.mock('../../services/officeFileApi',()=>({officeFileApi:{inspectView:vi.fn()}}));
 vi.mock('../../services/fileWorkingApi',()=>({fileWorkingApi:{open:vi.fn(),saveOffice:vi.fn(),activity:vi.fn(),close:vi.fn(),tick:vi.fn()}}));
 vi.mock('../office/DocxEditor',()=>({DocxEditor:(props:{model:{nodes:{text:string}[]};edits:{text:string}[];readOnly:boolean;onChange:(edits:unknown[])=>void})=><div>
   <p>{props.edits[0]?.text??props.model.nodes[0].text}</p><button disabled={props.readOnly} onClick={()=>props.onChange([{type:'text',nodeId:'p0',text:'保留草稿'}])}>编辑文档</button>
+  <button disabled={props.readOnly} onClick={()=>props.onChange([{type:'text',nodeId:'p0',text:props.model.nodes[0].text}])}>重放原文</button>
 </div>}));
 const binding={workspaceId:'w',generation:'g'};
 const object={workspaceId:'w',scope:{kind:'project' as const,projectId:2},kind:'file' as const,id:'7'};
@@ -145,4 +146,19 @@ it('updates archived history metadata without reopening the live working editor'
  expect(await screen.findByRole('menuitemradio',{name:'v3',exact:true})).toBeVisible();
  expect(screen.getByRole('menuitemradio',{name:'当前内容',exact:true})).toHaveAttribute('aria-checked','true');
  expect(fileWorkingApi.open).toHaveBeenCalledOnce();expect(fileWorkingApi.close).not.toHaveBeenCalled();view.unmount();
+});
+
+it.each(['verified','pending','missing','mismatch'])('publishes only a verified immutable source after a native no-change save: %s',async scenario=>{
+ const onSourceReady=vi.fn();let close!:()=>Promise<void>;
+ vi.mocked(fileWorkingApi.saveOffice).mockResolvedValueOnce({...status(),noChange:true,
+   ...(scenario==='pending'?{pendingArchive:true}:scenario==='missing'?{archivedVersionNumber:3}:scenario==='mismatch'?{contentHash:'unknown'}:{})});
+ const client=new QueryClient();
+ const view=render(<QueryClientProvider client={client}><ProjectFileContent workspaceRoot="/workspace" projectId={2} fileId={7} visible focused onSourceReady={onSourceReady} registerCloseGuard={guard=>{close=guard;return()=>{}}}/></QueryClientProvider>);
+ const edit=await screen.findByRole('button',{name:'编辑',exact:true});await waitFor(()=>expect(edit).not.toBeDisabled());fireEvent.click(edit);
+ await screen.findByText('原文');
+ expect(onSourceReady).toHaveBeenLastCalledWith(expect.objectContaining({fileVersion:2,revision:'hash2'}));
+ fireEvent.click(screen.getByRole('button',{name:'重放原文'}));await act(()=>close());
+ expect(fileWorkingApi.saveOffice).toHaveBeenCalledOnce();
+ expect(onSourceReady).toHaveBeenLastCalledWith(scenario==='verified'?expect.objectContaining({fileVersion:2,revision:'hash2'}):null);
+ view.unmount();
 });

@@ -3,6 +3,7 @@ import {join} from 'node:path';
 import {buildImportPath} from './build-import-path.mjs';
 import ts from 'typescript';
 import {markEditorChrome} from '../editor-chrome/build-adapter.mjs';
+import {progressiveEngineSource,progressiveResourceSource,progressiveSnapshotSource} from './progressive-build.mjs';
 import {installTextEditTransforms} from './parity-text-edit-build.mjs';
 export function preserveLateEditSource(source){
  if(!source.includes('ctx.setDirty(false)'))throw Error('Pinned save dirty seam changed');
@@ -14,6 +15,9 @@ export function initialThumbsSource(source){
 }
 export function parityPlugins(root,{browser=false}={}) {return [{name:'pinned-parity',setup(b){
  if(browser)installTextEditTransforms(b,root);
+ b.onLoad({filter:/pptx-engine[\\/]src[\\/]resource-cleanup\.ts$/},args=>({contents:progressiveResourceSource(readFileSync(args.path,'utf8')),loader:'ts'}));
+ if(browser)b.onLoad({filter:/(?:zoom-actions|clipboard-actions)\.ts$/},args=>({contents:"import {prepareSlideImages} from "+JSON.stringify(buildImportPath(root,'parity-images.ts'))+";\n"+progressiveSnapshotSource(readFileSync(args.path,'utf8'),args.path.endsWith('zoom-actions.ts')?'zoom':'clipboard'),loader:'ts'}));
+
  // Let the first canvas paint before thumbnail observers request nearby pages.
  // Inactive sorter/thumbnail rails must not eagerly request 24 layouts each.
  if(browser)b.onLoad({filter:/use-visible-thumbs\.ts$/},args=>({contents:initialThumbsSource(readFileSync(args.path,'utf8')),loader:'ts'}));
@@ -21,6 +25,7 @@ export function parityPlugins(root,{browser=false}={}) {return [{name:'pinned-pa
  // Preserve pinned source bytes while making generated IDs/timestamps replayable across browser/native.
  b.onLoad({filter:/(?:pptx-engine[\\/]src[\\/](?:xml-utils|index|sections|generate|comments|insert|headerfooter)\.ts|parity-handlers\.mjs)$/},args=>{
   let source=readFileSync(args.path,'utf8');
+  if(/pptx-engine[\\/]src[\\/]index\.ts$/.test(args.path))source=progressiveEngineSource(source);
   source=source.replace(/globalThis\.crypto\.randomUUID\(\)/g,'replayUUID()').replace(/new Date\(\)\.toISOString\(\)/g,'replayDateISO()').replace(/Date\.now\(\)/g,'replayNow()');
   source=source.replace(/import \{ randomUUID \} from 'node:crypto'/,"const randomUUID=replayUUID;");
   source=source.replace(/function fieldGuid\(\): string \{[\s\S]*?\n\}/,"function fieldGuid(): string {return replayUUID().toUpperCase()}");

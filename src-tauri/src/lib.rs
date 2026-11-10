@@ -7,6 +7,7 @@ pub mod dsh_process;
 mod dsh_model;
 mod skills;
 mod project_directory;
+mod project_directory_changes;
 mod html_preview_files;
 mod html_preview;
 mod html_preview_http;
@@ -17,6 +18,7 @@ mod ai_network;
 mod db;
 mod models;
 mod record_documents;
+mod record_owner_moves;
 mod record_document_worker;
 mod source_extraction_worker;
 mod source_search_index;
@@ -65,10 +67,14 @@ mod file_office_create;
 mod office_acceptance_fixture;
 mod office_selection;
 mod office_worker;
+mod office_view;
 mod office_process;
 mod file_office_commands;
 mod workspace_commit_fence;
 mod record_editor_coordination;
+mod file_editor_coordination;
+mod file_editor_commands;
+mod file_flow_commands;
 mod record_export;
 mod secret_crypto;
 mod system_fonts;
@@ -222,7 +228,6 @@ pub struct SeedDemoWorkspaceResult {
 pub(crate) struct WorkspaceRuntime {
     agent_binding: agent::models::WorkspaceBinding,
     agent_runs: Mutex<std::collections::HashMap<String, tokio::sync::watch::Sender<bool>>>,
-    agent_cancel_started: Mutex<std::collections::HashMap<String, std::time::Instant>>,
     summary: WorkspaceSummary,
     metadata: WorkspaceMetadata,
     pub(crate) paths: WorkspacePaths,
@@ -284,7 +289,6 @@ impl WorkspaceRuntime {
         Ok(Self {
             agent_binding,
             agent_runs: Mutex::new(std::collections::HashMap::new()),
-            agent_cancel_started: Mutex::new(std::collections::HashMap::new()),
             summary: workspace_summary(&paths.root_path, &metadata),
             metadata,
             paths,
@@ -331,6 +335,7 @@ pub(crate) struct AppState {
     voice_closing: Arc<voice::shutdown::ClosingFlag>,
     exit_authorized: std::sync::atomic::AtomicBool,
     record_editors: Arc<record_editor_coordination::RecordEditorCoordinator>,
+    file_editors: Arc<file_editor_coordination::FileEditorCoordinator>,
     external_bridge: agent::bridge::BridgeRuntime,
     office_selections: office_selection::Selections,
 }
@@ -1688,6 +1693,7 @@ pub fn run() {
                 local_session_path: local_session_path.clone(),
                 current_workspace: Mutex::new(None),
                 record_editors: Arc::new(record_editor_coordination::RecordEditorCoordinator::default()),
+                file_editors: Arc::new(file_editor_coordination::FileEditorCoordinator::default()),
                 voice_runtime: Mutex::new(voice::runtime::VoiceRuntime::default()),
                 voice_closing: Arc::new(voice::shutdown::ClosingFlag::default()),
                 exit_authorized: std::sync::atomic::AtomicBool::new(false),
@@ -1827,6 +1833,16 @@ pub fn run() {
             overview_commands::agent_overview_corrections_get,
             overview_commands::agent_overview_correction_upsert,
             overview_commands::agent_overview_correction_delete,
+            file_flow_commands::file_owner_move_baseline,
+            file_flow_commands::file_owner_move,
+            file_flow_commands::file_drop_prepare,
+            file_flow_commands::file_drop_commit,
+            file_editor_commands::file_editor_register,
+            file_editor_commands::file_editor_unregister,
+            file_editor_commands::file_editor_flush_reply,
+            file_editor_commands::file_editors_flush,
+            file_editor_commands::file_editors_release,
+            record_owner_moves::record_owner_move,
             record_document_commands::record_editor_register,
             record_document_commands::record_cut_register,
             record_document_commands::record_cut_claim,
@@ -1866,15 +1882,18 @@ pub fn run() {
             file_read_commands::file_versions_list,
             file_read_commands::file_versions_get,
             file_read_commands::file_version_restore,
+            file_read_commands::file_version_metadata_update,
             office_selection::office_selection_register,
             office_selection::office_selection_bind,
             office_selection::office_selection_unregister,
             office_selection::office_selection_claim,
             office_selection::office_selection_reply,
             file_office_commands::file_office_inspect,
+            file_office_commands::file_office_view,
             file_office_commands::file_office_recalculate,
             file_office_commands::file_office_save,
             file_working_commands::file_working_open,
+            file_working_commands::file_working_read_view,
             file_working_commands::file_working_save_text,
             file_working_commands::file_working_save_office,
             file_working_commands::file_working_activity,
@@ -2031,6 +2050,7 @@ pub fn run() {
             dsh_assistant::dsh_assistant_start,
             dsh_assistant::dsh_scheduled_tasks,
             dsh_assistant::dsh_assistant_sessions,
+            dsh_assistant::history::dsh_assistant_session_summaries,
             dsh_assistant::dsh_assistant_runtime_status,
             dsh_assistant::dsh_assistant_select_session,
             dsh_assistant::dsh_assistant_fetch,
@@ -2042,6 +2062,11 @@ pub fn run() {
             dsh_assistant::dsh_assistant_manage_session,
             dsh_assistant::dsh_assistant_delete_session,
             project_directory::project_directory_list,
+            project_directory_changes::project_directory_change_prepare,
+            project_directory_changes::project_navigation_trash_prepare,
+            project_directory_changes::project_navigation_trash,
+            project_directory_changes::project_directory_rename,
+            project_directory_changes::project_directory_delete,
             project_directory::project_directory_preview,
             project_directory::project_directory_open,
             project_directory::project_directory_resolve_reference,

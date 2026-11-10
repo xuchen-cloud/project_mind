@@ -7,7 +7,7 @@ import { TodoProgressTextEditor } from "./TodoProgressTextEditor";
 import { useMotionPresence } from "../../hooks/useMotionPresence";
 import { useQuery } from "@tanstack/react-query";
 import { useContext, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { Archive, Check, ChevronDown, ChevronLeft, FolderKanban, ListTodo, SlidersHorizontal, Pin, PinOff, Plus, Search, X } from "lucide-react";
+import { Archive, Check, ChevronDown, FolderKanban, ListTodo, SlidersHorizontal, Pin, PinOff, Plus, X } from "lucide-react";
 
 import {
   splitInternalReferenceText,

@@ -246,3 +246,97 @@ it("never labels the previous document as the result of an explicit reload", asy
   await act(async () => resolve(incoming));
   expect(result.current.state).toBe(incoming);
 });
+
+// Adapted from the retained frontend-probes/record-load-race.test.tsx.
+it.each(["project", "workspace"] as const)("hydrates an acknowledged %s snapshot consistently after registration", async (scope) => {
+  const currentTarget: RecordTarget = scope === "project" ? target : { scope: { kind: "workspace" }, recordId: 7 };
+  const initial = { ...editor, head: { ...editor.head, target: currentTarget } };
+  const nextDocument = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "newer draft" }] }] };
+  const metadata = { ...editor.metadata, title: "New title", revision: "metadata-2" };
+  const next = { ...initial, metadata, record: { ...editor.record, title: "New title", contentHtml: "<p>newer draft</p>", contentMarkdown: "newer draft" },
+    head: { ...initial.head, headRevision: 5, projection: { ...initial.head.projection, document: nextDocument, html: "<p>newer draft</p>", markdown: "newer draft", text: "newer draft" } } };
+  let finishPersist!: () => void;
+  let finishRegister!: () => void;
+  const persist = vi.fn(() => new Promise<{ updatedAt: string; headRevision: number; metadata: typeof metadata }>((resolve) => {
+    finishPersist = () => { vi.mocked(recordDocumentApi.editorGet).mockResolvedValue(next); resolve({ updatedAt: "saved", headRevision: 5, metadata }); };
+  }));
+  const coordinator = new RecordSaveCoordinator({ adapter: { persist } });
+  vi.mocked(recordDocumentApi.editorGet).mockResolvedValue(initial);
+  vi.mocked(recordDocumentApi.editorRegister).mockImplementationOnce(() => new Promise((resolve) => { finishRegister = () => resolve(null); }));
+  coordinator.submit({ ...(scope === "project" ? { scope, projectId: 1 } : { scope }), workspaceKey: "/workspace", recordId: 7,
+    title: "New title", tagIds: [], defaultCodeLanguage: null, committedContent: { html: "<p>newer draft</p>", text: "newer draft", markdown: "newer draft" },
+    canonicalBody: { binding, requestId: "pending-save", baseRevision: 4, document: nextDocument, editSessionId: null, origin: "manual", metadataBase: editor.metadata } });
+  const { result } = renderHook(() => useCanonicalRecordEditor({ target: currentTarget, coordinator, enabled: true }));
+  await waitFor(() => expect(recordDocumentApi.editorRegister).toHaveBeenCalledOnce());
+  await act(async () => { finishPersist(); await coordinator.flush(); });
+  expect(result.current.ready).toBe(false);
+  await act(async () => { finishRegister(); });
+  await waitFor(() => expect(result.current.ready).toBe(true));
+  expect(result.current.state).toEqual(next);
+  expect(result.current.capture(result.current.state!.head.projection.document)).toMatchObject({ baseRevision: 5, document: nextDocument, metadataBase: metadata });
+});
+
+it("keeps hydration closed if another queued save completes during the fresh head read", async () => {
+  const first = { ...editor, head: { ...editor.head, headRevision: 5 } };
+  const latestDocument = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "latest" }] }] };
+  const latest = { ...editor, record: { ...editor.record, contentMarkdown: "latest", contentHtml: "<p>latest</p>" },
+    head: { ...editor.head, headRevision: 6, projection: { ...editor.head.projection, document: latestDocument, markdown: "latest", text: "latest", html: "<p>latest</p>" } } };
+  let finishRegister!: () => void;
+  let finishFreshRead!: () => void;
+  const saves: Array<() => void> = [];
+  const coordinator = new RecordSaveCoordinator({ adapter: { persist: (snapshot) => new Promise((resolve) => {
+    saves.push(() => resolve({ updatedAt: "saved", headRevision: snapshot.canonicalBody!.baseRevision + 1 }));
+  }) } });
+  for (const requestId of ["first", "second"]) coordinator.submit({ scope: "project", projectId: 1, workspaceKey: "/workspace", recordId: 7,
+    title: "Title", tagIds: [], defaultCodeLanguage: null, committedContent: { html: "", text: requestId, markdown: requestId },
+    canonicalBody: { binding, requestId, baseRevision: 4, document: latestDocument, editSessionId: null, origin: "manual" } });
+  vi.mocked(recordDocumentApi.editorRegister).mockImplementationOnce(() => new Promise((resolve) => { finishRegister = () => resolve(null); }));
+  vi.mocked(recordDocumentApi.editorGet).mockResolvedValueOnce(editor)
+    .mockImplementationOnce(() => new Promise((resolve) => { finishFreshRead = () => resolve(first); }))
+    .mockResolvedValue(latest);
+  const { result } = renderHook(() => useCanonicalRecordEditor({ target, coordinator, enabled: true }));
+  await waitFor(() => expect(recordDocumentApi.editorRegister).toHaveBeenCalledOnce());
+  await act(async () => { saves[0](); });
+  await waitFor(() => expect(saves).toHaveLength(2));
+  await act(async () => { finishRegister(); });
+  await waitFor(() => expect(recordDocumentApi.editorGet).toHaveBeenCalledTimes(2));
+  await act(async () => { saves[1](); await coordinator.flush(); });
+  expect(result.current.ready).toBe(false);
+  await act(async () => { finishFreshRead(); });
+  await waitFor(() => expect(result.current.ready).toBe(true));
+  expect(result.current.state).toEqual(latest);
+  expect(result.current.capture(latestDocument)?.baseRevision).toBe(6);
+});
+
+it.each(["project", "workspace"] as const)("hydrates the same %s snapshot when a save settles before the first ready render", async (scope) => {
+  const currentTarget: RecordTarget = scope === "project" ? target : { scope: { kind: "workspace" }, recordId: 7 };
+  const initial = { ...editor, head: { ...editor.head, target: currentTarget } };
+  const nextDocument = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "newer draft" }] }] };
+  const metadata = { ...editor.metadata, title: "New title", revision: "metadata-2" };
+  const next = { ...initial, metadata, record: { ...editor.record, title: "New title", contentHtml: "<p>newer draft</p>", contentMarkdown: "newer draft" },
+    head: { ...initial.head, headRevision: 5, projection: { ...initial.head.projection, document: nextDocument, html: "<p>newer draft</p>", markdown: "newer draft", text: "newer draft" } } };
+  let finishPersist!: () => void;
+  let finishRegister!: () => void;
+  const persist = vi.fn(() => new Promise<{ updatedAt: string; headRevision: number; metadata: typeof metadata }>((resolve) => {
+    finishPersist = () => { vi.mocked(recordDocumentApi.editorGet).mockResolvedValue(next); resolve({ updatedAt: "saved", headRevision: 5, metadata }); };
+  }));
+  const coordinator = new RecordSaveCoordinator({ adapter: { persist } });
+  vi.mocked(recordDocumentApi.editorGet).mockResolvedValue(initial);
+  vi.mocked(recordDocumentApi.editorRegister).mockImplementationOnce(() => new Promise((resolve) => { finishRegister = () => resolve(null); }));
+  coordinator.submit({ ...(scope === "project" ? { scope, projectId: 1 } : { scope }), workspaceKey: "/workspace", recordId: 7,
+    title: "New title", tagIds: [], defaultCodeLanguage: null, committedContent: { html: "<p>newer draft</p>", text: "newer draft", markdown: "newer draft" },
+    canonicalBody: { binding, requestId: "pending-save", baseRevision: 4, document: nextDocument, editSessionId: null, origin: "manual", metadataBase: editor.metadata } });
+  const { result } = renderHook(() => useCanonicalRecordEditor({ target: currentTarget, coordinator, enabled: true }));
+  await waitFor(() => expect(recordDocumentApi.editorRegister).toHaveBeenCalledOnce());
+  await act(async () => {
+    finishRegister();
+    // Registration and setLoaded settle, but React has not committed the first
+    // ready render. A coordinator acknowledgement must not detach its content.
+    for (let i = 0; i < 8; ++i) await Promise.resolve();
+    finishPersist();
+    await coordinator.flush();
+  });
+  await waitFor(() => expect(result.current.ready).toBe(true));
+  expect(result.current.state).toEqual(next);
+  expect(result.current.capture(result.current.state!.head.projection.document)).toMatchObject({ baseRevision: 5, document: nextDocument, metadataBase: metadata });
+});

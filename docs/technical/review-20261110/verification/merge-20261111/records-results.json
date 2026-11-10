@@ -1,0 +1,12 @@
+[
+  {
+    "check": "types",
+    "exit": 0,
+    "log": "/tmp/project-mind-merge-records-types.log"
+  },
+  {
+    "check": "conflicts",
+    "exit": 1,
+    "log": "/tmp/project-mind-merge-records-conflicts.log"
+  }
+]

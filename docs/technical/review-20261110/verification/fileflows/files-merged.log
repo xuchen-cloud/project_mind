@@ -1,0 +1,9 @@
+
+ RUN  v4.1.2 /private/tmp/project-mind-review-combined
+
+
+ Test Files  7 passed (7)
+      Tests  204 passed (204)
+   Start at  23:05:14
+   Duration  11.64s (transform 418ms, setup 290ms, import 873ms, tests 8.52s, environment 1.56s)
+

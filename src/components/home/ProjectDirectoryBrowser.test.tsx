@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ProjectFileMenuControls } from "../layout/ProjectSidebar";
@@ -9,11 +10,16 @@ import { HomeProjectFiles } from "./HomeProjectFiles";
 import { projectDirectoryApi, type ProjectDirectoryEntry } from "../../services/projectDirectoryApi";
 
 const native = vi.hoisted(() => ({binding:vi.fn(),listen:vi.fn()}));
+const fileActions = vi.hoisted(() => ({ register: vi.fn(), projectPage: vi.fn(), workspacePage: vi.fn() }));
+const trashActions = vi.hoisted(() => ({ capture: vi.fn(), run: vi.fn(), busy: false }));
+vi.mock("./useNavigationTrash", () => ({ useNavigationTrash: () => ({ capture: trashActions.capture, busy: trashActions.busy }) }));
+vi.mock("../../services/projectFileApi", () => ({ projectFileApi: { register: fileActions.register } }));
+vi.mock("../../services/projectMindApi", () => ({ projectMindApi: { projectPageGet: fileActions.projectPage, workspacePageGet: fileActions.workspacePage } }));
 vi.mock("../../services/recordDocumentApi", () => ({recordDocumentApi:{bindingGet:native.binding}}));
 vi.mock("../../services/desktopApi", () => ({desktopApi:{listenEvent:native.listen}}));
 afterEach(() => { Reflect.deleteProperty(window,"__TAURI_INTERNALS__"); });
 vi.mock("../../services/projectDirectoryApi", () => ({ projectDirectoryApi: { list: vi.fn() } }));
-vi.mock("../layout/ProjectSidebar", () => ({ ProjectSidebar: ({ fileHeaderActions, fileContent, fileFilter }: { fileHeaderActions?: ReactNode; fileContent?: ReactNode | ((controls: ProjectFileMenuControls) => ReactNode); fileFilter?: { query: string; tagId: number | null } }) => <div><div>{fileHeaderActions}</div>{(typeof fileContent === "function" ? fileContent({ openContextMenu: vi.fn(), renderRenameInput: () => null }) : fileContent) ?? <div>平铺文件：{fileFilter?.query}:{fileFilter?.tagId}</div>}</div> }));
+vi.mock("../layout/ProjectSidebar", () => ({ ProjectSidebar: ({ fileHeaderActions, fileContent, fileFilter, documents }: { documents?: { id: number }[]; fileHeaderActions?: ReactNode; fileContent?: ReactNode | ((controls: ProjectFileMenuControls) => ReactNode); fileFilter?: { query: string; tagId: number | null } }) => <div><span data-testid="visible-file-ids">{documents?.map(item => item.id).join(",")}</span><div>{fileHeaderActions}</div>{(typeof fileContent === "function" ? fileContent({ openContextMenu: vi.fn(), renderRenameInput: () => null }) : fileContent) ?? <div>平铺文件：{fileFilter?.query}:{fileFilter?.tagId}</div>}</div> }));
 const folder: ProjectDirectoryEntry = { name: "generated", relativePath: "generated", kind: "directory", bytes: 0 };
 const file: ProjectDirectoryEntry = { name: "result.txt", relativePath: "generated/result.txt", kind: "file", bytes: 20 };
 const project = { id: 7, name: "Project", rootPath: "/project" };
@@ -29,7 +35,7 @@ function watchedDirectory() {
   Object.defineProperty(window, "__TAURI_INTERNALS__", { value: {}, configurable: true });
   const binding = { workspaceId: "w", generation: "g" };
   native.binding.mockResolvedValue(binding);
-  const listeners: ((hint: { binding: typeof binding; projectId: number; relativePaths: string[] }) => void)[] = [];
+  const listeners: ((hint: { binding: typeof binding; projectId: number; relativePaths?: string[] | null }) => void)[] = [];
   native.listen.mockImplementation(async (_name, callback) => { listeners.push(callback); return vi.fn(); });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const wrap = (id = 7, hidden = false, documents: import("../layout/ProjectSidebar").ProjectSidebarDocumentItem[] = []) => <div hidden={hidden}><QueryClientProvider client={client}><ProjectDirectoryBrowser projectId={id} workspaceRoot="/workspace" rootPath={`/project-${id}`} documents={documents} /></QueryClientProvider></div>;
@@ -183,8 +189,213 @@ it.each(["unmount", "scope switch"])("disposes a dirty wait on %s without refres
 
 beforeEach(() => {
   vi.resetAllMocks();
+  trashActions.busy = false;
+  trashActions.capture.mockReturnValue(trashActions.run);
+  trashActions.run.mockResolvedValue(undefined);
   useProjectFileNavigation.setState({ request: null, revisions: {} });
   vi.mocked(projectDirectoryApi.list).mockImplementation(async (_id, relative) => relative === "generated" ? [file] : [folder]);
+});
+
+it("selects visible file/folder ranges across expanded branches without previewing or expanding modifier clicks", async () => {
+  const sibling = { ...folder, name: "other", relativePath: "other" };
+  const tail = { ...file, name: "z.txt", relativePath: "z.txt" };
+  vi.mocked(projectDirectoryApi.list).mockImplementation(async (_id, path) => path === "generated" ? [file] : [folder, sibling, tail]);
+  directoryWithDocuments();
+  const user = userEvent.setup();
+  const generated = await screen.findByRole("button", { name: "generated" });
+  await user.click(generated);
+  const leaf = await screen.findByRole("button", { name: "result.txt" });
+  await user.keyboard("{Shift>}");
+  await user.click(screen.getByRole("button", { name: "z.txt" }));
+  expect(screen.getAllByRole("button", { pressed: true }).map(node => node.getAttribute("aria-label"))).toEqual(["generated", "result.txt", "other", "z.txt"]);
+  await user.click(screen.getByRole("button", { name: "other" }));
+  expect(screen.getAllByRole("button", { pressed: true }).map(node => node.getAttribute("aria-label"))).toEqual(["generated", "result.txt", "other"]);
+  expect(screen.getByRole("button", { name: "other" })).toHaveAttribute("aria-expanded", "false");
+  await user.click(leaf);
+  await user.keyboard("{/Shift}");
+  expect(useProjectFileNavigation.getState().request).toBeNull();
+  await user.click(leaf);
+  expect(useProjectFileNavigation.getState().request).toMatchObject({ path: "generated/result.txt" });
+});
+
+it.each(["Control", "Meta"])("toggles with %s and captures selected folders and files for the shared bulk menu", async modifier => {
+  const view = directoryWithDocuments();
+  const user = userEvent.setup();
+  const generated = await screen.findByRole("button", { name: "generated" });
+  await user.click(generated);
+  const leaf = await screen.findByRole("button", { name: "result.txt" });
+  await user.keyboard(`{${modifier}>}`);
+  await user.click(leaf);
+  await user.click(generated);
+  await user.click(generated);
+  expect(generated).toHaveAttribute("aria-expanded", "true");
+  await user.keyboard(`{/${modifier}}`);
+  fireEvent.contextMenu(generated);
+  expect(trashActions.capture).toHaveBeenCalledWith([
+    { key: "directory:generated", relativePath: "generated", kind: "directory" },
+    { key: "file:generated/result.txt", relativePath: "generated/result.txt", kind: "file" },
+  ]);
+  expect(screen.getAllByRole("menuitem")).toHaveLength(1);
+  expect(screen.getByRole("menuitem", { name: "删除所选 2 项" })).toBeVisible();
+  const captured = trashActions.run;
+  trashActions.capture.mockReturnValue(vi.fn());
+  view.rerender(view.wrap());
+  fireEvent.click(screen.getByRole("menuitem", { name: "删除所选 2 项" }));
+  await waitFor(() => expect(captured).toHaveBeenCalledOnce());
+  expect(generated).toHaveAttribute("aria-pressed", "true");
+  expect(leaf).toHaveAttribute("aria-pressed", "true");
+});
+
+it("removes successful folders and selected descendants while retaining failed siblings", async () => {
+  const sibling = { ...folder, name: "failed", relativePath: "failed" };
+  vi.mocked(projectDirectoryApi.list).mockImplementation(async (_id, path) => path === "generated" ? [file] : [folder, sibling]);
+  directoryWithDocuments();
+  const generated = await screen.findByRole("button", { name: "generated" });
+  fireEvent.click(generated);
+  const leaf = await screen.findByRole("button", { name: "result.txt" });
+  const failed = screen.getByRole("button", { name: "failed" });
+  fireEvent.click(failed, { shiftKey: true });
+  fireEvent.contextMenu(leaf);
+  trashActions.run.mockResolvedValue({ succeeded: [{ key: "directory:generated", relativePath: "generated", kind: "directory" }],
+    failed: [{ item: { key: "directory:failed", relativePath: "failed", kind: "directory" }, message: "busy" }] });
+  fireEvent.click(screen.getByRole("menuitem", { name: "删除所选 3 项" }));
+  await waitFor(() => expect(generated).toHaveAttribute("aria-pressed", "false"));
+  expect(leaf).toHaveAttribute("aria-pressed", "false");
+  expect(failed).toHaveAttribute("aria-pressed", "true");
+});
+
+it("uses the original single-item menu after right-clicking an unselected file", async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const standalone = { ...file, name: "standalone.txt", relativePath: "standalone.txt" };
+  vi.mocked(projectDirectoryApi.list).mockImplementation(async (_id, path) => path === "generated" ? [file] : [folder, standalone]);
+  const document = { id: 2, managedPath: "/project/standalone.txt" } as import("../layout/ProjectSidebar").ProjectSidebarDocumentItem;
+  const fileMenu = { openContextMenu: vi.fn(), renderRenameInput: () => null };
+  render(<QueryClientProvider client={client}><ProjectDirectoryBrowser projectId={7} rootPath="/project" documents={[document]} fileMenu={fileMenu} /></QueryClientProvider>);
+  fireEvent.click(await screen.findByRole("button", { name: "generated" }));
+  fireEvent.click(await screen.findByRole("button", { name: "result.txt" }), { ctrlKey: true });
+  fireEvent.contextMenu(screen.getByRole("button", { name: "standalone.txt" }));
+  await waitFor(() => expect(fileMenu.openContextMenu).toHaveBeenCalledWith(document, 0, 0));
+  expect(screen.getAllByRole("button", { pressed: true })).toEqual([screen.getByRole("button", { name: "standalone.txt" })]);
+  expect(trashActions.capture).not.toHaveBeenCalled();
+});
+
+it("prunes collapsed descendants and external deletions, and clears selection/menu on owner change", async () => {
+  const view = directoryWithDocuments();
+  const generated = await screen.findByRole("button", { name: "generated" });
+  fireEvent.click(generated);
+  const leaf = await screen.findByRole("button", { name: "result.txt" });
+  fireEvent.click(leaf, { ctrlKey: true });
+  fireEvent.click(generated);
+  fireEvent.click(generated, { ctrlKey: true });
+  await waitFor(() => expect(screen.queryByRole("button", { pressed: true })).toBeNull());
+  fireEvent.click(generated);
+  fireEvent.click(await screen.findByRole("button", { name: "result.txt" }), { ctrlKey: true });
+  fireEvent.contextMenu(generated);
+  expect(screen.getByRole("menuitem", { name: "删除所选 2 项" })).toBeVisible();
+  view.rerender(view.wrap([], false, 8));
+  await waitFor(() => expect(screen.queryByRole("menuitem")).toBeNull());
+  expect(await screen.findByRole("button", { name: "generated" })).toHaveAttribute("aria-pressed", "false");
+  fireEvent.click(screen.getByRole("button", { name: "generated" }), { ctrlKey: true });
+  vi.mocked(projectDirectoryApi.list).mockResolvedValue([]);
+  await act(async () => { await view.client.invalidateQueries({ queryKey: ["project-directory", "/project", 8] }); });
+  await waitFor(() => expect(screen.queryByRole("button", { name: "generated" })).toBeNull());
+  expect(screen.queryByRole("button", { pressed: true })).toBeNull();
+  vi.mocked(projectDirectoryApi.list).mockResolvedValue([folder]);
+  await act(async () => { await view.client.invalidateQueries({ queryKey: ["project-directory", "/project", 8] }); });
+  expect(await screen.findByRole("button", { name: "generated" })).toHaveAttribute("aria-pressed", "false");
+});
+
+it("protects inline rename drafts and busy operations from bulk deletion", async () => {
+  const standalone = { ...file, name: "draft.txt", relativePath: "draft.txt" };
+  vi.mocked(projectDirectoryApi.list).mockImplementation(async (_id, path) => path === "generated" ? [file] : [folder, standalone]);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  let renaming = true;
+  const fileMenu = { openContextMenu: vi.fn(), busy: false, renaming: false, renderRenameInput: (path: string) => renaming && path === "draft.txt" ? <input aria-label="rename draft" defaultValue="unsaved" /> : null };
+  const wrap = () => <QueryClientProvider client={client}><ProjectDirectoryBrowser projectId={7} rootPath="/project" fileMenu={fileMenu} /></QueryClientProvider>;
+  const view = render(wrap());
+  const generated = await screen.findByRole("button", { name: "generated" });
+  fireEvent.click(generated);
+  const leaf = await screen.findByRole("button", { name: "result.txt" });
+  fireEvent.click(leaf, { ctrlKey: true });
+  fireEvent.contextMenu(generated);
+  expect(screen.queryByRole("menuitem")).toBeNull();
+  expect(screen.getByRole("textbox", { name: "rename draft" })).toHaveValue("unsaved");
+  expect(trashActions.capture).not.toHaveBeenCalled();
+  renaming = false;
+  fileMenu.renaming = true;
+  view.rerender(wrap());
+  fireEvent.contextMenu(generated);
+  expect(trashActions.capture).not.toHaveBeenCalled();
+  fileMenu.renaming = false;
+  fileMenu.busy = true;
+  view.rerender(wrap());
+  fireEvent.contextMenu(generated);
+  expect(trashActions.capture).not.toHaveBeenCalled();
+  fileMenu.busy = false;
+  trashActions.busy = true;
+  view.rerender(wrap());
+  fireEvent.contextMenu(generated);
+  expect(trashActions.capture).not.toHaveBeenCalled();
+  trashActions.busy = false;
+  view.rerender(wrap());
+  fireEvent.contextMenu(generated);
+  expect(screen.getByRole("menuitem", { name: "删除所选 2 项" })).toBeVisible();
+  trashActions.busy = true;
+  view.rerender(wrap());
+  expect(screen.getByRole("menuitem", { name: "删除所选 2 项" })).toBeDisabled();
+});
+
+it("treats macOS Ctrl-primary contextmenu as selection and real Ctrl-secondary as a menu", async () => {
+  directoryWithDocuments();
+  const generated = await screen.findByRole("button", { name: "generated" });
+  fireEvent.mouseDown(generated, { button: 0, ctrlKey: true });
+  fireEvent.contextMenu(generated, { button: 2, ctrlKey: true });
+  fireEvent.click(generated, { ctrlKey: true });
+  expect(generated).toHaveAttribute("aria-expanded", "false");
+  expect(generated).toHaveAttribute("aria-pressed", "true");
+  fireEvent.click(generated);
+  const leaf = await screen.findByRole("button", { name: "result.txt" });
+  fireEvent.mouseDown(leaf, { button: 0, ctrlKey: true });
+  fireEvent.contextMenu(leaf, { button: 2, ctrlKey: true });
+  fireEvent.click(leaf, { ctrlKey: true });
+  expect(leaf).toHaveAttribute("aria-pressed", "true");
+  expect(screen.queryByRole("menuitem")).toBeNull();
+  expect(useProjectFileNavigation.getState().request).toBeNull();
+  fireEvent.mouseDown(generated, { button: 2, ctrlKey: true });
+  fireEvent.contextMenu(generated, { button: 2, ctrlKey: true });
+  expect(screen.getByRole("menuitem", { name: "删除所选 2 项" })).toBeVisible();
+});
+
+it("clears selection and an open bulk menu when the Workspace binding changes at the same path", async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const wrap = (generation: string) => <QueryClientProvider client={client}><ProjectDirectoryBrowser projectId={7} rootPath="/project" binding={{ workspaceId: "w", generation }} /></QueryClientProvider>;
+  const view = render(wrap("first"));
+  fireEvent.click(await screen.findByRole("button", { name: "generated" }));
+  fireEvent.click(await screen.findByRole("button", { name: "result.txt" }), { ctrlKey: true });
+  fireEvent.contextMenu(screen.getByRole("button", { name: "generated" }));
+  expect(screen.getByRole("menuitem", { name: "删除所选 2 项" })).toBeVisible();
+  view.rerender(wrap("reopened"));
+  expect(screen.queryByRole("menuitem")).toBeNull();
+  expect(await screen.findByRole("button", { name: "generated" })).toHaveAttribute("aria-pressed", "false");
+});
+
+it.each(["collapse", "external deletion", "toggle"])("retires a captured bulk menu after %s changes the visible selection", async change => {
+  const view = directoryWithDocuments();
+  const generated = await screen.findByRole("button", { name: "generated" });
+  fireEvent.click(generated);
+  const leaf = await screen.findByRole("button", { name: "result.txt" });
+  fireEvent.click(leaf, { ctrlKey: true });
+  fireEvent.contextMenu(generated);
+  expect(screen.getByRole("menuitem", { name: "删除所选 2 项" })).toBeVisible();
+  if (change === "collapse") fireEvent.click(generated);
+  else if (change === "toggle") fireEvent.click(leaf, { metaKey: true });
+  else {
+    vi.mocked(projectDirectoryApi.list).mockResolvedValue([]);
+    await act(async () => { await view.client.invalidateQueries({ queryKey: ["project-directory", "/project", 7, "generated"] }); });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "result.txt" })).toBeNull());
+  }
+  await waitFor(() => expect(screen.queryByRole("menuitem")).toBeNull());
+  expect(trashActions.run).not.toHaveBeenCalled();
 });
 
 it("switches presentation with an icon and ignores filters only in the tree", async () => {
@@ -200,6 +411,51 @@ it("switches presentation with an icon and ignores filters only in the tree", as
   expect(screen.queryByRole("button", { name: "纳管整个目录" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "平铺展示" }));
   expect(screen.getByText("平铺文件：不匹配:42")).toBeVisible();
+});
+
+it.each([7, null])("opens a registered tree File menu with mouse and keyboard (owner=%s)", async projectId => {
+  const client = new QueryClient();
+  const document = { id: 1, managedPath: "/project/generated/result.txt" } as import("../layout/ProjectSidebar").ProjectSidebarDocumentItem;
+  const openContextMenu = vi.fn();
+  render(<QueryClientProvider client={client}><ProjectDirectoryBrowser projectId={projectId} rootPath="/project" documents={[document]} fileMenu={{ openContextMenu, renderRenameInput: () => null }} /></QueryClientProvider>);
+  fireEvent.click(await screen.findByRole("button", { name: "generated" }));
+  const row = await screen.findByRole("button", { name: "result.txt" });
+  fireEvent.contextMenu(row, { clientX: 60, clientY: 70 });
+  expect(openContextMenu).toHaveBeenCalledWith(document, 60, 70);
+  fireEvent.keyDown(row, { key: "F10", shiftKey: true });
+  expect(openContextMenu).toHaveBeenCalledTimes(2);
+  expect(fileActions.register).not.toHaveBeenCalled();
+  expect(useProjectFileNavigation.getState().request).toBeNull();
+});
+
+it("does not open an old unregistered File menu after Workspace changes at the same root", async () => {
+  const client = new QueryClient();
+  native.binding.mockResolvedValue({ workspaceId: "w", generation: "g" });
+  const registering = deferred<{ state: string; object: { id: string } }>();
+  fileActions.register.mockReturnValue(registering.promise);
+  const openContextMenu = vi.fn();
+  const wrap = (workspaceRoot: string) => <QueryClientProvider client={client}><ProjectDirectoryBrowser projectId={null} rootPath="/project" workspaceRoot={workspaceRoot} fileMenu={{ openContextMenu, renderRenameInput: () => null }} /></QueryClientProvider>;
+  const view = render(wrap("/workspace-a"));
+  fireEvent.click(await screen.findByRole("button", { name: "generated" }));
+  fireEvent.contextMenu(await screen.findByRole("button", { name: "result.txt" }));
+  await waitFor(() => expect(fileActions.register).toHaveBeenCalledWith({ workspaceId: "w", generation: "g" }, null, "generated/result.txt"));
+  view.rerender(wrap("/workspace-b"));
+  await act(async () => registering.resolve({ state: "ready", object: { id: "1" } }));
+  expect(openContextMenu).not.toHaveBeenCalled();
+  expect(fileActions.workspacePage).not.toHaveBeenCalled();
+});
+
+it("manually refreshes a stale expanded tree and preserves the current File navigation", async () => {
+  panel();
+  tree();
+  fireEvent.click(await screen.findByRole("button", { name: "generated" }));
+  fireEvent.click(await screen.findByRole("button", { name: "result.txt" }));
+  const request = useProjectFileNavigation.getState().request;
+  vi.mocked(projectDirectoryApi.list).mockResolvedValue([]);
+  fireEvent.click(screen.getByRole("button", { name: "刷新文件列表" }));
+  await waitFor(() => expect(screen.queryByRole("button", { name: "generated" })).toBeNull());
+  expect(useProjectFileNavigation.getState().request).toEqual(request);
+  await waitFor(() => expect(screen.getByRole("button", { name: "刷新文件列表" })).toBeEnabled());
 });
 
 it("expands nested folders in place and opens files through unified File navigation", async () => {
@@ -495,4 +751,220 @@ it('does not read a retained hidden navigation panel, and reconciles only when s
  view.rerender(wrap(true));await act(async()=>{});
  await act(async()=>{await client.invalidateQueries({queryKey:['project-directory','/project',7]});});expect(projectDirectoryApi.list).toHaveBeenCalledTimes(1);
  view.rerender(wrap(false));await waitFor(()=>expect(projectDirectoryApi.list).toHaveBeenCalledTimes(2));
+});
+
+it("does not read into a cached binding after the native generation changes before enumeration", async () => {
+  Object.defineProperty(window, "__TAURI_INTERNALS__", { value: {}, configurable: true });
+  native.listen.mockResolvedValue(vi.fn());
+  native.binding.mockResolvedValueOnce({ workspaceId: "w", generation: "before" })
+    .mockResolvedValue({ workspaceId: "w", generation: "after" });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<QueryClientProvider client={client}><ProjectDirectoryBrowser projectId={7} workspaceRoot="/workspace" rootPath="/project" /></QueryClientProvider>);
+  expect(await screen.findByRole("alert")).toHaveTextContent("工作区已切换");
+  expect(projectDirectoryApi.list).not.toHaveBeenCalled();
+});
+
+it("rejects a directory reply from another binding without caching its entries", async () => {
+  Object.defineProperty(window, "__TAURI_INTERNALS__", { value: {}, configurable: true });
+  native.listen.mockResolvedValue(vi.fn());
+  native.binding.mockResolvedValue({ workspaceId: "w", generation: "before" });
+  const pending = deferred<ProjectDirectoryEntry[]>();
+  vi.mocked(projectDirectoryApi.list).mockReturnValueOnce(pending.promise);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<QueryClientProvider client={client}><ProjectDirectoryBrowser projectId={7} workspaceRoot="/workspace" rootPath="/project" /></QueryClientProvider>);
+  await waitFor(() => expect(projectDirectoryApi.list).toHaveBeenCalledOnce());
+  native.binding.mockResolvedValue({ workspaceId: "other", generation: "after" });
+  await act(async () => pending.resolve([file]));
+  expect(await screen.findByRole("alert")).toHaveTextContent("工作区已切换");
+  expect(screen.queryByRole("button", { name: "result.txt" })).toBeNull();
+  expect(client.getQueryData(["project-directory", "/project", 7, "", 0, "/workspace", "w", "before"])).toBeUndefined();
+});
+
+it("waits for the new scope's binding before starting its directory query", async () => {
+  Object.defineProperty(window, "__TAURI_INTERNALS__", { value: {}, configurable: true });
+  native.listen.mockResolvedValue(vi.fn());
+  native.binding.mockResolvedValue({ workspaceId: "w", generation: "g" });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const wrap = (projectId: number) => <QueryClientProvider client={client}><ProjectDirectoryBrowser projectId={projectId} workspaceRoot="/workspace" rootPath="/project" /></QueryClientProvider>;
+  const view = render(wrap(7));
+  await screen.findByRole("button", { name: "generated" });
+  const pending = deferred<{ workspaceId: string; generation: string }>();
+  native.binding.mockReturnValueOnce(pending.promise);
+  view.rerender(wrap(8));
+  await act(async () => {});
+  expect(projectDirectoryApi.list.mock.calls).toEqual([[7, ""]]);
+  await act(async () => pending.resolve({ workspaceId: "w", generation: "g" }));
+  await waitFor(() => expect(projectDirectoryApi.list.mock.calls).toEqual([[7, ""], [8, ""]]));
+});
+
+it("keeps the expanded tree on the shared distance-driven scroll mask through content and size changes", async () => {
+  const OriginalResizeObserver = globalThis.ResizeObserver;
+  const measures: ResizeObserverCallback[] = [];
+  globalThis.ResizeObserver = class {
+    constructor(callback: ResizeObserverCallback) { measures.push(callback); }
+    observe() {} unobserve() {} disconnect() {}
+  };
+  try {
+    directoryWithDocuments();
+    await screen.findByRole("button", { name: "generated" });
+    const viewport = screen.getByRole("region", { name: "项目目录内容" });
+    const frame = viewport.parentElement!;
+    let scrollHeight = 300;
+    Object.defineProperty(viewport, "scrollHeight", { get: () => scrollHeight, configurable: true });
+    Object.defineProperty(viewport, "clientHeight", { value: 100, configurable: true });
+    const position = (top: number) => { viewport.scrollTop = top; fireEvent.scroll(viewport); };
+    position(0);
+    expect(frame.style.getPropertyValue("--scroll-fade-top-opacity")).toBe("0");
+    expect(frame.style.getPropertyValue("--scroll-fade-bottom-opacity")).toBe("1");
+    position(168);
+    expect(frame.style.getPropertyValue("--scroll-fade-bottom-opacity")).toBe("0.5");
+    position(200);
+    expect(frame.style.getPropertyValue("--scroll-fade-bottom-opacity")).toBe("0");
+    position(184);
+    expect(frame.style.getPropertyValue("--scroll-fade-bottom-opacity")).toBe("0.25");
+    fireEvent.click(screen.getByRole("button", { name: "generated" }));
+    await screen.findByRole("button", { name: "result.txt" });
+    scrollHeight = 100;
+    act(() => { for (const measure of measures) measure([], {} as ResizeObserver); });
+    expect(frame.style.getPropertyValue("--scroll-fade-top-opacity")).toBe("0");
+    expect(frame.style.getPropertyValue("--scroll-fade-bottom-opacity")).toBe("0");
+  } finally { globalThis.ResizeObserver = OriginalResizeObserver; }
+});
+
+it("refreshes a reopened same-path binding, synchronizes flat/tree and retains the open editor draft", async () => {
+  Object.defineProperty(window, "__TAURI_INTERNALS__", { value: {}, configurable: true });
+  native.listen.mockResolvedValue(vi.fn());
+  native.binding.mockResolvedValue({ workspaceId: "w", generation: "first" });
+  const documents = [{ id: 1, managedPath: "/project/gone.txt", health: "normal" }] as import("../layout/ProjectSidebar").ProjectSidebarDocumentItem[];
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  useProjectFileNavigation.getState().open({ projectId: 7, workspaceRoot: "/workspace", path: "gone.txt" });
+  const request = useProjectFileNavigation.getState().request;
+  render(<QueryClientProvider client={client}>
+    <input aria-label="existing editor" defaultValue="saved" />
+    <HomeProjectFiles fileScope={{ projectId: 7, rootPath: "/project", workspaceRoot: "/workspace", name: "Project" }} documents={documents} />
+  </QueryClientProvider>);
+  const editor = screen.getByRole("textbox", { name: "existing editor" });
+  fireEvent.change(editor, { target: { value: "unsaved draft" } });
+  tree();
+  await screen.findByRole("button", { name: "generated" });
+  fireEvent.click(screen.getByRole("button", { name: "刷新文件列表" }));
+  await waitFor(() => expect(screen.getByTestId("visible-file-ids")).toHaveTextContent(/^$/));
+  await waitFor(() => expect(screen.getByRole("button", { name: "刷新文件列表" })).toBeEnabled());
+  expect(screen.getByRole("textbox", { name: "existing editor" })).toBe(editor);
+  expect(editor).toHaveValue("unsaved draft");
+  expect(useProjectFileNavigation.getState().request).toBe(request);
+
+  native.binding.mockResolvedValue({ workspaceId: "w", generation: "reopened" });
+  vi.mocked(projectDirectoryApi.list).mockResolvedValue([{ name: "gone.txt", relativePath: "gone.txt", kind: "file", bytes: 1 }]);
+  fireEvent.click(screen.getByRole("button", { name: "刷新文件列表" }));
+  expect(await screen.findByRole("button", { name: "gone.txt" })).toBeVisible();
+  await waitFor(() => expect(screen.getByRole("button", { name: "刷新文件列表" })).toBeEnabled());
+  expect(screen.getByTestId("visible-file-ids")).toHaveTextContent("1");
+  expect(screen.queryByRole("alert")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "平铺展示" }));
+  expect(screen.getByTestId("visible-file-ids")).toHaveTextContent("1");
+  expect(screen.getByRole("textbox", { name: "existing editor" })).toBe(editor);
+  expect(editor).toHaveValue("unsaved draft");
+  expect(useProjectFileNavigation.getState().request).toBe(request);
+});
+
+it("refuses a managed file menu selected from an old binding's cached tree", async () => {
+  Object.defineProperty(window, "__TAURI_INTERNALS__", { value: {}, configurable: true });
+  native.listen.mockResolvedValue(vi.fn());
+  native.binding.mockResolvedValue({ workspaceId: "w", generation: "before" });
+  vi.mocked(projectDirectoryApi.list).mockResolvedValue([file]);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const menu = { openContextMenu: vi.fn(), renderRenameInput: () => null };
+  const documents = [{ id: 1, managedPath: "/project/generated/result.txt" }] as import("../layout/ProjectSidebar").ProjectSidebarDocumentItem[];
+  render(<QueryClientProvider client={client}><ProjectDirectoryBrowser projectId={7} workspaceRoot="/workspace" rootPath="/project" fileMenu={menu} documents={documents} /></QueryClientProvider>);
+  const row = await screen.findByRole("button", { name: "result.txt" });
+  native.binding.mockResolvedValue({ workspaceId: "w", generation: "reopened" });
+  fireEvent.contextMenu(row);
+  expect(await screen.findByRole("alert")).toHaveTextContent("工作区已切换");
+  expect(menu.openContextMenu).not.toHaveBeenCalled();
+  expect(fileActions.register).not.toHaveBeenCalled();
+});
+
+it.each(["scoped", "all"])("orders %s native dirty reads before a deleted expanded subtree and can discover its restoration", async mode => {
+  const nested = { ...folder, name: "deep", relativePath: "generated/deep" };
+  const leaf = { ...file, relativePath: "generated/deep/result.txt" };
+  const removedRoot = deferred<ProjectDirectoryEntry[]>();
+  let removed = false;
+  vi.mocked(projectDirectoryApi.list).mockImplementation(async (_owner, path) => {
+    if (path === "") return removed ? removedRoot.promise : [folder];
+    if (removed) throw new Error(`ENOENT: ${path}`);
+    return path === "generated" ? [nested] : [leaf];
+  });
+  const view = watchedDirectory();
+  fireEvent.click(await screen.findByRole("button", { name: "generated" }));
+  fireEvent.click(await screen.findByRole("button", { name: "deep" }));
+  await screen.findByRole("button", { name: "result.txt" });
+  vi.mocked(projectDirectoryApi.list).mockClear();
+  removed = true;
+  act(() => view.listeners[0]({ binding: { workspaceId: "w", generation: "g" }, projectId: 7,
+    relativePaths: mode === "all" ? null : ["", "generated", "generated/deep"] }));
+  await waitFor(() => expect(projectDirectoryApi.list).toHaveBeenCalledWith(7, ""));
+  // The parent remains pending while its stale child observers are mounted.
+  // Concurrent invalidation would already have read both vanished paths here.
+  expect(projectDirectoryApi.list.mock.calls).toEqual([[7, ""]]);
+  await act(async () => removedRoot.resolve([]));
+  await waitFor(() => expect(screen.queryByRole("button", { name: "generated" })).toBeNull());
+  expect(projectDirectoryApi.list.mock.calls).toEqual([[7, ""]]);
+  expect(screen.queryByRole("alert")).toBeNull();
+
+  removed = false;
+  act(() => view.dirty());
+  await screen.findByRole("button", { name: "generated" });
+  fireEvent.click(await screen.findByRole("button", { name: "deep" }));
+  expect(await screen.findByRole("button", { name: "result.txt" })).toBeVisible();
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
+it.each(["EACCES: generated", "ENOENT after a successful parent read"])("reports %s from a dirty directory still listed by its parent", async message => {
+  const nested = { ...folder, name: "deep", relativePath: "generated/deep" };
+  const leaf = { ...file, relativePath: "generated/deep/result.txt" };
+  const parent = deferred<ProjectDirectoryEntry[]>();
+  let changed = false;
+  vi.mocked(projectDirectoryApi.list).mockImplementation(async (_owner, path) => {
+    if (path === "") return changed ? parent.promise : [folder];
+    if (changed) throw new Error(message);
+    return path === "generated" ? [nested] : [leaf];
+  });
+  const view = watchedDirectory();
+  fireEvent.click(await screen.findByRole("button", { name: "generated" }));
+  fireEvent.click(await screen.findByRole("button", { name: "deep" }));
+  await screen.findByRole("button", { name: "result.txt" });
+  vi.mocked(projectDirectoryApi.list).mockClear();
+  changed = true;
+  act(() => view.listeners[0]({ binding: { workspaceId: "w", generation: "g" }, projectId: 7,
+    relativePaths: ["", "generated", "generated/deep"] }));
+  await waitFor(() => expect(projectDirectoryApi.list).toHaveBeenCalledWith(7, ""));
+  expect(projectDirectoryApi.list.mock.calls).toEqual([[7, ""]]);
+  await act(async () => parent.resolve([folder]));
+  await waitFor(() => expect(screen.getAllByRole("alert").some(node => node.textContent?.includes(message))).toBe(true));
+  expect(projectDirectoryApi.list.mock.calls).toEqual([[7, ""], [7, "generated"]]);
+  expect(screen.getByRole("button", { name: "result.txt" })).toBeVisible();
+});
+
+it("defers parent and child dirty hints while hidden, then confirms deletion before reading children", async () => {
+  let removed = false;
+  vi.mocked(projectDirectoryApi.list).mockImplementation(async (_owner, path) => {
+    if (path === "") return removed ? [] : [folder];
+    if (removed) throw new Error(`ENOENT: ${path}`);
+    return [file];
+  });
+  const view = watchedDirectory();
+  fireEvent.click(await screen.findByRole("button", { name: "generated" }));
+  await screen.findByRole("button", { name: "result.txt" });
+  view.rerender(view.wrap(7, true));
+  await act(async () => {});
+  vi.mocked(projectDirectoryApi.list).mockClear();
+  removed = true;
+  await act(async () => view.listeners[0]({ binding: { workspaceId: "w", generation: "g" }, projectId: 7,
+    relativePaths: ["", "generated"] }));
+  expect(projectDirectoryApi.list).not.toHaveBeenCalled();
+  view.rerender(view.wrap());
+  await waitFor(() => expect(screen.queryByRole("button", { name: "generated" })).toBeNull());
+  expect(projectDirectoryApi.list.mock.calls).toEqual([[7, ""]]);
+  expect(screen.queryByRole("alert")).toBeNull();
 });

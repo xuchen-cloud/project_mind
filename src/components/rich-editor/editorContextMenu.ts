@@ -1,4 +1,5 @@
 import type { Editor, ChainedCommands } from '@tiptap/core';
+import type {} from '@tiptap/extension-highlight';
 import { CellSelection } from '@tiptap/pm/tables';
 import { ArrowDownToLine, ArrowLeftToLine, ArrowRightToLine, ArrowUpToLine, Bold, Code2, Columns2, Combine, Copy, File as FileIcon, Heading1, Heading2, Heading3, Heading4, Highlighter, Image, Italic, List, ListOrdered, ListTodo, Minus, MoreHorizontal, Paperclip, PanelLeft, PanelTop, Quote, Rows2, Scissors, Split, Strikethrough, Table2, Trash2, Type, type LucideIcon } from 'lucide-react';
 import type { ContextMenuAction, ContextMenuInlineAction } from '../../ui/components/ActionContextMenu';

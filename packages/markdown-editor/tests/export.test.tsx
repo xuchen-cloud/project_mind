@@ -18,8 +18,8 @@ it('exports the latest source to a real DOCX download, preserving marks/tables/i
   const current='\uFEFF---\r\ntitle: metadata\r\n---\r\n\r\n# 导出验收\r\n\r\n**更新** 与 [链接](https://example.com)\r\n\r\n| 表头 |\r\n| --- |\r\n| 内容 |\r\n\r\n![图](asset.png)\r\n';
   const {rerender}=render(<MarkdownEditor value={original} onChange={onChange}/>);
   rerender(<MarkdownEditor value={current} onChange={onChange} readOnly resources={{'asset.png':'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg=='}}/>);
-  fireEvent.click(screen.getByText('导出与打印'));
-  fireEvent.click(screen.getByRole('button',{name:'导出 Word (.docx)'}));
+  fireEvent.click(screen.getByRole('button', { name: '文件菜单' }));
+  fireEvent.click(screen.getByRole('menuitem',{name:'导出 Word'}));
   await waitFor(()=>expect(downloads).toHaveLength(1),{timeout:10000});
   expect(downloads[0].name).toBe('导出验收.docx');
   const bytes=await new Promise<Uint8Array>((resolve,reject)=>{const reader=new FileReader();reader.onerror=reject;reader.onload=()=>resolve(new Uint8Array(reader.result as ArrayBuffer));reader.readAsArrayBuffer(downloads[0].blob);});
@@ -50,7 +50,7 @@ it('prepares a safe print iframe from the current document, calls print and rele
     }
   });
   render(<MarkdownEditor value={'\uFEFF---\r\ntitle: private\r\n---\r\n\r\n# 打印验收\r\n\r\n$x^2$\r\n\r\n- [x] 已完成\r\n\r\n<script>window.stolen=1</script>\r\n\r\n![远程](https://example.com/private.png)\r\n'} onChange={onChange} readOnly resolveResource={resolver} initialView={{mode:'source'}}/>);
-  fireEvent.keyDown(screen.getByRole('textbox',{name:'Markdown 源码'}),{key:'p',ctrlKey:true});
+  fireEvent.keyDown(await screen.findByRole('textbox',{name:'Markdown 源码'}),{key:'p',ctrlKey:true});
   await waitFor(()=>expect(printed).toBeDefined());
   expect(ready).toBe('ready');expect(printed!.querySelector('h1')?.textContent).toBe('打印验收');
   expect(printed!.querySelector('.katex')).not.toBeNull();expect(printed!.querySelector('li[data-checked=true]')).not.toBeNull();
@@ -63,7 +63,7 @@ it('prepares a safe print iframe from the current document, calls print and rele
 it('cancels an in-flight export when the external document baseline changes',async()=>{
   let resolve!: (value:string)=>void;const resource=vi.fn(()=>new Promise<string>(done=>{resolve=done;}));
   const {rerender}=render(<MarkdownEditor documentKey="old" value={'# 旧文件\n\n![图片](new.png)'} onChange={()=>{}} resolveResource={resource} initialView={{mode:'source'}}/>);
-  fireEvent.click(screen.getByText('导出与打印'));fireEvent.click(screen.getByRole('button',{name:'导出 Word (.docx)'}));
+  fireEvent.click(screen.getByRole('button', { name: '文件菜单' }));fireEvent.click(screen.getByRole('menuitem',{name:'导出 Word'}));
   await waitFor(()=>expect(resource).toHaveBeenCalledTimes(2));
   rerender(<MarkdownEditor documentKey="new" value="# 新文件" onChange={()=>{}} initialView={{mode:'source'}}/>);
   const click=vi.spyOn(HTMLAnchorElement.prototype,'click').mockImplementation(()=>{});
@@ -78,7 +78,7 @@ it('awaits the latest host export callback and writes real bytes without using b
   const {rerender}=render(<MarkdownEditor value="# 宿主导出" onChange={()=>{}} onExport={previous}/>);
   rerender(<MarkdownEditor value="# 宿主导出" onChange={()=>{}} onExport={write} readOnly/>);
   try{
-    fireEvent.click(screen.getByText('导出与打印'));fireEvent.click(screen.getByRole('button',{name:'导出 Word (.docx)'}));
+    fireEvent.click(screen.getByRole('button', { name: '文件菜单' }));fireEvent.click(screen.getByRole('menuitem',{name:'导出 Word'}));
     await waitFor(()=>expect(write).toHaveBeenCalledTimes(1));expect(screen.queryByText('已导出 Word 文档。')).toBeNull();
     expect(write.mock.calls[0][0].mime).toBe('application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     expect(write.mock.calls[0][0].bytes).toBeInstanceOf(Uint8Array);acknowledge();
@@ -91,7 +91,7 @@ it('awaits the latest host export callback and writes real bytes without using b
 it.each(['cancel','fail'] as const)('reports host %s and never falls back to an anchor',async outcome=>{
   const anchor=vi.spyOn(HTMLAnchorElement.prototype,'click').mockImplementation(()=>{});
   render(<MarkdownEditor value="# 导出" onChange={()=>{}} onExport={async()=>{if(outcome==='fail')throw Error('磁盘已满');return false;}}/>);
-  fireEvent.click(screen.getByText('导出与打印'));fireEvent.click(screen.getByRole('button',{name:'导出 Word (.docx)'}));
+  fireEvent.click(screen.getByRole('button', { name: '文件菜单' }));fireEvent.click(screen.getByRole('menuitem',{name:'导出 Word'}));
   await screen.findByText(outcome==='cancel'?'已取消导出。':'磁盘已满');expect(anchor).not.toHaveBeenCalled();
 });
 
@@ -106,7 +106,7 @@ it('sends self-contained print HTML with real embedded fonts/images to the lates
   const {rerender}=render(<MarkdownEditor value={value} onChange={()=>{}} resources={resources} onPrint={previous}/>);
   rerender(<MarkdownEditor value={value} onChange={()=>{}} resources={resources} readOnly onPrint={printed}/>);
   try{
-    fireEvent.click(screen.getByText('导出与打印'));fireEvent.click(screen.getByRole('button',{name:'打印…'}));
+    fireEvent.click(screen.getByRole('button', { name: '文件菜单' }));fireEvent.click(screen.getByRole('menuitem',{name:'打印…'}));
     await waitFor(()=>expect(printed).toHaveBeenCalledTimes(1));await screen.findByText('已提交系统打印。');
     const html=await readFile(join(directory,'print.html'),'utf8');expect(html).toContain('data:font/woff2;base64,');expect(html).toContain('data:image/png;base64,');
     expect(html).not.toContain('<base');expect(html).not.toContain('url(/');expect(html).not.toContain('url(fonts/');expect(html).not.toContain('contenteditable=');
@@ -118,7 +118,7 @@ it('sends self-contained print HTML with real embedded fonts/images to the lates
 it('reports the exact font that cannot be embedded and does not fall back to browser printing',async()=>{
   vi.spyOn(globalThis,'fetch').mockRejectedValue(Error('字体资源不可达'));const printed=vi.fn();
   render(<MarkdownEditor value={'# 打印\n\n$x^2$'} onChange={()=>{}} onPrint={printed}/>);
-  fireEvent.click(screen.getByText('导出与打印'));fireEvent.click(screen.getByRole('button',{name:'打印…'}));
+  fireEvent.click(screen.getByRole('button', { name: '文件菜单' }));fireEvent.click(screen.getByRole('menuitem',{name:'打印…'}));
   expect(await screen.findByRole('alert')).toHaveTextContent(/打印字体不能内嵌：.*\.woff2.*字体资源不可达/u);
   expect(printed).not.toHaveBeenCalled();expect(document.querySelector('iframe[data-markdown-print]')).toBeNull();
 });
@@ -127,7 +127,7 @@ it('reports an external reference hidden in an SVG image before handing HTML to 
   const printed=vi.fn();const fetchResource=vi.spyOn(globalThis,'fetch');
   const svg='data:image/svg+xml;base64,'+btoa('<svg xmlns="http://www.w3.org/2000/svg"><image href="https://example.com/private.png"/></svg>');
   render(<MarkdownEditor value={'# 打印\n\n![矢量图](vector.svg)'} onChange={()=>{}} resources={{'vector.svg':svg}} onPrint={printed}/>);
-  fireEvent.click(screen.getByText('导出与打印'));fireEvent.click(screen.getByRole('button',{name:'打印…'}));
+  fireEvent.click(screen.getByRole('button', { name: '文件菜单' }));fireEvent.click(screen.getByRole('menuitem',{name:'打印…'}));
   expect(await screen.findByRole('alert')).toHaveTextContent('打印图表包含不能内嵌的资源：https://example.com/private.png');
   expect(printed).not.toHaveBeenCalled();expect(fetchResource).not.toHaveBeenCalled();
 });

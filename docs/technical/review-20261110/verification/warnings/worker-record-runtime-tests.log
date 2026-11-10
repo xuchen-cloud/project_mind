@@ -1,0 +1,11 @@
+COMMAND ["cargo", "test", "--lib", "--offline", "--manifest-path", "src-tauri/Cargo.toml", "--", "--ignored", "--test-threads=1", "agent::bridge::write_tests::"]
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.82s
+     Running unittests src/lib.rs (/Users/xuchen/project_mind/src-tauri/target/debug/deps/project_mind_alpha_lib-aba2c528566fbc31)
+
+running 3 tests
+test agent::bridge::write_tests::prepared_contact_pinyin_matches_names_and_multiple_nicknames ... ok
+test agent::bridge::write_tests::prepared_document_worker_roundtrip_preserves_canonical_history ... ok
+test agent::bridge::write_tests::prepared_text_edit_roundtrip_keeps_ids_replays_and_undoes ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 1865 filtered out; finished in 1.42s
+

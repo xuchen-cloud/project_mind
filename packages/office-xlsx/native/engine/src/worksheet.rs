@@ -16,6 +16,7 @@ pub(crate) fn index_worksheet(
     rich_image_cells: &HashSet<(usize, usize)>,
     state: &Arc<(Mutex<SheetIndex>, Condvar)>,
     cancelled: &AtomicBool,
+    metadata_only: bool,
 ) -> Result<(), SidecarError> {
     let file = File::open(workbook_path)?;
     let mut archive = ZipArchive::new(file)?;
@@ -88,6 +89,11 @@ pub(crate) fn index_worksheet(
             return Ok(());
         }
         match reader.read_event_into(&mut buffer)? {
+            Event::Start(element)
+                if metadata_only && element.local_name().as_ref() == b"sheetData" =>
+            {
+                reader.read_to_end_into(element.name(), &mut Vec::new())?;
+            }
             Event::Start(element) | Event::Empty(element)
                 if element.local_name().as_ref() == b"row" =>
             {
@@ -844,6 +850,7 @@ pub(crate) fn index_worksheet(
                     x14_current_id = None;
                 }
             }
+            Event::Eof if metadata_only => break,
             Event::Eof => {
                 flush_chunk(
                     sheet_index,
@@ -875,10 +882,13 @@ pub(crate) fn index_worksheet(
     let mut index = lock
         .lock()
         .map_err(|_| SidecarError::Io("Worksheet index lock was poisoned.".into()))?;
+    index.metadata_ready = true;
     index.merges = merges;
     index.hyperlinks = hyperlinks;
-    index.shared_formula_groups =
-        shared_formulas.groups(|formula| format!("={}", strip_future_function_markers(formula)));
+    if !metadata_only {
+        index.shared_formula_groups = shared_formulas
+            .groups(|formula| format!("={}", strip_future_function_markers(formula)));
+    }
     for (id, color) in x14_negative_colors {
         if let Some(rule) = x14_rule_slots
             .get(&id)

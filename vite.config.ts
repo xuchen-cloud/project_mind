@@ -27,7 +27,7 @@ export default defineConfig({
           for (const dependency of this.getModuleInfo(id)?.importedIds ?? []) visit(dependency, target);
         };
         for (const id of this.getModuleIds()) {
-          if (/\/node_modules\/(?:@codemirror\/|@lezer\/|mermaid\/|@mermaid-js\/|wavedrom\/)/u.test(id)) visit(id, closure);
+          if (/\/node_modules\/(?:@codemirror\/|@lezer\/|mermaid\/|@mermaid-js\/)/u.test(id)) visit(id, closure);
         }
         const shared = new Set<string>();
         for (const id of closure) {
@@ -150,6 +150,7 @@ export default defineConfig({
       "scripts/office-renderer-resources.test.mjs",
       "scripts/office-performance/**",
       "scripts/office-selection/**",
+      "scripts/file-flows/**",
       "packages/dsh-ui/vendor-integrity.test.mjs",
       "packages/dsh-ui/preview/assets-integrity.test.mjs",
     ],

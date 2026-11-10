@@ -1,3 +1,4 @@
+import { FileDropSurface } from "./components/document/FileDropSurface";
 import { getErrorMessage } from "./lib/errors";
 import { ProjectContentWorkspace, contentTabRoute } from "./components/project/ProjectContentWorkspace";
 import { openProjectContent, PROJECT_CONTENT_OPEN_EVENT, type ProjectContentOpenResult } from "./services/projectContentApi";
@@ -12,7 +13,7 @@ import {useFileWorkingErrors} from './hooks/useFileWorkingErrors';
 import { useSourceMaintenanceSelection } from "./hooks/useSourceMaintenanceSelection";
 import { ArchivedProjectsDialog } from "./components/workspace/ArchivedProjectsDialog";
 import { HomeWorkspaceActionsContext } from "./components/home/HomeWorkspaceIdentity";
-import { flushQuickNotes } from "./lib/quick-note-transfer";
+import { assertQuickNotesSaved, flushQuickNotes } from "./lib/quick-note-transfer";
 import { cancelAllQuickNoteRecordMetadata, cancelQuickNoteRecordMetadata } from "./lib/quick-note-auto-metadata";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -43,6 +44,8 @@ import {
   canLeaveRecordFocus,
 } from "./lib/record-focus-save";
 import { parseRecordFocusRoute } from "./lib/record-focus-route";
+import { CanonicalRecordCreation, createBlankCanonicalRecord } from "./lib/canonical-record-creation";
+import { renameCanonicalRecord } from "./lib/canonical-record-metadata";
 import type { RecordSaveCoordinator } from "./lib/record-save-coordinator";
 import {
   createRecordSaveCoordinator,
@@ -50,7 +53,7 @@ import {
   useRecordSaveStatus,
 } from "./lib/record-save-runtime";
 import { queryKeys } from "./lib/queryKeys";
-import { prefetchProjectPageData } from "./lib/project-prefetch";
+import { prefetchProjectPageData, scheduleSessionSummariesPrefetch } from "./lib/project-prefetch";
 import { scheduleRecordFocusPageModulesPreload } from "./routes/record-focus-modules";
 import {
   getCurrentWindowLabel,
@@ -93,7 +96,6 @@ import { CreateWorkspaceDialog } from "./components/workspace/WorkspaceDialogs";
 import { Button, Dialog, EmptyState } from "./ui/components";
 import {
   RecordFocusResidencyProvider,
-  RecordFocusResidentPages,
 } from "./components/record/RecordFocusResidentPages";
 
 const ProjectSidebar = lazy(() => import("./components/layout/ProjectSidebar").then(module => ({ default: module.ProjectSidebar })));
@@ -196,6 +198,8 @@ export function WorkspaceLayout({
   const location = useLocation();
   const params = useParams();
   const queryClient = useQueryClient();
+  const cancelSessionHoverPrefetch = useRef<(() => void) | null>(null);
+  const cancelSessionPrefetch = useRef<() => void>(() => {});
   const todoModule = useMemo(
     () => createTodoModule({ queryClient, transport: productionTodoTransport }),
     [queryClient],
@@ -446,11 +450,15 @@ export function WorkspaceLayout({
       ) ?? null,
     [activeProjectId, projectsQuery.data],
   );
+  const prepareOverviewEviction = useCallback((projectId: number) =>
+    flushQuickNotes({ workspaceRoot: currentWorkspace?.rootPath ?? "", projectId }), [currentWorkspace?.rootPath]);
   const residentProjectIds = useResidentProjectShells({
     activeProjectId,
     enabled: cacheProjectOverviewPages,
     hasWorkspace,
     openProjectIds,
+    workspaceKey: currentWorkspace?.rootPath,
+    prepareEviction: prepareOverviewEviction,
   });
   const projectSidebarOverviewQuery = useQuery({
     queryKey: queryKeys.projectPage(activeProjectId),
@@ -520,7 +528,7 @@ export function WorkspaceLayout({
   >(null);
   const previousRecordSavePhaseRef = useRef(recordSaveStatus.phase);
   const reportedRecordSaveErrorRef = useRef<unknown>(null);
-  const projectRecordCreationRef = useRef<import("./lib/canonical-record-creation").CanonicalRecordCreation | null>(null);
+  const projectRecordCreationRef = useRef<CanonicalRecordCreation | null>(null);
   const voiceRecordCreatingRef = useRef(false);
   const [creatingVoiceRecord, setCreatingVoiceRecord] = useState(false);
   const [archiveDialogOpen, setArchiveDialogOpen] = useState(false);
@@ -590,6 +598,7 @@ export function WorkspaceLayout({
         showDshBusyFeedback();
         return null;
       }
+      cancelSessionPrefetch.current();
       const snapshot = await projectMindApi.workspaceOpen({ rootPath });
       await applyWorkspaceStatus(snapshot, true);
       setCreateProjectOpen(false);
@@ -658,6 +667,7 @@ export function WorkspaceLayout({
         return;
       }
       await desktopApi.destroyOtherWorkspaceWindows();
+      cancelSessionPrefetch.current();
       const snapshot = await projectMindApi.workspaceClose();
       await applyWorkspaceStatus(snapshot, true);
       setCreateWorkspaceOpen(false);
@@ -700,6 +710,7 @@ export function WorkspaceLayout({
         showDshBusyFeedback();
         return;
       }
+      cancelSessionPrefetch.current();
       const snapshot = await projectMindApi.workspaceCreate({
         rootPath: createWorkspaceRoot.trim(),
       });
@@ -762,8 +773,19 @@ export function WorkspaceLayout({
     ],
   );
 
+  const sessionPrefetchWorkspaceRoot = currentWorkspace?.rootPath;
+  useEffect(() => {
+    if (!sessionPrefetchWorkspaceRoot) return;
+    const recent = openProjectIds.filter(id => id !== activeProjectId).slice(-2).reverse();
+    const cancel = scheduleSessionSummariesPrefetch(queryClient, sessionPrefetchWorkspaceRoot, [activeProjectId, null, ...recent]);
+    cancelSessionPrefetch.current = () => { cancel(); cancelSessionHoverPrefetch.current?.(); };
+    return () => cancelSessionPrefetch.current();
+  }, [queryClient, sessionPrefetchWorkspaceRoot, workspaceStatusQuery.dataUpdatedAt, activeProjectId, openProjectIds]);
+
   const prefetchProject = useCallback(
     (projectId: number) => {
+      cancelSessionHoverPrefetch.current?.();
+      if (sessionPrefetchWorkspaceRoot) cancelSessionHoverPrefetch.current = scheduleSessionSummariesPrefetch(queryClient, sessionPrefetchWorkspaceRoot, [projectId]);
       if (residentProjectIds.includes(projectId)) {
         return;
       }
@@ -774,7 +796,7 @@ export function WorkspaceLayout({
         // Prefetch failures are surfaced by the destination page query.
       });
     },
-    [queryClient, residentProjectIds, todoModule],
+    [queryClient, residentProjectIds, todoModule, sessionPrefetchWorkspaceRoot],
   );
 
   const openProjectInNewWindow = useCallback(
@@ -825,6 +847,11 @@ export function WorkspaceLayout({
       try {
         if (currentWorkspace) await prepareProjectContentClose(currentWorkspace.rootPath, projectId);
         await openProjectInNewWindow(projectId, route);
+        // Opening a native window can wait while the source is still editable.
+        if (currentWorkspace) {
+          await flushQuickNotes({ workspaceRoot: currentWorkspace.rootPath, projectId });
+          assertQuickNotesSaved({ workspaceRoot: currentWorkspace.rootPath, projectId });
+        }
       } catch {
         return;
       }
@@ -849,7 +876,10 @@ export function WorkspaceLayout({
   const closeProjectTabAndMaybeNavigate = useCallback(
     async (projectId: number) => {
       try {
-        if (currentWorkspace) await prepareProjectContentClose(currentWorkspace.rootPath, projectId);
+        if (currentWorkspace) {
+          await prepareProjectContentClose(currentWorkspace.rootPath, projectId);
+          assertQuickNotesSaved({ workspaceRoot: currentWorkspace.rootPath, projectId });
+        }
       } catch (reason) {
         pushToast({ tone: "error", title: "项目内容尚不能关闭", detail: String(reason) });
         return;
@@ -902,7 +932,6 @@ export function WorkspaceLayout({
         return;
       }
 
-      const { renameCanonicalRecord } = await import("./lib/canonical-record-metadata");
       await renameCanonicalRecord(currentWorkspace?.rootPath ?? "", { scope: { kind: "project", projectId }, recordId: record.id }, title);
       await refreshProjectScope(queryClient, projectId);
     },
@@ -938,7 +967,6 @@ export function WorkspaceLayout({
       return;
     }
     try {
-      const { CanonicalRecordCreation, createBlankCanonicalRecord } = await import("./lib/canonical-record-creation");
       const creation = projectRecordCreationRef.current ??= new CanonicalRecordCreation();
       const { record } = await createBlankCanonicalRecord(currentWorkspace?.rootPath ?? "", { kind: "project", projectId: activeProjectId }, creation);
       await refreshProjectScope(queryClient, activeProjectId);
@@ -1279,6 +1307,9 @@ export function WorkspaceLayout({
           if (!projectWindow) {
             await desktopApi.flushOtherWorkspaceWindows();
           }
+          // Another window's response must not discard edits made in this one.
+          await flushQuickNotes();
+          assertQuickNotesSaved();
           return true;
         } catch (error) {
           setStatus({
@@ -1614,6 +1645,8 @@ export function WorkspaceLayout({
 
         <div className={`workspace-content-shell${agentPanelVisible ? " workspace-content-shell--agent" : ""}${agentPanelVisible && agentPanelExpanded ? " workspace-content-shell--expanded" : ""}`}>
           <main className="workspace-content-main" inert={agentPanelVisible && agentPanelExpanded}>
+            {workspaceActive || showProjectSidebarShell ? <FileDropSurface key={`${currentWorkspace.rootPath}:${activeProjectId}`}
+              workspaceRoot={currentWorkspace.rootPath} fileRootPath={activeProject?.rootPath ?? `${currentWorkspace.rootPath.replace(/[\\/]+$/, "")}/files`} projectId={activeProjectId} main /> : null}
             <div className="h-full min-h-0 overflow-hidden">
               {cachedWorkspaceResidentShell}
               {cachedProjectResidentShells}

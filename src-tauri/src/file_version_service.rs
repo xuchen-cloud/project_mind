@@ -1153,7 +1153,7 @@ mod tests {
         let writer_store = store.clone();
         let project_id = input.project_id.unwrap();
         let writer = std::thread::spawn(move || {
-            let mut state = writer_store.0.lock().unwrap();
+            let state = writer_store.0.lock().unwrap();
             waiting_tx.send(()).unwrap();
             state
                 .db

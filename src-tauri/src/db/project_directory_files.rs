@@ -1,7 +1,9 @@
 //! Project directory Files retain their real location. Only immutable bytes are
 //! stored in the existing document_versions / source_file_version_hashes tables.
+#[cfg(test)]
+use crate::agent::models::Scope;
 use super::{file_versions, Database};
-use crate::agent::models::{ObjectKind, ObjectRef, Scope};
+use crate::agent::models::{ObjectKind, ObjectRef};
 use anyhow::{anyhow, Result};
 use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -431,6 +433,7 @@ impl Database {
                 "File belongs to another Project",
             ));
         }
+        self.directory_require_file_no_pending(&document)?;
         Ok((document, root))
     }
     fn directory_hash(&self, id: i64, version: i64) -> Result<Option<String>> {
@@ -555,6 +558,7 @@ impl Database {
         let root = self.directory_owner(workspace, project)?;
         let path = business_path(&root, relative)?;
         let _project_lock = self.file_project_lock(project, false)?;
+        self.directory_require_no_pending(&path, project)?;
         let identity_lock = self.file_storage_lock("file-import-identities", 1, true)?;
         let metadata = fs::symlink_metadata(&path)?;
         if !metadata.is_file() {
@@ -684,6 +688,7 @@ impl Database {
         )>,
         gui: Option<(&str, &file_versions::GuiFileVersionIntent, bool)>,
     ) -> Result<DirectoryFile> {
+        self.directory_require_no_pending(path, project)?;
         if !replacement && self.file_working_matches_live(existing)? { return self.directory_projection(existing); }
         let _identity_lock = self.file_storage_lock("file-import-identities", 1, true)?;
         let root = self.directory_owner(workspace, project)?;
@@ -814,6 +819,9 @@ impl Database {
                 crate::db::file_content::check_transaction(&tx,&crate::file_content::FileContentBeginInput::Existing(crate::file_content::FileContentBegin {object:staged.object.clone(),expected_version_number:staged.expected_version_number,expected_content_hash:staged.expected_content_hash.clone(),length:0,content_hash:hash.clone()})).map_err(|e|anyhow!(e.message))?;
             }
         }
+        if receipt.is_some_and(|(_,input)|input.is_drop()) && new_version != document.current_version_number {
+            self.directory_drop_finalize(&tx,document.id,&encoded_path)?;
+        }
         let changed = tx.execute("UPDATE documents SET name=?1,base_name=?1,managed_path=?2,storage_mode='project_directory',current_version_number=?3,version_count=version_count+?4,health='normal',updated_at=?5 WHERE id=?6 AND current_version_number=?7",params![name,encoded_path,new_version, i64::from(new_version!=document.current_version_number),timestamp,document.id,document.current_version_number])?;
         if changed != 1 {
             return Err(failure(
@@ -922,7 +930,6 @@ impl Database {
         let (project, id) = file_id(object)?;
         let _project_lock = self.file_project_lock(project, false)?;
         let _file_lock = self.file_version_lock(id)?;
-        if self.file_working_matches_live(object)? { return self.directory_projection(object); }
         let (document, root) = self.directory_target(object)?;
         let path = PathBuf::from(&document.managed_path);
         let relative = path
@@ -941,6 +948,10 @@ impl Database {
                 &error.to_string(),
             );
         }
+        // A missing original (including a removed ancestor) is a navigation
+        // state. Do not read its physical identity before reporting missing:
+        // persisted working bytes and immutable versions remain available.
+        if self.file_working_matches_live(object)? { return self.directory_projection(object); }
         if let Err(error) = business_path(&root, &relative) {
             return self.directory_state(object, "unavailable", &error.to_string());
         }
@@ -1417,7 +1428,10 @@ impl Database {
         let document = self.directory_baseline(object, version, hash)?;
         let root = self.directory_owner(&object.workspace_id, project)?;
         let original = PathBuf::from(&document.managed_path);
+        self.file_owner_require_unshared_root(&original, project)?;
+        self.record_owner_require_unshared_root(&original, project)?;
         let target = business_path(&root, relative)?;
+        self.directory_require_no_pending(&target, project)?;
         self.directory_unclaimed(&target, object)?;
         if original == target {
             return self.directory_projection(object);

@@ -15,16 +15,16 @@ function deferred() {
 }
 
 function exportPdf() {
-  fireEvent.click(screen.getByText('导出与打印'));
-  fireEvent.click(screen.getByRole('button', { name: '导出 PDF (.pdf)' }));
+  fireEvent.click(screen.getByRole('button', { name: '文件菜单' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: '导出 PDF' }));
 }
 
 it('delivers physical Markdown pages with their own 20mm margins to a zero-margin native printer', async () => {
   const printed = vi.fn(async (_document: { html: string }) => {});
   const changed = vi.fn();
   render(<MarkdownEditor value={'\uFEFF# 纸面标题\r\n\r\n正文保留在纸张内。\r\n'} onChange={changed} onPrint={printed} readOnly />);
-  fireEvent.click(screen.getByText('导出与打印'));
-  fireEvent.click(screen.getByRole('button', { name: '打印…' }));
+  fireEvent.click(screen.getByRole('button', { name: '文件菜单' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: '打印…' }));
   await waitFor(() => expect(printed).toHaveBeenCalledOnce());
   const doc = new DOMParser().parseFromString(printed.mock.calls[0][0].html, 'text/html');
   const page = doc.body.querySelector<HTMLElement>('.md-print-page');
@@ -131,5 +131,5 @@ it('discards a native PDF result after the external document baseline changes', 
   await act(async () => { completed.resolve(); await renderPdf.mock.results[0].value; });
   expect(write).not.toHaveBeenCalled();
   expect(screen.queryByText('已导出 PDF 文档。')).toBeNull();
-  expect(screen.getByRole('textbox', { name: 'Markdown 源码' })).toHaveTextContent('新版本');
+  expect(await screen.findByRole('textbox', { name: 'Markdown 块编辑' })).toHaveTextContent('新版本');
 });

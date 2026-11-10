@@ -1,0 +1,12 @@
+[
+  {
+    "file": "native-tests.log",
+    "source": "/tmp/project-mind-review-observer-progressive/scripts/office-performance/output/navigation-round4/native-tests.log",
+    "sha256": "f56211ac3a5fd5f1b1441a41e23ba777c245069a462b860e63362b54c2e31f44"
+  },
+  {
+    "file": "observer-entry-tsc.log",
+    "source": "/tmp/project-mind-review-observer-progressive/scripts/office-performance/output/navigation-round4/observer-entry-tsc.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+]

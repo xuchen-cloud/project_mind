@@ -210,6 +210,7 @@ impl Database {
     pub(crate) fn source_foreground_busy(&self) -> AgentResult<bool> {
         self.conn.query_row("SELECT EXISTS(SELECT 1 FROM agent_runs WHERE state IN ('preparing','running','cancelling')) OR EXISTS(SELECT 1 FROM recording_sessions WHERE lifecycle!='ended')", [], |row| row.get(0)).map_err(io)
     }
+    #[cfg(test)]
     pub(crate) fn source_maintenance_selected(
         &self,
         binding: &WorkspaceBinding,

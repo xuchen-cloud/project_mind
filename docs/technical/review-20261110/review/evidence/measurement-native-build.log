@@ -1,0 +1,1106 @@
+warning: unused import: `ProjectContext`
+ --> src/dsh_office.rs:2:23
+  |
+2 | use super::{Identity, ProjectContext, SessionRequest, SourceRequest};
+  |                       ^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `Scope`
+    --> src/project_directory.rs:1047:39
+     |
+1047 | use crate::agent::models::{ObjectRef, Scope};
+     |                                       ^^^^^
+
+warning: unused import: `Scope`
+  --> src/db/agent_file_outputs.rs:11:37
+   |
+11 |     models::{ObjectKind, ObjectRef, Scope, WorkspaceBinding},
+   |                                     ^^^^^
+
+warning: unused import: `Scope`
+  --> src/db/agent_file_undo.rs:13:41
+   |
+13 |         models::{ObjectKind, ObjectRef, Scope, WorkspaceBinding},
+   |                                         ^^^^^
+
+warning: unused import: `Scope`
+  --> src/db/file_imports.rs:14:41
+   |
+14 |         models::{ObjectKind, ObjectRef, Scope, WorkspaceBinding},
+   |                                         ^^^^^
+
+warning: unused import: `fs`
+ --> src/db/file_scope.rs:7:5
+  |
+7 |     fs,
+  |     ^^
+
+warning: unused import: `Scope`
+ --> src/db/project_directory_files.rs:4:51
+  |
+4 | use crate::agent::models::{ObjectKind, ObjectRef, Scope};
+  |                                                   ^^^^^
+
+warning: unused imports: `ContactDeleteInput`, `ContactRecord`, `ContactSearchInput`, `ContactUpsertInput`, and `FileTagOptionDeleteInput`
+   --> src/db.rs:100:29
+    |
+100 |         AiSettingsSnapshot, ContactDeleteInput, ContactRecord, ContactSearchInput,
+    |                             ^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^
+101 |         ContactUpsertInput, DocumentImportClipboardNoteImageInput,
+    |         ^^^^^^^^^^^^^^^^^^
+...
+104 |         DocumentVersionRecord, FileTagOptionDeleteInput, FileTagOptionUpsertInput, FileTagRecord,
+    |                                ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `Value`
+  --> src/record_version_reads.rs:14:24
+   |
+14 | use serde_json::{json, Value};
+   |                        ^^^^^
+
+warning: unused import: `Scope`
+ --> src/office_selection.rs:5:41
+  |
+5 |         models::{ObjectKind, ObjectRef, Scope, WorkspaceBinding},
+  |                                         ^^^^^
+
+warning: field `agent_cancel_started` is never read
+   --> src/lib.rs:225:5
+    |
+222 | pub(crate) struct WorkspaceRuntime {
+    |                   ---------------- field in this struct
+...
+225 |     agent_cancel_started: Mutex<std::collections::HashMap<String, std::time::Instant>>,
+    |     ^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `windows_path_key` is never used
+   --> src/agent/bridge/cli_install.rs:125:4
+    |
+125 | fn windows_path_key(value:&str)->String {
+    |    ^^^^^^^^^^^^^^^^
+
+warning: function `windows_path_contains` is never used
+   --> src/agent/bridge/cli_install.rs:128:4
+    |
+128 | fn windows_path_contains(value:&str,entry:&str)->bool {
+    |    ^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `windows_path_add` is never used
+   --> src/agent/bridge/cli_install.rs:132:4
+    |
+132 | fn windows_path_add(value:&str,entry:&str)->String {
+    |    ^^^^^^^^^^^^^^^^
+
+warning: function `windows_path_remove_one` is never used
+   --> src/agent/bridge/cli_install.rs:137:4
+    |
+137 | fn windows_path_remove_one(value:&str,entry:&str)->String {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `sql` is never used
+  --> src/agent/conversation.rs:67:19
+   |
+66 | impl MessageRole {
+   | ---------------- method in this implementation
+67 |     pub(crate) fn sql(&self) -> &'static str {
+   |                   ^^^
+
+warning: struct `RunPreparation` is never constructed
+   --> src/agent/conversation.rs:158:19
+    |
+158 | pub(crate) struct RunPreparation {
+    |                   ^^^^^^^^^^^^^^
+
+warning: struct `VerifiedSessionProjection` is never constructed
+   --> src/agent/conversation.rs:164:19
+    |
+164 | pub(crate) struct VerifiedSessionProjection {
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `RunSettlement` is never constructed
+   --> src/agent/conversation.rs:168:19
+    |
+168 | pub(crate) struct RunSettlement {
+    |                   ^^^^^^^^^^^^^
+
+warning: field `operation_ids` is never read
+  --> src/agent/operation_batches.rs:75:9
+   |
+73 | pub(crate) struct OperationBatchConflict {
+   |                   ---------------------- field in this struct
+74 |     pub reason: OperationBatchConflictReason,
+75 |     pub operation_ids: Vec<String>,
+   |         ^^^^^^^^^^^^^
+   |
+   = note: `OperationBatchConflict` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: function `execute_review_decision` is never used
+   --> src/agent/output_service.rs:426:21
+    |
+426 | pub(super) async fn execute_review_decision<
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `OverviewPendingPage` is never constructed
+  --> src/agent/overview.rs:53:12
+   |
+53 | pub struct OverviewPendingPage {
+   |            ^^^^^^^^^^^^^^^^^^^
+
+warning: constant `SAFE_INTEGER` is never used
+  --> src/agent/record_write_tools.rs:12:7
+   |
+12 | const SAFE_INTEGER: u64 = 9_007_199_254_740_991;
+   |       ^^^^^^^^^^^^
+
+warning: function `id` is never used
+  --> src/agent/record_write_tools.rs:13:4
+   |
+13 | fn id() -> Value {
+   |    ^^
+
+warning: function `hash` is never used
+  --> src/agent/record_write_tools.rs:16:4
+   |
+16 | fn hash() -> Value {
+   |    ^^^^
+
+warning: function `record` is never used
+  --> src/agent/record_write_tools.rs:19:4
+   |
+19 | fn record() -> Value {
+   |    ^^^^^^
+
+warning: function `enum_string` is never used
+  --> src/agent/record_write_tools.rs:24:4
+   |
+24 | fn enum_string(values: &[&str]) -> Value {
+   |    ^^^^^^^^^^^
+
+warning: function `attribute` is never used
+  --> src/agent/record_write_tools.rs:28:4
+   |
+28 | fn attribute(name: &str, default: &Value) -> Value {
+   |    ^^^^^^^^^
+
+warning: function `attrs` is never used
+  --> src/agent/record_write_tools.rs:70:4
+   |
+70 | fn attrs(definition: &Value) -> Value {
+   |    ^^^^^
+
+warning: function `node_definitions` is never used
+  --> src/agent/record_write_tools.rs:82:4
+   |
+82 | fn node_definitions() -> Value {
+   |    ^^^^^^^^^^^^^^^^
+
+warning: function `patch` is never used
+  --> src/agent/record_write_tools.rs:99:4
+   |
+99 | fn patch() -> Value {
+   |    ^^^^^
+
+warning: function `source_ref` is never used
+   --> src/agent/record_write_tools.rs:128:4
+    |
+128 | fn source_ref() -> Value {
+    |    ^^^^^^^^^^
+
+warning: function `todo_date` is never used
+   --> src/agent/record_write_tools.rs:135:4
+    |
+135 | fn todo_date() -> Value {
+    |    ^^^^^^^^^
+
+warning: function `todo_priority` is never used
+   --> src/agent/record_write_tools.rs:138:4
+    |
+138 | fn todo_priority() -> Value {
+    |    ^^^^^^^^^^^^^
+
+warning: function `todo_status` is never used
+   --> src/agent/record_write_tools.rs:146:4
+    |
+146 | fn todo_status() -> Value {
+    |    ^^^^^^^^^^^
+
+warning: function `todo_create` is never used
+   --> src/agent/record_write_tools.rs:149:4
+    |
+149 | fn todo_create() -> Value {
+    |    ^^^^^^^^^^^
+
+warning: function `todo_update` is never used
+   --> src/agent/record_write_tools.rs:170:4
+    |
+170 | fn todo_update() -> Value {
+    |    ^^^^^^^^^^^
+
+warning: function `record_write_tool_descriptions` is never used
+   --> src/agent/record_write_tools.rs:219:15
+    |
+219 | pub(crate) fn record_write_tool_descriptions() -> Vec<ReadToolDescription> {
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `field` is never used
+  --> src/agent/source_trace.rs:24:4
+   |
+24 | fn field<'a>(value: &'a Value, key: &str) -> AgentResult<&'a Value> {
+   |    ^^^^^
+
+warning: function `typed` is never used
+  --> src/agent/source_trace.rs:27:4
+   |
+27 | fn typed<T: DeserializeOwned>(value: &Value) -> AgentResult<T> {
+   |    ^^^^^
+
+warning: function `object` is never used
+   --> src/agent/source_trace.rs:138:4
+    |
+138 | fn object(value: &Value) -> AgentResult<ObservedSource> {
+    |    ^^^^^^
+
+warning: function `array` is never used
+   --> src/agent/source_trace.rs:144:4
+    |
+144 | fn array<'a>(value: &'a Value, key: &str) -> AgentResult<&'a Vec<Value>> {
+    |    ^^^^^
+
+warning: function `revision` is never used
+   --> src/agent/source_trace.rs:147:4
+    |
+147 | fn revision(value: &Value) -> AgentResult<u64> {
+    |    ^^^^^^^^
+
+warning: function `scope` is never used
+   --> src/agent/source_trace.rs:150:4
+    |
+150 | fn scope(value: &Value) -> AgentResult<Scope> {
+    |    ^^^^^
+
+warning: function `output_card` is never used
+   --> src/agent/source_trace.rs:263:4
+    |
+263 | fn output_card(
+    |    ^^^^^^^^^^^
+
+warning: function `add_history` is never used
+   --> src/agent/source_trace.rs:289:4
+    |
+289 | fn add_history(
+    |    ^^^^^^^^^^^
+
+warning: function `result_sources` is never used
+   --> src/agent/source_trace.rs:303:15
+    |
+303 | pub(super) fn result_sources(
+    |               ^^^^^^^^^^^^^^
+
+warning: struct `ReadToolDescription` is never constructed
+   --> src/agent/tools.rs:296:19
+    |
+296 | pub(crate) struct ReadToolDescription {
+    |                   ^^^^^^^^^^^^^^^^^^^
+
+warning: function `object` is never used
+   --> src/agent/tools.rs:302:15
+    |
+302 | pub(super) fn object(properties: Value, required: &[&str]) -> Value {
+    |               ^^^^^^
+
+warning: function `nullable` is never used
+   --> src/agent/tools.rs:305:15
+    |
+305 | pub(super) fn nullable(schema: Value) -> Value {
+    |               ^^^^^^^^
+
+warning: function `text` is never used
+   --> src/agent/tools.rs:308:15
+    |
+308 | pub(super) fn text(max: usize) -> Value {
+    |               ^^^^
+
+warning: function `integer` is never used
+   --> src/agent/tools.rs:311:15
+    |
+311 | pub(super) fn integer(max: u64) -> Value {
+    |               ^^^^^^^
+
+warning: function `array` is never used
+   --> src/agent/tools.rs:314:15
+    |
+314 | pub(super) fn array(items: Value, max: usize) -> Value {
+    |               ^^^^^
+
+warning: function `scope_schema` is never used
+   --> src/agent/tools.rs:317:15
+    |
+317 | pub(super) fn scope_schema() -> Value {
+    |               ^^^^^^^^^^^^
+
+warning: function `source_kinds` is never used
+   --> src/agent/tools.rs:320:4
+    |
+320 | fn source_kinds() -> Value {
+    |    ^^^^^^^^^^^^
+
+warning: function `object_ref_schema` is never used
+   --> src/agent/tools.rs:323:15
+    |
+323 | pub(super) fn object_ref_schema() -> Value {
+    |               ^^^^^^^^^^^^^^^^^
+
+warning: function `locator_schema` is never used
+   --> src/agent/tools.rs:331:15
+    |
+331 | pub(super) fn locator_schema() -> Value {
+    |               ^^^^^^^^^^^^^^
+
+warning: function `read_tool_descriptions` is never used
+   --> src/agent/tools.rs:350:15
+    |
+350 | pub(crate) fn read_tool_descriptions() -> Vec<ReadToolDescription> {
+    |               ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `todo_ref_schema` is never used
+   --> src/agent/todo_tools.rs:118:15
+    |
+118 | pub(super) fn todo_ref_schema() -> Value {
+    |               ^^^^^^^^^^^^^^^
+
+warning: constant `SAFE_INTEGER` is never used
+ --> src/agent/file_tools.rs:8:7
+  |
+8 | const SAFE_INTEGER: u64 = 9_007_199_254_740_991;
+  |       ^^^^^^^^^^^^
+
+warning: constant `CONTENT_BYTES` is never used
+ --> src/agent/file_tools.rs:9:7
+  |
+9 | const CONTENT_BYTES: usize = 2 * 1024 * 1024;
+  |       ^^^^^^^^^^^^^
+
+warning: function `file_ref_schema` is never used
+  --> src/agent/file_tools.rs:79:15
+   |
+79 | pub(super) fn file_ref_schema() -> Value {
+   |               ^^^^^^^^^^^^^^^
+
+warning: function `content_hash` is never used
+  --> src/agent/file_tools.rs:84:4
+   |
+84 | fn content_hash() -> Value {
+   |    ^^^^^^^^^^^^
+
+warning: function `stage_id` is never used
+  --> src/agent/file_tools.rs:87:4
+   |
+87 | fn stage_id() -> Value {
+   |    ^^^^^^^^
+
+warning: function `version_id` is never used
+  --> src/agent/file_tools.rs:90:4
+   |
+90 | fn version_id() -> Value {
+   |    ^^^^^^^^^^
+
+warning: function `file_reference` is never used
+  --> src/agent/file_tools.rs:93:4
+   |
+93 | fn file_reference() -> Value {
+   |    ^^^^^^^^^^^^^^
+
+warning: function `file_intent_schemas` is never used
+  --> src/agent/file_tools.rs:96:15
+   |
+96 | pub(super) fn file_intent_schemas() -> Vec<Value> {
+   |               ^^^^^^^^^^^^^^^^^^^
+
+warning: function `file_schema_definitions` is never used
+   --> src/agent/file_tools.rs:155:15
+    |
+155 | pub(super) fn file_schema_definitions() -> Value {
+    |               ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `file_tool_descriptions` is never used
+   --> src/agent/file_tools.rs:158:15
+    |
+158 | pub(crate) fn file_tool_descriptions() -> Vec<ReadToolDescription> {
+    |               ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `project` is never used
+   --> src/dsh_assistant.rs:255:8
+    |
+233 | impl Identity {
+    | ------------- method in this implementation
+...
+255 |     fn project(&self) -> Result<&ProjectContext, String> {
+    |        ^^^^^^^
+
+warning: associated functions `launch` and `launch_with_source` are never used
+   --> src/dsh_assistant.rs:500:14
+    |
+499 | impl AssistantProcess {
+    | --------------------- associated functions in this implementation
+500 |     async fn launch(command: Command, config: &serde_json::Value) -> Result<Self, String> {
+    |              ^^^^^^
+...
+504 |     async fn launch_with_source(command: Command, config: &serde_json::Value, source: Option<SourceHandler>) -> Result<Self, String> {
+    |              ^^^^^^^^^^^^^^^^^^
+
+warning: function `list_sessions` is never used
+    --> src/dsh_assistant.rs:1138:10
+     |
+1138 | async fn list_sessions(
+     |          ^^^^^^^^^^^^^
+
+warning: function `create_session` is never used
+    --> src/dsh_assistant.rs:1191:10
+     |
+1191 | async fn create_session(
+     |          ^^^^^^^^^^^^^^
+
+warning: function `run_voice_minutes_streaming` is never used
+   --> src/ai_provider.rs:131:8
+    |
+131 | pub fn run_voice_minutes_streaming(
+    |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `agent_profile_verified` is never used
+   --> src/db/agent_profiles.rs:167:19
+    |
+ 54 | impl Database {
+    | ------------- method in this implementation
+...
+167 |     pub(crate) fn agent_profile_verified(&self, fingerprint: &str) -> AgentResult<bool> {
+    |                   ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `random_id` is never used
+  --> src/db/agent_sessions.rs:33:4
+   |
+33 | fn random_id() -> String {
+   |    ^^^^^^^^^
+
+warning: function `json_string` is never used
+  --> src/db/agent_sessions.rs:44:4
+   |
+44 | fn json_string(value: &impl serde::Serialize) -> AgentResult<String> {
+   |    ^^^^^^^^^^^
+
+warning: function `state_sql` is never used
+  --> src/db/agent_sessions.rs:51:4
+   |
+51 | fn state_sql(state: RunState) -> &'static str {
+   |    ^^^^^^^^^
+
+warning: function `projection_validate` is never used
+   --> src/db/agent_sessions.rs:114:4
+    |
+114 | fn projection_validate(projection: &VerifiedSessionProjection) -> AgentResult<()> {
+    |    ^^^^^^^^^^^^^^^^^^^
+
+warning: function `projection_write` is never used
+   --> src/db/agent_sessions.rs:157:4
+    |
+157 | fn projection_write(
+    |    ^^^^^^^^^^^^^^^^
+
+warning: multiple methods are never used
+   --> src/db/agent_sessions.rs:268:19
+    |
+224 | impl Database {
+    | ------------- methods in this implementation
+...
+268 |     pub(crate) fn agent_gui_session_request(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+301 |     pub(crate) fn agent_gui_run_request(
+    |                   ^^^^^^^^^^^^^^^^^^^^^
+...
+327 |     pub(crate) fn agent_session_create(
+    |                   ^^^^^^^^^^^^^^^^^^^^
+...
+350 |     pub(crate) fn agent_sessions_list(
+    |                   ^^^^^^^^^^^^^^^^^^^
+...
+498 |     pub(crate) fn agent_session_archive(
+    |                   ^^^^^^^^^^^^^^^^^^^^^
+...
+535 |     pub(crate) fn agent_session_delete(
+    |                   ^^^^^^^^^^^^^^^^^^^^
+...
+561 |     pub(crate) fn agent_run_prepare(
+    |                   ^^^^^^^^^^^^^^^^^
+...
+638 |     fn conversation_transition(
+    |        ^^^^^^^^^^^^^^^^^^^^^^^
+...
+664 |     pub(crate) fn agent_run_start(
+    |                   ^^^^^^^^^^^^^^^
+...
+672 |     pub(crate) fn agent_run_mark_cancelling(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+680 |     pub(crate) fn agent_run_settle(
+    |                   ^^^^^^^^^^^^^^^^
+...
+747 |     pub(crate) fn agent_session_restore_projection(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+769 |     pub(crate) fn agent_session_mark_read_only(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+785 |     pub(crate) fn agent_run_event_append(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^
+...
+856 |     pub(crate) fn agent_run_events_list(
+    |                   ^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `session_scope` is never used
+  --> src/db/agent_session_maintenance.rs:15:4
+   |
+15 | fn session_scope(conn: &Connection, session_id: &str) -> AgentResult<Scope> {
+   |    ^^^^^^^^^^^^^
+
+warning: function `session_message_changed` is never used
+  --> src/db/agent_session_maintenance.rs:45:15
+   |
+45 | pub(super) fn session_message_changed(
+   |               ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `session_messages_deleted` is never used
+  --> src/db/agent_session_maintenance.rs:56:15
+   |
+56 | pub(super) fn session_messages_deleted(
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `agent_session_summary_get` is never used
+  --> src/db/agent_session_summary.rs:13:19
+   |
+12 | impl Database {
+   | ------------- method in this implementation
+13 |     pub(crate) fn agent_session_summary_get(
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `SNIPPET_CHARS_MAX` is never used
+  --> src/db/agent_session_search.rs:17:7
+   |
+17 | const SNIPPET_CHARS_MAX: usize = 240;
+   |       ^^^^^^^^^^^^^^^^^
+
+warning: function `default_search_limit` is never used
+  --> src/db/agent_session_search.rs:18:4
+   |
+18 | fn default_search_limit() -> u16 {
+   |    ^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `AgentSessionSearchInput` is never constructed
+  --> src/db/agent_session_search.rs:24:19
+   |
+24 | pub(crate) struct AgentSessionSearchInput {
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `AgentSessionSearchHit` is never constructed
+  --> src/db/agent_session_search.rs:35:19
+   |
+35 | pub(crate) struct AgentSessionSearchHit {
+   |                   ^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `AgentSessionSearchCoverage` is never constructed
+  --> src/db/agent_session_search.rs:50:19
+   |
+50 | pub(crate) struct AgentSessionSearchCoverage {
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `AgentSessionSearchPage` is never constructed
+  --> src/db/agent_session_search.rs:60:19
+   |
+60 | pub(crate) struct AgentSessionSearchPage {
+   |                   ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `validate` is never used
+  --> src/db/agent_session_search.rs:67:19
+   |
+66 | impl AgentSessionSearchInput {
+   | ---------------------------- method in this implementation
+67 |     pub(crate) fn validate(&self) -> AgentResult<()> {
+   |                   ^^^^^^^^
+
+warning: function `invalid` is never used
+  --> src/db/agent_session_search.rs:83:4
+   |
+83 | fn invalid(message: &str) -> AgentError {
+   |    ^^^^^^^
+
+warning: function `id_valid` is never used
+  --> src/db/agent_session_search.rs:87:4
+   |
+87 | fn id_valid(value: &str) -> bool {
+   |    ^^^^^^^^
+
+warning: function `text_of` is never used
+  --> src/db/agent_session_search.rs:95:4
+   |
+95 | fn text_of(message: &ProjectionMessage) -> Option<String> {
+   |    ^^^^^^^
+
+warning: struct `ScanCursor` is never constructed
+   --> src/db/agent_session_search.rs:119:19
+    |
+119 | pub(crate) struct ScanCursor {
+    |                   ^^^^^^^^^^
+
+warning: struct `SessionScanWork` is never constructed
+   --> src/db/agent_session_search.rs:126:19
+    |
+126 | pub(crate) struct SessionScanWork {
+    |                   ^^^^^^^^^^^^^^^
+
+warning: struct `ScanCheckpoint` is never constructed
+   --> src/db/agent_session_search.rs:137:19
+    |
+137 | pub(crate) struct ScanCheckpoint {
+    |                   ^^^^^^^^^^^^^^
+
+warning: struct `ScanState` is never constructed
+   --> src/db/agent_session_search.rs:143:8
+    |
+143 | struct ScanState {
+    |        ^^^^^^^^^
+
+warning: struct `SessionScanMessage` is never constructed
+   --> src/db/agent_session_search.rs:152:19
+    |
+152 | pub(crate) struct SessionScanMessage {
+    |                   ^^^^^^^^^^^^^^^^^^
+
+warning: struct `SessionScanPage` is never constructed
+   --> src/db/agent_session_search.rs:168:19
+    |
+168 | pub(crate) struct SessionScanPage {
+    |                   ^^^^^^^^^^^^^^^
+
+warning: function `checkpoint_checksum` is never used
+   --> src/db/agent_session_search.rs:177:4
+    |
+177 | fn checkpoint_checksum(checkpoint: &str) -> Option<String> {
+    |    ^^^^^^^^^^^^^^^^^^^
+
+warning: function `authorize_index` is never used
+   --> src/db/agent_session_search.rs:185:4
+    |
+185 | fn authorize_index(
+    |    ^^^^^^^^^^^^^^^
+
+warning: function `index_message` is never used
+   --> src/db/agent_session_search.rs:205:4
+    |
+205 | fn index_message(
+    |    ^^^^^^^^^^^^^
+
+warning: function `projection_index_message` is never used
+   --> src/db/agent_session_search.rs:277:15
+    |
+277 | pub(super) fn projection_index_message(
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `agent_session_search` is never used
+   --> src/db/agent_session_search.rs:290:19
+    |
+287 | impl Database {
+    | ------------- method in this implementation
+...
+290 |     pub(crate) fn agent_session_search(
+    |                   ^^^^^^^^^^^^^^^^^^^^
+
+warning: methods `agent_session_scan_work` and `agent_session_scan_commit` are never used
+   --> src/db/agent_session_search.rs:406:19
+    |
+405 | impl Database {
+    | ------------- methods in this implementation
+406 |     pub(crate) fn agent_session_scan_work(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^
+...
+490 |     pub(crate) fn agent_session_scan_commit(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: methods `agent_run_provenance_begin`, `agent_run_context_check`, and `provenance_insert` are never used
+   --> src/db/agent_run_provenance.rs:260:19
+    |
+152 | impl Database {
+    | ------------- methods in this implementation
+...
+260 |     pub(crate) fn agent_run_provenance_begin(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+319 |     pub(crate) fn agent_run_context_check(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^
+...
+446 |     fn provenance_insert(
+    |        ^^^^^^^^^^^^^^^^^
+
+warning: function `default_limit` is never used
+  --> src/db/agent_session_model_search.rs:15:4
+   |
+15 | fn default_limit() -> u16 {
+   |    ^^^^^^^^^^^^^
+
+warning: function `default_budget` is never used
+  --> src/db/agent_session_model_search.rs:18:4
+   |
+18 | fn default_budget() -> usize {
+   |    ^^^^^^^^^^^^^^
+
+warning: struct `ModelHistorySearchInput` is never constructed
+  --> src/db/agent_session_model_search.rs:33:19
+   |
+33 | pub(crate) struct ModelHistorySearchInput {
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `validate` is never used
+  --> src/db/agent_session_model_search.rs:51:19
+   |
+50 | impl ModelHistorySearchInput {
+   | ---------------------------- method in this implementation
+51 |     pub(crate) fn validate(&self) -> AgentResult<()> {
+   |                   ^^^^^^^^
+
+warning: struct `ModelHistorySearchMatch` is never constructed
+  --> src/db/agent_session_model_search.rs:77:19
+   |
+77 | pub(crate) struct ModelHistorySearchMatch {
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `ModelHistorySearchPage` is never constructed
+  --> src/db/agent_session_model_search.rs:88:19
+   |
+88 | pub(crate) struct ModelHistorySearchPage {
+   |                   ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `ModelHistoryCoverage` is never constructed
+  --> src/db/agent_session_model_search.rs:96:19
+   |
+96 | pub(crate) struct ModelHistoryCoverage {
+   |                   ^^^^^^^^^^^^^^^^^^^^
+
+warning: methods `agent_model_session_source_record` and `agent_model_session_search` are never used
+   --> src/db/agent_session_model_search.rs:176:19
+    |
+139 | impl Database {
+    | ------------- methods in this implementation
+...
+176 |     pub(crate) fn agent_model_session_source_record(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+302 |     pub(crate) fn agent_model_session_search(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `DecisionStatusSummary` is never constructed
+   --> src/db/agent_outputs.rs:357:19
+    |
+357 | pub(crate) struct DecisionStatusSummary {
+    |                   ^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `DecisionStatusItem` is never constructed
+   --> src/db/agent_outputs.rs:363:19
+    |
+363 | pub(crate) struct DecisionStatusItem {
+    |                   ^^^^^^^^^^^^^^^^^^
+
+warning: method `agent_output_decision_summary` is never used
+   --> src/db/agent_outputs.rs:687:19
+    |
+408 | impl Database {
+    | ------------- method in this implementation
+...
+687 |     pub(crate) fn agent_output_decision_summary(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `agent_pending_review_plans` is never used
+  --> src/db/agent_output_review.rs:37:19
+   |
+34 | impl Database {
+   | ------------- method in this implementation
+...
+37 |     pub(crate) fn agent_pending_review_plans(
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: methods `agent_overview_pending_page` and `agent_overview_versions` are never used
+   --> src/db/agent_overviews.rs:244:19
+    |
+120 | impl Database {
+    | ------------- methods in this implementation
+...
+244 |     pub(crate) fn agent_overview_pending_page(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+334 |     pub(crate) fn agent_overview_versions(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: methods `agent_overview_maintenance_coverage` and `agent_overview_maintenance_save_draft` are never used
+   --> src/db/overview_maintenance.rs:323:19
+    |
+267 | impl Database {
+    | ------------- methods in this implementation
+...
+323 |     pub(crate) fn agent_overview_maintenance_coverage(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+692 |     pub(crate) fn agent_overview_maintenance_save_draft(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: methods `record_patch_commit`, `record_version_restore`, and `record_document_commit` are never used
+    --> src/db/record_documents.rs:878:19
+     |
+ 272 | impl Database {
+     | ------------- methods in this implementation
+...
+ 878 |     pub(crate) fn record_patch_commit(
+     |                   ^^^^^^^^^^^^^^^^^^^
+...
+1161 |     pub(crate) fn record_version_restore(
+     |                   ^^^^^^^^^^^^^^^^^^^^^^
+...
+1485 |     pub(crate) fn record_document_commit(
+     |                   ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: methods `source_policy_update` and `source_cache_capacity` are never used
+   --> src/db/sources.rs:90:19
+    |
+ 20 | impl Database {
+    | ------------- methods in this implementation
+...
+ 90 |     pub(crate) fn source_policy_update(
+    |                   ^^^^^^^^^^^^^^^^^^^^
+...
+617 |     pub(crate) fn source_cache_capacity(
+    |                   ^^^^^^^^^^^^^^^^^^^^^
+
+warning: fields `cursor`, `has_more`, and `needs_backfill` are never read
+  --> src/db/source_index_queue.rs:15:9
+   |
+14 | pub(crate) struct SourceQueueProgress {
+   |                   ------------------- fields in this struct
+15 |     pub cursor: i64,
+   |         ^^^^^^
+16 |     pub has_more: bool,
+   |         ^^^^^^^^
+17 |     pub needs_backfill: bool,
+   |         ^^^^^^^^^^^^^^
+   |
+   = note: `SourceQueueProgress` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: fields `queued` and `has_more` are never read
+  --> src/db/source_index_queue.rs:29:9
+   |
+28 | pub(crate) struct SourceBackfillProgress {
+   |                   ---------------------- fields in this struct
+29 |     pub queued: usize,
+   |         ^^^^^^
+30 |     pub has_more: bool,
+   |         ^^^^^^^^
+   |
+   = note: `SourceBackfillProgress` has a derived impl for the trait `Debug`, but this is intentionally ignored during dead code analysis
+
+warning: struct `SourceRegistryEntry` is never constructed
+  --> src/db/source_registry.rs:12:19
+   |
+12 | pub(crate) struct SourceRegistryEntry {
+   |                   ^^^^^^^^^^^^^^^^^^^
+
+warning: struct `SourceDependencyInvalidation` is never constructed
+  --> src/db/source_registry.rs:21:19
+   |
+21 | pub(crate) struct SourceDependencyInvalidation {
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `io_error` is never used
+  --> src/db/source_registry.rs:26:4
+   |
+26 | fn io_error(_: rusqlite::Error) -> AgentError {
+   |    ^^^^^^^^
+
+warning: methods `source_dependency_owner`, `source_dependency_invalidation`, `source_dependency_acknowledge`, and `source_registry_entry` are never used
+   --> src/db/source_registry.rs:31:8
+    |
+ 30 | impl Database {
+    | ------------- methods in this implementation
+ 31 |     fn source_dependency_owner(
+    |        ^^^^^^^^^^^^^^^^^^^^^^^
+...
+ 66 |     pub(crate) fn source_dependency_invalidation(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+ 91 |     pub(crate) fn source_dependency_acknowledge(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+141 |     pub(crate) fn source_registry_entry(
+    |                   ^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `source_maintenance_selected` is never used
+   --> src/db/source_maintenance.rs:213:19
+    |
+110 | impl Database {
+    | ------------- method in this implementation
+...
+213 |     pub(crate) fn source_maintenance_selected(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `agent_file_create_bytes_bound` is never used
+   --> src/db/file_imports.rs:336:19
+    |
+235 | impl Database {
+    | ------------- method in this implementation
+...
+336 |     pub(crate) fn agent_file_create_bytes_bound(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: method `voice_cloud_commit` is never used
+   --> src/db/voice_recovery.rs:280:19
+    |
+ 39 | impl Database {
+    | ------------- method in this implementation
+...
+280 |     pub(crate) fn voice_cloud_commit(
+    |                   ^^^^^^^^^^^^^^^^^^
+
+warning: struct `SourceCacheCapacity` is never constructed
+  --> src/source_search_index.rs:55:19
+   |
+55 | pub(crate) struct SourceCacheCapacity {
+   |                   ^^^^^^^^^^^^^^^^^^^
+
+warning: methods `remove` and `capacity` are never used
+   --> src/source_search_index.rs:215:19
+    |
+ 71 | impl<'a> SourceIndex<'a> {
+    | ------------------------ methods in this implementation
+...
+215 |     pub(crate) fn remove(&self, object: &ObjectRef) -> AgentResult<()> {
+    |                   ^^^^^^
+...
+230 |     pub(crate) fn capacity(
+    |                   ^^^^^^^^
+
+warning: struct `SourcePolicyUpdate` is never constructed
+   --> src/source_service.rs:564:19
+    |
+564 | pub(crate) struct SourcePolicyUpdate {
+    |                   ^^^^^^^^^^^^^^^^^^
+
+warning: struct `SourcePolicy` is never constructed
+   --> src/source_service.rs:571:19
+    |
+571 | pub(crate) struct SourcePolicy {
+    |                   ^^^^^^^^^^^^
+
+warning: methods `index_next_queued`, `cache_capacity`, and `set_policy` are never used
+    --> src/source_service.rs:977:25
+     |
+ 936 | impl<'a, S: BoundSourceStore> SourceService<'a, S> {
+     | -------------------------------------------------- methods in this implementation
+...
+ 977 |     pub(crate) async fn index_next_queued<
+     |                         ^^^^^^^^^^^^^^^^^
+...
+1525 |     pub(crate) fn cache_capacity(
+     |                   ^^^^^^^^^^^^^^
+...
+1533 |     pub(crate) fn set_policy(
+     |                   ^^^^^^^^^^
+
+warning: method `scan` is never used
+  --> src/source_session_read.rs:22:8
+   |
+21 | pub(crate) trait SessionHistoryUtility {
+   |                  --------------------- method in this trait
+22 |     fn scan(
+   |        ^^^^
+
+warning: fields `char_start`, `char_end`, and `total_chars` are never read
+  --> src/source_session_read.rs:66:9
+   |
+64 | pub(crate) struct SessionReadResult {
+   |                   ----------------- fields in this struct
+65 |     pub page: SourceReadPage,
+66 |     pub char_start: u32,
+   |         ^^^^^^^^^^
+67 |     pub char_end: u32,
+   |         ^^^^^^^^
+68 |     pub total_chars: u32,
+   |         ^^^^^^^^^^^
+
+warning: methods `pending` and `publish` are never used
+   --> src/overview_service.rs:164:19
+    |
+158 | impl<'a, S: BoundSourceStore> OverviewService<'a, S> {
+    | ---------------------------------------------------- methods in this implementation
+...
+164 |     pub(crate) fn pending(
+    |                   ^^^^^^^
+...
+209 |     pub(crate) async fn publish(
+    |                         ^^^^^^^
+
+warning: function `parse_session_delta` is never used
+   --> src/overview_generation.rs:268:15
+    |
+268 | pub(crate) fn parse_session_delta(
+    |               ^^^^^^^^^^^^^^^^^^^
+
+warning: field `conversation` is never read
+   --> src/overview_generation.rs:501:9
+    |
+493 | pub(crate) struct PromptInput<'a> {
+    |                   ----------- field in this struct
+...
+501 |     pub conversation: Option<&'a ConversationEvidence>,
+    |         ^^^^^^^^^^^^
+
+warning: function `build_prompt` is never used
+   --> src/overview_generation.rs:504:15
+    |
+504 | pub(crate) fn build_prompt(input: &PromptInput<'_>) -> AgentResult<String> {
+    |               ^^^^^^^^^^^^
+
+warning: field `usage` is never read
+  --> src/overview_model.rs:24:9
+   |
+21 | pub(crate) struct GeneratedOverview {
+   |                   ----------------- field in this struct
+...
+24 |     pub usage: Value,
+   |         ^^^^^
+   |
+   = note: `GeneratedOverview` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+
+warning: method `search` is never used
+   --> src/knowledge_service.rs:510:19
+    |
+341 | impl<'a, S: BoundSourceStore> KnowledgeService<'a, S> {
+    | ----------------------------------------------------- method in this implementation
+...
+510 |     pub(crate) fn search(
+    |                   ^^^^^^
+
+warning: constant `PASSWORD_SALT_BYTES` is never used
+  --> src/workspace.rs:23:7
+   |
+23 | const PASSWORD_SALT_BYTES: usize = 16;
+   |       ^^^^^^^^^^^^^^^^^^^
+
+warning: function `create_workspace` is never used
+   --> src/workspace.rs:125:8
+    |
+125 | pub fn create_workspace(
+    |        ^^^^^^^^^^^^^^^^
+
+warning: function `create_password_verifier` is never used
+   --> src/workspace.rs:336:4
+    |
+336 | fn create_password_verifier(password: &str) -> Result<PasswordVerifier> {
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^
+

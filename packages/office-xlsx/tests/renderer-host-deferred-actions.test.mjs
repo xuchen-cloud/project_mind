@@ -16,6 +16,7 @@ function host({output={},save,failure,journalCount=1}={}){
  runInNewContext(code,{exports,queueMicrotask,TextEncoder,URL,Map,Set,Promise,require(path){
   loads.push(path)
   if(path===outputPath||path===savePath){if(failure)throw failure;return path===outputPath?output:{handleSave:save??(async()=>{exports.capturedFixture();return {ok:true}})}}
+  if(path==='./view-source')return {createViewReader:()=>()=>{throw Error('Not a view test')}}
   if(path==='./renderer-channel')return {sendHostMessage:message=>messages.push(message)}
   if(path==='./selection')return {createSelectionController:()=>({})}
   if(path==='./initial-calculation')return {InitialCalculationGate:class{}}

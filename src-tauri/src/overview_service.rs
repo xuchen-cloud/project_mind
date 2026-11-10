@@ -161,6 +161,7 @@ impl<'a, S: BoundSourceStore> OverviewService<'a, S> {
     }
     /// A maintenance caller fixes targetSeq on its first page. This metadata
     /// ledger survives log pruning; reading it never acknowledges a change.
+    #[cfg(test)]
     pub(crate) fn pending(
         &self,
         request: &RequestContext,
@@ -206,6 +207,7 @@ impl<'a, S: BoundSourceStore> OverviewService<'a, S> {
         }
         result
     }
+    #[cfg(test)]
     pub(crate) async fn publish(
         &self,
         request: &RequestContext,

@@ -11,7 +11,9 @@ use crate::{
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::json;
+#[cfg(test)]
+use serde_json::Value;
 
 fn invalid(message: &str) -> AgentError {
     AgentError::new(ErrorCode::InvalidArgument, message)

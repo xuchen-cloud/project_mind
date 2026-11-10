@@ -83,7 +83,7 @@
   --rich-text-body-font-family: var(--font-editor-workspace-sans);
   --rich-text-body-font-size: 14px;
   --rich-text-body-line-height: 1.6;
-  --rich-text-body-paragraph-spacing-before: 12px;
+  --rich-text-body-paragraph-spacing-before: 8px;
   --rich-text-body-paragraph-spacing-after: 0px;
   --rich-text-heading-font-family: var(--font-editor-workspace-sans);
   --rich-text-heading-line-height: 1.35;
@@ -862,6 +862,31 @@ textarea {
 .rich-editor--bare .rich-editor__surface {
   min-height: 0;
   padding: 0;
+}
+
+.rich-editor__surface.has-text-caret {
+  caret-color: transparent;
+}
+
+.rich-editor__text-caret {
+  position: fixed;
+  z-index: 50;
+  width: 1px;
+  pointer-events: none;
+  animation: rich-editor-caret-blink 1.1s step-end infinite;
+}
+
+@keyframes rich-editor-caret-blink {
+  50% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rich-editor__text-caret { animation: none; }
+}
+
+@media (forced-colors: active) {
+  .rich-editor__surface.has-text-caret { caret-color: auto; }
+  .rich-editor__text-caret { display: none; }
 }
 
 .rich-editor__surface > * {
@@ -1832,6 +1857,7 @@ textarea {
 }
 
 .rich-editor__surface li {
+  margin-block: 0;
   font-family: var(--rich-text-list-font-family);
   font-size: var(--rich-text-list-font-size);
   line-height: var(--rich-text-list-line-height);
@@ -1876,6 +1902,23 @@ textarea {
   list-style-type: decimal;
 }
 
+/* Distinguish depth even when ordered and unordered lists are mixed. */
+.rich-editor__surface :is(ul, ol) ul:not([data-type="taskList"]) {
+  list-style-type: circle;
+}
+
+.rich-editor__surface :is(ul, ol) :is(ul, ol) ul:not([data-type="taskList"]) {
+  list-style-type: square;
+}
+
+.rich-editor__surface :is(ul, ol) ol {
+  list-style-type: lower-alpha;
+}
+
+.rich-editor__surface :is(ul, ol) :is(ul, ol) ol {
+  list-style-type: lower-roman;
+}
+
 .rich-editor__surface ul:not([data-type="taskList"]) li::marker,
 .rich-editor__surface ol li::marker {
   color: var(--color-text-soft);
@@ -1903,11 +1946,30 @@ textarea {
 }
 
 .rich-editor__surface blockquote {
+  display: flex;
+  flex-direction: column;
   margin-block-start: var(--rich-text-body-paragraph-spacing-before);
   margin-block-end: var(--rich-text-body-paragraph-spacing-after);
   border-left: 2px solid var(--color-border-strong);
   padding-left: 0.875rem;
   color: var(--color-text-muted);
+}
+
+.rich-editor__surface blockquote > p {
+  margin-block: 0;
+}
+
+.rich-editor__surface blockquote > :first-child {
+  margin-block-start: 0;
+}
+
+.rich-editor__surface blockquote > :last-child {
+  margin-block-end: 0;
+}
+
+.rich-editor__surface hr {
+  margin-block-start: var(--rich-text-body-paragraph-spacing-before);
+  margin-block-end: var(--rich-text-body-paragraph-spacing-after);
 }
 
 .rich-editor__surface pre {
@@ -2042,6 +2104,7 @@ textarea {
 .rich-editor__surface :is(td, th) p,
 .rich-editor__surface :is(td, th) :where(ul, ol),
 .rich-editor__surface :is(td, th) blockquote,
+.rich-editor__surface :is(td, th) hr,
 .rich-editor__surface :is(td, th) pre {
   margin-block-start: 0.2rem;
   margin-block-end: 0.2rem;
@@ -2049,6 +2112,11 @@ textarea {
 
 .rich-editor__surface :is(td, th) :where(ul, ol) {
   padding-left: 1rem;
+}
+
+/* Keep the cell's compact paragraph margins collapsing inside quotes too. */
+.rich-editor__surface :is(td, th) blockquote {
+  display: block;
 }
 
 .rich-editor__surface :is(td, th) ul[data-type="taskList"] li {

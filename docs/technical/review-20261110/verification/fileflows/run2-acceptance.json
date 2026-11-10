@@ -1,0 +1,3957 @@
+{
+  "kind": "file-flows-native",
+  "status": "passed",
+  "error": null,
+  "phase": "passed; awaiting runner shutdown",
+  "assertions": [
+    {
+      "name": "native-main-and-registered-editors",
+      "passed": true,
+      "evidence": {
+        "source": 1,
+        "destination": 2,
+        "binding": {
+          "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+          "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+        }
+      }
+    },
+    {
+      "name": "g13-save-failure-retains-draft",
+      "passed": true,
+      "evidence": {
+        "error": "AgentApiError: Working File revision changed; preserve unsaved edits and reopen",
+        "tabId": "7f458255-f17d-4777-b4b5-4532741d6ef1",
+        "session": "a48ca492421cca58d969cba596ee7168"
+      }
+    },
+    {
+      "name": "g13-commit-failure-releases-source",
+      "passed": true,
+      "evidence": {
+        "error": "{\"code\":\"REVISION_CONFLICT\",\"message\":\"File changed after save barrier\",\"retryable\":false}",
+        "operationId": "f115d4ce-720a-4be6-805a-78f0ec4ad7cc",
+        "session": "7d7acc2209d323eb08aab315224293dd"
+      }
+    },
+    {
+      "name": "g13-saves-only-target",
+      "passed": true,
+      "evidence": {
+        "saves": [
+          {
+            "name": "file_working_save_text",
+            "args": {
+              "input": {
+                "binding": {
+                  "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+                  "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+                },
+                "requestId": "26e3db85-5def-4661-9ed8-d44cf7453ce7",
+                "data": {
+                  "object": {
+                    "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+                    "scope": {
+                      "kind": "project",
+                      "projectId": 1
+                    },
+                    "kind": "file",
+                    "id": "1"
+                  },
+                  "sessionId": "7d7acc2209d323eb08aab315224293dd",
+                  "expectedRevision": 1,
+                  "expectedContentHash": "sha256:bbcfaa1540263e771f9eed9e55aca5a4b9a515210c85cd78fdaff878614b235c",
+                  "text": "# Saved by the real move flow\n"
+                }
+              }
+            },
+            "started": 2859,
+            "result": {
+              "apiVersion": 1,
+              "requestId": "26e3db85-5def-4661-9ed8-d44cf7453ce7",
+              "ok": true,
+              "data": {
+                "object": {
+                  "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+                  "scope": {
+                    "kind": "project",
+                    "projectId": 1
+                  },
+                  "kind": "file",
+                  "id": "1"
+                },
+                "revision": 2,
+                "contentHash": "sha256:ced75a1a638588f2436cc62c9e3b1c45ec27a77ca044ad1af82485c6325bfe05",
+                "archivedVersionNumber": 1,
+                "pendingArchive": true,
+                "lastActivityAtMs": 1794323687479,
+                "archiveDueAtMs": 1794324587479,
+                "noChange": false
+              }
+            },
+            "ok": true,
+            "settled": 2891
+          }
+        ],
+        "flushes": [
+          {
+            "topic": "file:editor-flush-request",
+            "payload": {
+              "binding": {
+                "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+                "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+              },
+              "object": {
+                "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+                "scope": {
+                  "kind": "project",
+                  "projectId": 1
+                },
+                "kind": "file",
+                "id": "1"
+              },
+              "editorId": "23618387bd1042a0b209f34053b2ace5",
+              "flushId": "4d4f106580457711118283061c25a421",
+              "operationId": "c54f8773-5591-49c2-983c-b18911d8e919"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "g13-closes-source-and-preserves-saved-bytes",
+      "passed": true,
+      "evidence": {
+        "fileId": "1",
+        "oldTab": "8b338116-07ce-4778-b80d-0b99702db382",
+        "oldSession": "7d7acc2209d323eb08aab315224293dd",
+        "native": {
+          "document": {
+            "id": 1,
+            "project_id": 2,
+            "name": "move.md",
+            "current_version_number": 1,
+            "managed_path": "workspace:File flow destination/move.md"
+          },
+          "working": {
+            "state": {
+              "revision": 2,
+              "hash": "sha256:ced75a1a638588f2436cc62c9e3b1c45ec27a77ca044ad1af82485c6325bfe05",
+              "identity": {
+                "device": 16777232,
+                "file": 64802435
+              },
+              "activity": 1794323687479,
+              "pending": true
+            },
+            "text": "# Saved by the real move flow\n"
+          },
+          "sessions": [],
+          "versions": [
+            {
+              "id": 1,
+              "version_number": 1,
+              "content_hash": "sha256:c35df04d5bd063b6607d7cd70a3901d3224c6835c30535f37ed71361969646d2",
+              "display_name": null,
+              "is_important": 0,
+              "metadata_revision": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "g14-replaces-session-keeps-tab",
+      "passed": true,
+      "evidence": {
+        "outcome": {
+          "sourcePath": "/private/tmp/project-mind-g12-file-flows-run2/incoming/replacement.md",
+          "status": "success",
+          "result": {
+            "documentId": 3,
+            "versionNumber": 3,
+            "contentHash": "sha256:c8a4d58ef288052a90b51a431a49df1b2ed2a6d3c17b2aecd7edcfaedfdbbb29",
+            "noChange": false,
+            "cleanupWarning": null,
+            "oldSessionsClosed": true
+          }
+        },
+        "tabId": "87effc50-ce93-448c-9502-4df02ff3f3c5",
+        "oldSession": "dd83c0c243888863d39ef3ae0867dac0",
+        "newSession": "a7bf6c9104afb5a8cf52f00c2b14f137"
+      }
+    },
+    {
+      "name": "g14-preserves-saved-pending-version",
+      "passed": true,
+      "evidence": {
+        "preservedVersion": 2,
+        "replacementVersion": 3
+      }
+    },
+    {
+      "name": "g15-metadata-keeps-session-and-content",
+      "passed": true,
+      "evidence": {
+        "version": {
+          "displayName": "Native acceptance label",
+          "isImportant": true,
+          "metadataRevision": 1,
+          "id": "6",
+          "versionNumber": 3,
+          "name": "replace.md",
+          "createdAt": "2026-11-10T15:14:47.696796+00:00",
+          "contentHash": "sha256:c8a4d58ef288052a90b51a431a49df1b2ed2a6d3c17b2aecd7edcfaedfdbbb29",
+          "isCurrent": true,
+          "metadataTarget": {
+            "binding": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+            },
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "3"
+            }
+          }
+        },
+        "session": "a7bf6c9104afb5a8cf52f00c2b14f137",
+        "native": {
+          "document": {
+            "id": 3,
+            "project_id": 1,
+            "name": "replace.md",
+            "current_version_number": 3,
+            "managed_path": "workspace:File flow source/replace.md"
+          },
+          "working": {
+            "state": {
+              "revision": 0,
+              "hash": "sha256:c8a4d58ef288052a90b51a431a49df1b2ed2a6d3c17b2aecd7edcfaedfdbbb29",
+              "identity": {
+                "device": 16777232,
+                "file": 64802459
+              },
+              "activity": null,
+              "pending": false
+            },
+            "text": "# Native replacement\nGenerated exclusively for G14 acceptance.\n"
+          },
+          "sessions": [
+            "a7bf6c9104afb5a8cf52f00c2b14f137"
+          ],
+          "versions": [
+            {
+              "id": 3,
+              "version_number": 1,
+              "content_hash": "sha256:dd1098c5caf2f886eeac0c045fec57b55096f179c1a3e18bc05ddb80459c51c9",
+              "display_name": null,
+              "is_important": 0,
+              "metadata_revision": 0
+            },
+            {
+              "id": 5,
+              "version_number": 2,
+              "content_hash": "sha256:adfbe18ac69b61d7635f1a7b4d09d2bdf09ea7be1f678f765e45acaa90130e17",
+              "display_name": null,
+              "is_important": 0,
+              "metadata_revision": 0
+            },
+            {
+              "id": 6,
+              "version_number": 3,
+              "content_hash": "sha256:c8a4d58ef288052a90b51a431a49df1b2ed2a6d3c17b2aecd7edcfaedfdbbb29",
+              "display_name": "Native acceptance label",
+              "is_important": 1,
+              "metadata_revision": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "unrelated-dirty-instance-untouched",
+      "passed": true,
+      "evidence": {
+        "tab": "8e58e301-bdb8-4d95-a269-117d57478cd7",
+        "session": "d711dc004f7c27567ce262ef6c8e4b93",
+        "persisted": {
+          "document": {
+            "id": 4,
+            "project_id": 1,
+            "name": "unrelated.md",
+            "current_version_number": 1,
+            "managed_path": "workspace:File flow source/unrelated.md"
+          },
+          "working": {
+            "state": {
+              "revision": 0,
+              "hash": "sha256:6e8a51ed799e55cc4dad27dc048648bbaf1f622f58fc725567db5bcee5cc963a",
+              "identity": {
+                "device": 16777232,
+                "file": 64802374
+              },
+              "activity": 1794323687201,
+              "pending": false
+            },
+            "text": "# Unrelated content\n"
+          },
+          "sessions": [
+            "d711dc004f7c27567ce262ef6c8e4b93"
+          ],
+          "versions": [
+            {
+              "id": 4,
+              "version_number": 1,
+              "content_hash": "sha256:6e8a51ed799e55cc4dad27dc048648bbaf1f622f58fc725567db5bcee5cc963a",
+              "display_name": null,
+              "is_important": 0,
+              "metadata_revision": 0
+            }
+          ]
+        },
+        "pendingDraft": "# Unrelated unsaved draft\nMust survive every other File operation.\n"
+      }
+    }
+  ],
+  "calls": [
+    {
+      "name": "file_versions_list",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "a093fb9b-023a-43eb-bf87-1e56c9dd4a3b",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "4"
+            },
+            "limit": 1
+          }
+        }
+      },
+      "started": 1118,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "a093fb9b-023a-43eb-bf87-1e56c9dd4a3b",
+        "ok": true,
+        "data": {
+          "object": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            },
+            "kind": "file",
+            "id": "4"
+          },
+          "currentVersionNumber": 1,
+          "currentContentHash": "sha256:6e8a51ed799e55cc4dad27dc048648bbaf1f622f58fc725567db5bcee5cc963a",
+          "versions": [
+            {
+              "displayName": null,
+              "isImportant": false,
+              "metadataRevision": 0,
+              "id": "4",
+              "versionNumber": 1,
+              "name": "unrelated.md",
+              "createdAt": "2026-11-10T15:14:45.721840+00:00",
+              "contentHash": "sha256:6e8a51ed799e55cc4dad27dc048648bbaf1f622f58fc725567db5bcee5cc963a",
+              "isCurrent": true
+            }
+          ],
+          "nextCursor": null
+        }
+      },
+      "ok": true,
+      "settled": 1124
+    },
+    {
+      "name": "file_versions_list",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "06ef3a03-1e3a-45e3-8c9a-0a005867bb3b",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "4"
+            },
+            "limit": 50
+          }
+        }
+      },
+      "started": 1940,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "06ef3a03-1e3a-45e3-8c9a-0a005867bb3b",
+        "ok": true,
+        "data": {
+          "object": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            },
+            "kind": "file",
+            "id": "4"
+          },
+          "currentVersionNumber": 1,
+          "currentContentHash": "sha256:6e8a51ed799e55cc4dad27dc048648bbaf1f622f58fc725567db5bcee5cc963a",
+          "versions": [
+            {
+              "displayName": null,
+              "isImportant": false,
+              "metadataRevision": 0,
+              "id": "4",
+              "versionNumber": 1,
+              "name": "unrelated.md",
+              "createdAt": "2026-11-10T15:14:45.721840+00:00",
+              "contentHash": "sha256:6e8a51ed799e55cc4dad27dc048648bbaf1f622f58fc725567db5bcee5cc963a",
+              "isCurrent": true
+            }
+          ],
+          "nextCursor": null
+        }
+      },
+      "ok": true,
+      "settled": 1941
+    },
+    {
+      "name": "file_working_open",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "8d397fe0-8933-496d-a468-a7dcf040b2ab",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "4"
+            }
+          }
+        }
+      },
+      "started": 1941,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "8d397fe0-8933-496d-a468-a7dcf040b2ab",
+        "ok": true,
+        "data": {
+          "object": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            },
+            "kind": "file",
+            "id": "4"
+          },
+          "revision": 0,
+          "contentHash": "sha256:6e8a51ed799e55cc4dad27dc048648bbaf1f622f58fc725567db5bcee5cc963a",
+          "archivedVersionNumber": 1,
+          "pendingArchive": false,
+          "lastActivityAtMs": null,
+          "archiveDueAtMs": null,
+          "noChange": false,
+          "sessionId": "d711dc004f7c27567ce262ef6c8e4b93",
+          "name": "unrelated.md",
+          "base64": "IyBVbnJlbGF0ZWQgY29udGVudAo=",
+          "format": null,
+          "model": null
+        }
+      },
+      "ok": true,
+      "settled": 1947
+    },
+    {
+      "name": "file_editor_register",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "d7dc3d04-0f40-4e4e-830f-27a03bc3fae7",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "4"
+            },
+            "editorId": "cc70a5866fda467e8069aa2a0e580a72"
+          }
+        }
+      },
+      "started": 1942,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "d7dc3d04-0f40-4e4e-830f-27a03bc3fae7",
+        "ok": true,
+        "data": null
+      },
+      "ok": true,
+      "settled": 1943
+    },
+    {
+      "name": "file_working_activity",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "2c38379f-8fd6-4c27-ba79-6ec7019488f6",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "4"
+            },
+            "sessionId": "d711dc004f7c27567ce262ef6c8e4b93"
+          }
+        }
+      },
+      "started": 2581,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "2c38379f-8fd6-4c27-ba79-6ec7019488f6",
+        "ok": true,
+        "data": {
+          "object": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            },
+            "kind": "file",
+            "id": "4"
+          },
+          "revision": 0,
+          "contentHash": "sha256:6e8a51ed799e55cc4dad27dc048648bbaf1f622f58fc725567db5bcee5cc963a",
+          "archivedVersionNumber": 1,
+          "pendingArchive": false,
+          "lastActivityAtMs": 1794323687198,
+          "archiveDueAtMs": null,
+          "noChange": false
+        }
+      },
+      "ok": true,
+      "settled": 2589
+    },
+    {
+      "name": "file_working_activity",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "046daba0-2d72-4868-a7ae-033199080174",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "4"
+            },
+            "sessionId": "d711dc004f7c27567ce262ef6c8e4b93"
+          }
+        }
+      },
+      "started": 2583,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "046daba0-2d72-4868-a7ae-033199080174",
+        "ok": true,
+        "data": {
+          "object": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            },
+            "kind": "file",
+            "id": "4"
+          },
+          "revision": 0,
+          "contentHash": "sha256:6e8a51ed799e55cc4dad27dc048648bbaf1f622f58fc725567db5bcee5cc963a",
+          "archivedVersionNumber": 1,
+          "pendingArchive": false,
+          "lastActivityAtMs": 1794323687201,
+          "archiveDueAtMs": null,
+          "noChange": false
+        }
+      },
+      "ok": true,
+      "settled": 2590
+    },
+    {
+      "name": "file_working_tick",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "b572f174-4c59-41ea-945a-69f253d81c8d",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "4"
+            }
+          }
+        }
+      },
+      "started": 2608,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "b572f174-4c59-41ea-945a-69f253d81c8d",
+        "ok": true,
+        "data": {
+          "object": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            },
+            "kind": "file",
+            "id": "4"
+          },
+          "revision": 0,
+          "contentHash": "sha256:6e8a51ed799e55cc4dad27dc048648bbaf1f622f58fc725567db5bcee5cc963a",
+          "archivedVersionNumber": 1,
+          "pendingArchive": false,
+          "lastActivityAtMs": 1794323687201,
+          "archiveDueAtMs": null,
+          "noChange": false
+        }
+      },
+      "ok": true,
+      "settled": 2611
+    },
+    {
+      "name": "file_versions_list",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "1f2b7480-fdf4-4c12-9262-688dee028302",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "2"
+            },
+            "limit": 1
+          }
+        }
+      },
+      "started": 2612,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "1f2b7480-fdf4-4c12-9262-688dee028302",
+        "ok": true,
+        "data": {
+          "object": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            },
+            "kind": "file",
+            "id": "2"
+          },
+          "currentVersionNumber": 1,
+          "currentContentHash": "sha256:b2ef8f74cdc0c93379711155f96b656a6f57dd0809e89e92e8307a6f78945f58",
+          "versions": [
+            {
+              "displayName": null,
+              "isImportant": false,
+              "metadataRevision": 0,
+              "id": "2",
+              "versionNumber": 1,
+              "name": "failed-save.md",
+              "createdAt": "2026-11-10T15:14:45.698819+00:00",
+              "contentHash": "sha256:b2ef8f74cdc0c93379711155f96b656a6f57dd0809e89e92e8307a6f78945f58",
+              "isCurrent": true
+            }
+          ],
+          "nextCursor": null
+        }
+      },
+      "ok": true,
+      "settled": 2612
+    },
+    {
+      "name": "file_versions_list",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "29f385d7-0584-4684-a5a4-c232d394ada1",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "2"
+            },
+            "limit": 50
+          }
+        }
+      },
+      "started": 2623,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "29f385d7-0584-4684-a5a4-c232d394ada1",
+        "ok": true,
+        "data": {
+          "object": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            },
+            "kind": "file",
+            "id": "2"
+          },
+          "currentVersionNumber": 1,
+          "currentContentHash": "sha256:b2ef8f74cdc0c93379711155f96b656a6f57dd0809e89e92e8307a6f78945f58",
+          "versions": [
+            {
+              "displayName": null,
+              "isImportant": false,
+              "metadataRevision": 0,
+              "id": "2",
+              "versionNumber": 1,
+              "name": "failed-save.md",
+              "createdAt": "2026-11-10T15:14:45.698819+00:00",
+              "contentHash": "sha256:b2ef8f74cdc0c93379711155f96b656a6f57dd0809e89e92e8307a6f78945f58",
+              "isCurrent": true
+            }
+          ],
+          "nextCursor": null
+        }
+      },
+      "ok": true,
+      "settled": 2624
+    },
+    {
+      "name": "file_working_open",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "ebd987b0-e6f7-4ad1-aace-bdefdbdf242f",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "2"
+            }
+          }
+        }
+      },
+      "started": 2624,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "ebd987b0-e6f7-4ad1-aace-bdefdbdf242f",
+        "ok": true,
+        "data": {
+          "object": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            },
+            "kind": "file",
+            "id": "2"
+          },
+          "revision": 0,
+          "contentHash": "sha256:b2ef8f74cdc0c93379711155f96b656a6f57dd0809e89e92e8307a6f78945f58",
+          "archivedVersionNumber": 1,
+          "pendingArchive": false,
+          "lastActivityAtMs": null,
+          "archiveDueAtMs": null,
+          "noChange": false,
+          "sessionId": "a48ca492421cca58d969cba596ee7168",
+          "name": "failed-save.md",
+          "base64": "IyBTYXZlIGNvbmZsaWN0IHRhcmdldAo=",
+          "format": null,
+          "model": null
+        }
+      },
+      "ok": true,
+      "settled": 2629
+    },
+    {
+      "name": "file_editor_register",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "3a0bb7d9-83ed-488d-9ba1-9195efc9dc5c",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "2"
+            },
+            "editorId": "d1c1ccd87d2a4a25bf57ef6f0347d6a5"
+          }
+        }
+      },
+      "started": 2625,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "3a0bb7d9-83ed-488d-9ba1-9195efc9dc5c",
+        "ok": true,
+        "data": null
+      },
+      "ok": true,
+      "settled": 2625
+    },
+    {
+      "name": "file_working_activity",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "3889dff7-163a-49a5-958d-68dc3ee5203d",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "2"
+            },
+            "sessionId": "a48ca492421cca58d969cba596ee7168"
+          }
+        }
+      },
+      "started": 2645,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "3889dff7-163a-49a5-958d-68dc3ee5203d",
+        "ok": true,
+        "data": {
+          "object": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            },
+            "kind": "file",
+            "id": "2"
+          },
+          "revision": 0,
+          "contentHash": "sha256:b2ef8f74cdc0c93379711155f96b656a6f57dd0809e89e92e8307a6f78945f58",
+          "archivedVersionNumber": 1,
+          "pendingArchive": false,
+          "lastActivityAtMs": 1794323687264,
+          "archiveDueAtMs": null,
+          "noChange": false
+        }
+      },
+      "ok": true,
+      "settled": 2655.0000000000005
+    },
+    {
+      "name": "file_working_open",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "77d8fc43-3b99-47a6-9f96-133a128d77d5",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "2"
+            }
+          }
+        }
+      },
+      "started": 2646,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "77d8fc43-3b99-47a6-9f96-133a128d77d5",
+        "ok": true,
+        "data": {
+          "object": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            },
+            "kind": "file",
+            "id": "2"
+          },
+          "revision": 0,
+          "contentHash": "sha256:b2ef8f74cdc0c93379711155f96b656a6f57dd0809e89e92e8307a6f78945f58",
+          "archivedVersionNumber": 1,
+          "pendingArchive": false,
+          "lastActivityAtMs": null,
+          "archiveDueAtMs": null,
+          "noChange": false,
+          "sessionId": "90438ef8c71470861222787a2a476b59",
+          "name": "failed-save.md",
+          "base64": "IyBTYXZlIGNvbmZsaWN0IHRhcmdldAo=",
+          "format": null,
+          "model": null
+        }
+      },
+      "ok": true,
+      "settled": 2654
+    },
+    {
+      "name": "file_working_save_text",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "2f472d16-29ea-483f-9ae2-b9543e2efbba",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "2"
+            },
+            "sessionId": "90438ef8c71470861222787a2a476b59",
+            "expectedRevision": 0,
+            "expectedContentHash": "sha256:b2ef8f74cdc0c93379711155f96b656a6f57dd0809e89e92e8307a6f78945f58",
+            "text": "# Concurrent native saved content\n"
+          }
+        }
+      },
+      "started": 2654,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "2f472d16-29ea-483f-9ae2-b9543e2efbba",
+        "ok": true,
+        "data": {
+          "object": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            },
+            "kind": "file",
+            "id": "2"
+          },
+          "revision": 1,
+          "contentHash": "sha256:13ea334977cbef218c73407491d7e9aa0b846f526ad56adc08c6a6e194b63231",
+          "archivedVersionNumber": 1,
+          "pendingArchive": true,
+          "lastActivityAtMs": 1794323687271,
+          "archiveDueAtMs": 1794324587271,
+          "noChange": false
+        }
+      },
+      "ok": true,
+      "settled": 2687.0000000000005
+    },
+    {
+      "name": "file_working_close",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "dd9ae53e-9b8f-4c3b-b917-8ab34554fdca",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "2"
+            },
+            "sessionId": "90438ef8c71470861222787a2a476b59"
+          }
+        }
+      },
+      "started": 2687.0000000000005,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "dd9ae53e-9b8f-4c3b-b917-8ab34554fdca",
+        "ok": true,
+        "data": null
+      },
+      "ok": true,
+      "settled": 2690
+    },
+    {
+      "name": "file_working_save_text",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "02d0ead0-bd84-4e13-916f-9a241443d790",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "2"
+            },
+            "sessionId": "a48ca492421cca58d969cba596ee7168",
+            "expectedRevision": 0,
+            "expectedContentHash": "sha256:b2ef8f74cdc0c93379711155f96b656a6f57dd0809e89e92e8307a6f78945f58",
+            "text": "# Original dirty draft retained after CAS failure\n"
+          }
+        }
+      },
+      "started": 2691,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "02d0ead0-bd84-4e13-916f-9a241443d790",
+        "ok": false,
+        "error": {
+          "code": "REVISION_CONFLICT",
+          "message": "Working File revision changed; preserve unsaved edits and reopen",
+          "retryable": false
+        }
+      },
+      "ok": false,
+      "settled": 2696
+    },
+    {
+      "name": "file_versions_list",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "0f2ea066-152b-420b-bc57-2e59c9e77f62",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "1"
+            },
+            "limit": 1
+          }
+        }
+      },
+      "started": 2741,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "0f2ea066-152b-420b-bc57-2e59c9e77f62",
+        "ok": true,
+        "data": {
+          "object": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            },
+            "kind": "file",
+            "id": "1"
+          },
+          "currentVersionNumber": 1,
+          "currentContentHash": "sha256:c35df04d5bd063b6607d7cd70a3901d3224c6835c30535f37ed71361969646d2",
+          "versions": [
+            {
+              "displayName": null,
+              "isImportant": false,
+              "metadataRevision": 0,
+              "id": "1",
+              "versionNumber": 1,
+              "name": "move.md",
+              "createdAt": "2026-11-10T15:14:45.686923+00:00",
+              "contentHash": "sha256:c35df04d5bd063b6607d7cd70a3901d3224c6835c30535f37ed71361969646d2",
+              "isCurrent": true
+            }
+          ],
+          "nextCursor": null
+        }
+      },
+      "ok": true,
+      "settled": 2742
+    },
+    {
+      "name": "file_versions_list",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "136edfed-7091-4912-8737-1b766f79e9be",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "1"
+            },
+            "limit": 50
+          }
+        }
+      },
+      "started": 2748,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "136edfed-7091-4912-8737-1b766f79e9be",
+        "ok": true,
+        "data": {
+          "object": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            },
+            "kind": "file",
+            "id": "1"
+          },
+          "currentVersionNumber": 1,
+          "currentContentHash": "sha256:c35df04d5bd063b6607d7cd70a3901d3224c6835c30535f37ed71361969646d2",
+          "versions": [
+            {
+              "displayName": null,
+              "isImportant": false,
+              "metadataRevision": 0,
+              "id": "1",
+              "versionNumber": 1,
+              "name": "move.md",
+              "createdAt": "2026-11-10T15:14:45.686923+00:00",
+              "contentHash": "sha256:c35df04d5bd063b6607d7cd70a3901d3224c6835c30535f37ed71361969646d2",
+              "isCurrent": true
+            }
+          ],
+          "nextCursor": null
+        }
+      },
+      "ok": true,
+      "settled": 2749
+    },
+    {
+      "name": "file_working_open",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "95b33329-39fb-4585-8c2a-ae8212a25a5e",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "1"
+            }
+          }
+        }
+      },
+      "started": 2749,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "95b33329-39fb-4585-8c2a-ae8212a25a5e",
+        "ok": true,
+        "data": {
+          "object": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            },
+            "kind": "file",
+            "id": "1"
+          },
+          "revision": 0,
+          "contentHash": "sha256:c35df04d5bd063b6607d7cd70a3901d3224c6835c30535f37ed71361969646d2",
+          "archivedVersionNumber": 1,
+          "pendingArchive": false,
+          "lastActivityAtMs": null,
+          "archiveDueAtMs": null,
+          "noChange": false,
+          "sessionId": "7d7acc2209d323eb08aab315224293dd",
+          "name": "move.md",
+          "base64": "IyBNb3ZlIHRhcmdldAo=",
+          "format": null,
+          "model": null
+        }
+      },
+      "ok": true,
+      "settled": 2753
+    },
+    {
+      "name": "file_editor_register",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "bacd4e88-0f2a-4d65-b9ac-9ec73d23366e",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "1"
+            },
+            "editorId": "23618387bd1042a0b209f34053b2ace5"
+          }
+        }
+      },
+      "started": 2750,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "bacd4e88-0f2a-4d65-b9ac-9ec73d23366e",
+        "ok": true,
+        "data": null
+      },
+      "ok": true,
+      "settled": 2750
+    },
+    {
+      "name": "file_working_activity",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "8dfe44de-2528-4760-b6ba-789f023a7ef9",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "1"
+            },
+            "sessionId": "7d7acc2209d323eb08aab315224293dd"
+          }
+        }
+      },
+      "started": 2772.0000000000005,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "8dfe44de-2528-4760-b6ba-789f023a7ef9",
+        "ok": true,
+        "data": {
+          "object": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            },
+            "kind": "file",
+            "id": "1"
+          },
+          "revision": 0,
+          "contentHash": "sha256:c35df04d5bd063b6607d7cd70a3901d3224c6835c30535f37ed71361969646d2",
+          "archivedVersionNumber": 1,
+          "pendingArchive": false,
+          "lastActivityAtMs": 1794323687387,
+          "archiveDueAtMs": null,
+          "noChange": false
+        }
+      },
+      "ok": true,
+      "settled": 2779
+    },
+    {
+      "name": "file_editors_flush",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "f115d4ce-720a-4be6-805a-78f0ec4ad7cc",
+          "data": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            },
+            "kind": "file",
+            "id": "1"
+          }
+        }
+      },
+      "started": 2773,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "f115d4ce-720a-4be6-805a-78f0ec4ad7cc",
+        "ok": true,
+        "data": null
+      },
+      "ok": true,
+      "settled": 2811
+    },
+    {
+      "name": "file_working_save_text",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "9bfef8f4-788d-4bb3-a5f2-804a4597582b",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "1"
+            },
+            "sessionId": "7d7acc2209d323eb08aab315224293dd",
+            "expectedRevision": 0,
+            "expectedContentHash": "sha256:c35df04d5bd063b6607d7cd70a3901d3224c6835c30535f37ed71361969646d2",
+            "text": "# Saved target before rejected move\n"
+          }
+        }
+      },
+      "started": 2775,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "9bfef8f4-788d-4bb3-a5f2-804a4597582b",
+        "ok": true,
+        "data": {
+          "object": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            },
+            "kind": "file",
+            "id": "1"
+          },
+          "revision": 1,
+          "contentHash": "sha256:bbcfaa1540263e771f9eed9e55aca5a4b9a515210c85cd78fdaff878614b235c",
+          "archivedVersionNumber": 1,
+          "pendingArchive": true,
+          "lastActivityAtMs": 1794323687395,
+          "archiveDueAtMs": 1794324587395,
+          "noChange": false
+        }
+      },
+      "ok": true,
+      "settled": 2809
+    },
+    {
+      "name": "file_editor_flush_reply",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "b12770a5-6178-48bc-a049-62d62c1f94a9",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "1"
+            },
+            "editorId": "23618387bd1042a0b209f34053b2ace5",
+            "flushId": "f10c9c631e0002a2d372f768a4f81ee2",
+            "outcome": "saved"
+          }
+        }
+      },
+      "started": 2810,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "b12770a5-6178-48bc-a049-62d62c1f94a9",
+        "ok": true,
+        "data": null
+      },
+      "ok": true,
+      "settled": 2811
+    },
+    {
+      "name": "file_owner_move_baseline",
+      "args": {
+        "binding": {
+          "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+          "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+        },
+        "documentId": 1,
+        "sourceOwner": 1
+      },
+      "started": 2811,
+      "result": {
+        "expectedVersion": 1,
+        "expectedWorkingRevision": 1,
+        "expectedHash": "sha256:bbcfaa1540263e771f9eed9e55aca5a4b9a515210c85cd78fdaff878614b235c"
+      },
+      "ok": true,
+      "settled": 2814
+    },
+    {
+      "name": "file_owner_move",
+      "args": {
+        "binding": {
+          "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+          "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+        },
+        "requestId": "f115d4ce-720a-4be6-805a-78f0ec4ad7cc",
+        "input": {
+          "documentId": 1,
+          "sourceOwner": 1,
+          "targetOwner": 2,
+          "expectedVersion": 2,
+          "expectedWorkingRevision": 1,
+          "expectedHash": "sha256:bbcfaa1540263e771f9eed9e55aca5a4b9a515210c85cd78fdaff878614b235c"
+        }
+      },
+      "started": 2814,
+      "error": "{\"code\":\"REVISION_CONFLICT\",\"message\":\"File changed after save barrier\",\"retryable\":false}",
+      "ok": false,
+      "settled": 2823
+    },
+    {
+      "name": "file_editors_release",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "f115d4ce-720a-4be6-805a-78f0ec4ad7cc",
+          "data": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            },
+            "kind": "file",
+            "id": "1"
+          }
+        }
+      },
+      "started": 2823,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "f115d4ce-720a-4be6-805a-78f0ec4ad7cc",
+        "ok": true,
+        "data": null
+      },
+      "ok": true,
+      "settled": 2825
+    },
+    {
+      "name": "file_working_activity",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "c4e5426c-4bf8-47b1-a11d-22d378c87957",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "1"
+            },
+            "sessionId": "7d7acc2209d323eb08aab315224293dd"
+          }
+        }
+      },
+      "started": 2857,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "c4e5426c-4bf8-47b1-a11d-22d378c87957",
+        "ok": true,
+        "data": {
+          "object": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            },
+            "kind": "file",
+            "id": "1"
+          },
+          "revision": 1,
+          "contentHash": "sha256:bbcfaa1540263e771f9eed9e55aca5a4b9a515210c85cd78fdaff878614b235c",
+          "archivedVersionNumber": 1,
+          "pendingArchive": true,
+          "lastActivityAtMs": 1794323687473,
+          "archiveDueAtMs": 1794324587473,
+          "noChange": false
+        }
+      },
+      "ok": true,
+      "settled": 2864
+    },
+    {
+      "name": "file_working_save_text",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "26e3db85-5def-4661-9ed8-d44cf7453ce7",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "1"
+            },
+            "sessionId": "7d7acc2209d323eb08aab315224293dd",
+            "expectedRevision": 1,
+            "expectedContentHash": "sha256:bbcfaa1540263e771f9eed9e55aca5a4b9a515210c85cd78fdaff878614b235c",
+            "text": "# Saved by the real move flow\n"
+          }
+        }
+      },
+      "started": 2859,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "26e3db85-5def-4661-9ed8-d44cf7453ce7",
+        "ok": true,
+        "data": {
+          "object": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            },
+            "kind": "file",
+            "id": "1"
+          },
+          "revision": 2,
+          "contentHash": "sha256:ced75a1a638588f2436cc62c9e3b1c45ec27a77ca044ad1af82485c6325bfe05",
+          "archivedVersionNumber": 1,
+          "pendingArchive": true,
+          "lastActivityAtMs": 1794323687479,
+          "archiveDueAtMs": 1794324587479,
+          "noChange": false
+        }
+      },
+      "ok": true,
+      "settled": 2891
+    },
+    {
+      "name": "file_editors_flush",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "c54f8773-5591-49c2-983c-b18911d8e919",
+          "data": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            },
+            "kind": "file",
+            "id": "1"
+          }
+        }
+      },
+      "started": 2892,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "c54f8773-5591-49c2-983c-b18911d8e919",
+        "ok": true,
+        "data": null
+      },
+      "ok": true,
+      "settled": 2893.0000000000005
+    },
+    {
+      "name": "file_editor_flush_reply",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "6ce47ab6-be94-4c5f-93f3-84c00c69c629",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "1"
+            },
+            "editorId": "23618387bd1042a0b209f34053b2ace5",
+            "flushId": "4d4f106580457711118283061c25a421",
+            "outcome": "saved"
+          }
+        }
+      },
+      "started": 2893.0000000000005,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "6ce47ab6-be94-4c5f-93f3-84c00c69c629",
+        "ok": true,
+        "data": null
+      },
+      "ok": true,
+      "settled": 2893.0000000000005
+    },
+    {
+      "name": "file_owner_move_baseline",
+      "args": {
+        "binding": {
+          "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+          "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+        },
+        "documentId": 1,
+        "sourceOwner": 1
+      },
+      "started": 2893.0000000000005,
+      "result": {
+        "expectedVersion": 1,
+        "expectedWorkingRevision": 2,
+        "expectedHash": "sha256:ced75a1a638588f2436cc62c9e3b1c45ec27a77ca044ad1af82485c6325bfe05"
+      },
+      "ok": true,
+      "settled": 2896
+    },
+    {
+      "name": "file_owner_move",
+      "args": {
+        "binding": {
+          "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+          "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+        },
+        "requestId": "c54f8773-5591-49c2-983c-b18911d8e919",
+        "input": {
+          "documentId": 1,
+          "sourceOwner": 1,
+          "targetOwner": 2,
+          "expectedVersion": 1,
+          "expectedWorkingRevision": 2,
+          "expectedHash": "sha256:ced75a1a638588f2436cc62c9e3b1c45ec27a77ca044ad1af82485c6325bfe05"
+        }
+      },
+      "started": 2896,
+      "result": {
+        "documentId": 1,
+        "projectId": 2,
+        "managedPath": "/private/tmp/project-mind-g12-file-flows-run2/workspace/File flow destination/move.md",
+        "operationId": "c54f8773-5591-49c2-983c-b18911d8e919",
+        "sourceScope": {
+          "kind": "project",
+          "projectId": 1
+        },
+        "targetScope": {
+          "kind": "project",
+          "projectId": 2
+        },
+        "oldSessionsClosed": true
+      },
+      "ok": true,
+      "settled": 2916
+    },
+    {
+      "name": "file_editors_release",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "c54f8773-5591-49c2-983c-b18911d8e919",
+          "data": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            },
+            "kind": "file",
+            "id": "1"
+          }
+        }
+      },
+      "started": 2916,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "c54f8773-5591-49c2-983c-b18911d8e919",
+        "ok": true,
+        "data": null
+      },
+      "ok": true,
+      "settled": 2923
+    },
+    {
+      "name": "file_editor_unregister",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "0af70e17-b629-421c-81b8-e9dbd90c2a42",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "1"
+            },
+            "editorId": "23618387bd1042a0b209f34053b2ace5"
+          }
+        }
+      },
+      "started": 2920,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "0af70e17-b629-421c-81b8-e9dbd90c2a42",
+        "ok": true,
+        "data": null
+      },
+      "ok": true,
+      "settled": 2923
+    },
+    {
+      "name": "file_versions_list",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "3afbc35f-3315-4323-970b-0e10c980424d",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "3"
+            },
+            "limit": 1
+          }
+        }
+      },
+      "started": 2956,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "3afbc35f-3315-4323-970b-0e10c980424d",
+        "ok": true,
+        "data": {
+          "object": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            },
+            "kind": "file",
+            "id": "3"
+          },
+          "currentVersionNumber": 1,
+          "currentContentHash": "sha256:dd1098c5caf2f886eeac0c045fec57b55096f179c1a3e18bc05ddb80459c51c9",
+          "versions": [
+            {
+              "displayName": null,
+              "isImportant": false,
+              "metadataRevision": 0,
+              "id": "3",
+              "versionNumber": 1,
+              "name": "replace.md",
+              "createdAt": "2026-11-10T15:14:45.709843+00:00",
+              "contentHash": "sha256:dd1098c5caf2f886eeac0c045fec57b55096f179c1a3e18bc05ddb80459c51c9",
+              "isCurrent": true
+            }
+          ],
+          "nextCursor": null
+        }
+      },
+      "ok": true,
+      "settled": 2957
+    },
+    {
+      "name": "file_versions_list",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "3631d45e-c424-4fe4-a382-91e3f0010ece",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "3"
+            },
+            "limit": 50
+          }
+        }
+      },
+      "started": 2968,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "3631d45e-c424-4fe4-a382-91e3f0010ece",
+        "ok": true,
+        "data": {
+          "object": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            },
+            "kind": "file",
+            "id": "3"
+          },
+          "currentVersionNumber": 1,
+          "currentContentHash": "sha256:dd1098c5caf2f886eeac0c045fec57b55096f179c1a3e18bc05ddb80459c51c9",
+          "versions": [
+            {
+              "displayName": null,
+              "isImportant": false,
+              "metadataRevision": 0,
+              "id": "3",
+              "versionNumber": 1,
+              "name": "replace.md",
+              "createdAt": "2026-11-10T15:14:45.709843+00:00",
+              "contentHash": "sha256:dd1098c5caf2f886eeac0c045fec57b55096f179c1a3e18bc05ddb80459c51c9",
+              "isCurrent": true
+            }
+          ],
+          "nextCursor": null
+        }
+      },
+      "ok": true,
+      "settled": 2969
+    },
+    {
+      "name": "file_working_open",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "f5e11920-9aa4-4434-bbfe-2b7fc649afa9",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "3"
+            }
+          }
+        }
+      },
+      "started": 2969,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "f5e11920-9aa4-4434-bbfe-2b7fc649afa9",
+        "ok": true,
+        "data": {
+          "object": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            },
+            "kind": "file",
+            "id": "3"
+          },
+          "revision": 0,
+          "contentHash": "sha256:dd1098c5caf2f886eeac0c045fec57b55096f179c1a3e18bc05ddb80459c51c9",
+          "archivedVersionNumber": 1,
+          "pendingArchive": false,
+          "lastActivityAtMs": null,
+          "archiveDueAtMs": null,
+          "noChange": false,
+          "sessionId": "dd83c0c243888863d39ef3ae0867dac0",
+          "name": "replace.md",
+          "base64": "IyBSZXBsYWNlbWVudCB0YXJnZXQK",
+          "format": null,
+          "model": null
+        }
+      },
+      "ok": true,
+      "settled": 2974
+    },
+    {
+      "name": "file_editor_register",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "d0080859-6e6a-4590-937f-de87d0fcb065",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "3"
+            },
+            "editorId": "f1db956dfe6547eb93d225ea76e0d037"
+          }
+        }
+      },
+      "started": 2970,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "d0080859-6e6a-4590-937f-de87d0fcb065",
+        "ok": true,
+        "data": null
+      },
+      "ok": true,
+      "settled": 2970
+    },
+    {
+      "name": "file_working_activity",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "a4f5cf97-8a69-4001-b0e6-4cb3002e0a37",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "3"
+            },
+            "sessionId": "dd83c0c243888863d39ef3ae0867dac0"
+          }
+        }
+      },
+      "started": 2994,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "a4f5cf97-8a69-4001-b0e6-4cb3002e0a37",
+        "ok": true,
+        "data": {
+          "object": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            },
+            "kind": "file",
+            "id": "3"
+          },
+          "revision": 0,
+          "contentHash": "sha256:dd1098c5caf2f886eeac0c045fec57b55096f179c1a3e18bc05ddb80459c51c9",
+          "archivedVersionNumber": 1,
+          "pendingArchive": false,
+          "lastActivityAtMs": 1794323687609,
+          "archiveDueAtMs": null,
+          "noChange": false
+        }
+      },
+      "ok": true,
+      "settled": 3000
+    },
+    {
+      "name": "file_editors_flush",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "93c2c5d5-f5e8-4ddb-ac3d-9017c6a72751",
+          "data": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "kind": "file",
+            "id": "3",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            }
+          }
+        }
+      },
+      "started": 2995,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "93c2c5d5-f5e8-4ddb-ac3d-9017c6a72751",
+        "ok": true,
+        "data": null
+      },
+      "ok": true,
+      "settled": 3029
+    },
+    {
+      "name": "file_working_save_text",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "f3496748-b55c-4583-8d02-6537485410f4",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "3"
+            },
+            "sessionId": "dd83c0c243888863d39ef3ae0867dac0",
+            "expectedRevision": 0,
+            "expectedContentHash": "sha256:dd1098c5caf2f886eeac0c045fec57b55096f179c1a3e18bc05ddb80459c51c9",
+            "text": "# Saved pending text retained as a version boundary\n"
+          }
+        }
+      },
+      "started": 2996,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "f3496748-b55c-4583-8d02-6537485410f4",
+        "ok": true,
+        "data": {
+          "object": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            },
+            "kind": "file",
+            "id": "3"
+          },
+          "revision": 1,
+          "contentHash": "sha256:adfbe18ac69b61d7635f1a7b4d09d2bdf09ea7be1f678f765e45acaa90130e17",
+          "archivedVersionNumber": 1,
+          "pendingArchive": true,
+          "lastActivityAtMs": 1794323687615,
+          "archiveDueAtMs": 1794324587615,
+          "noChange": false
+        }
+      },
+      "ok": true,
+      "settled": 3028
+    },
+    {
+      "name": "file_editor_flush_reply",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "4abe5597-4c0c-4eef-bdf6-9b987932a0dd",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "3"
+            },
+            "editorId": "f1db956dfe6547eb93d225ea76e0d037",
+            "flushId": "ecf5ad95cd188de5bb0c77158c74b422",
+            "outcome": "saved"
+          }
+        }
+      },
+      "started": 3028,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "4abe5597-4c0c-4eef-bdf6-9b987932a0dd",
+        "ok": true,
+        "data": null
+      },
+      "ok": true,
+      "settled": 3029
+    },
+    {
+      "name": "file_drop_prepare",
+      "args": {
+        "binding": {
+          "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+          "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+        },
+        "requestId": "93c2c5d5-f5e8-4ddb-ac3d-9017c6a72751",
+        "sourcePath": "/private/tmp/project-mind-g12-file-flows-run2/incoming/replacement.md",
+        "target": {
+          "kind": "update",
+          "documentId": 3,
+          "projectId": 1,
+          "managedPath": "/private/tmp/project-mind-g12-file-flows-run2/workspace/File flow source/replace.md",
+          "expectedVersionNumber": 1
+        }
+      },
+      "started": 3029,
+      "result": {
+        "intentId": "583a6a0f1a58a60ac18ce18fab4d20fa"
+      },
+      "ok": true,
+      "settled": 3056
+    },
+    {
+      "name": "file_drop_commit",
+      "args": {
+        "binding": {
+          "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+          "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+        },
+        "requestId": "93c2c5d5-f5e8-4ddb-ac3d-9017c6a72751",
+        "intentId": "583a6a0f1a58a60ac18ce18fab4d20fa"
+      },
+      "started": 3056,
+      "result": {
+        "documentId": 3,
+        "versionNumber": 3,
+        "contentHash": "sha256:c8a4d58ef288052a90b51a431a49df1b2ed2a6d3c17b2aecd7edcfaedfdbbb29",
+        "noChange": false,
+        "cleanupWarning": null,
+        "oldSessionsClosed": true
+      },
+      "ok": true,
+      "settled": 3313
+    },
+    {
+      "name": "file_editors_release",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "93c2c5d5-f5e8-4ddb-ac3d-9017c6a72751",
+          "data": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "kind": "file",
+            "id": "3",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            }
+          }
+        }
+      },
+      "started": 3313,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "93c2c5d5-f5e8-4ddb-ac3d-9017c6a72751",
+        "ok": true,
+        "data": null
+      },
+      "ok": true,
+      "settled": 3315
+    },
+    {
+      "name": "file_versions_list",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "6b532e4a-165a-4d98-a0b6-1cf77d62d23d",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "3"
+            },
+            "limit": 50
+          }
+        }
+      },
+      "started": 3317,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "6b532e4a-165a-4d98-a0b6-1cf77d62d23d",
+        "ok": true,
+        "data": {
+          "object": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            },
+            "kind": "file",
+            "id": "3"
+          },
+          "currentVersionNumber": 3,
+          "currentContentHash": "sha256:c8a4d58ef288052a90b51a431a49df1b2ed2a6d3c17b2aecd7edcfaedfdbbb29",
+          "versions": [
+            {
+              "displayName": null,
+              "isImportant": false,
+              "metadataRevision": 0,
+              "id": "6",
+              "versionNumber": 3,
+              "name": "replace.md",
+              "createdAt": "2026-11-10T15:14:47.696796+00:00",
+              "contentHash": "sha256:c8a4d58ef288052a90b51a431a49df1b2ed2a6d3c17b2aecd7edcfaedfdbbb29",
+              "isCurrent": true
+            },
+            {
+              "displayName": null,
+              "isImportant": false,
+              "metadataRevision": 0,
+              "id": "5",
+              "versionNumber": 2,
+              "name": "replace.md",
+              "createdAt": "2026-11-10T15:14:47.665048+00:00",
+              "contentHash": "sha256:adfbe18ac69b61d7635f1a7b4d09d2bdf09ea7be1f678f765e45acaa90130e17",
+              "isCurrent": false
+            },
+            {
+              "displayName": null,
+              "isImportant": false,
+              "metadataRevision": 0,
+              "id": "3",
+              "versionNumber": 1,
+              "name": "replace.md",
+              "createdAt": "2026-11-10T15:14:45.709843+00:00",
+              "contentHash": "sha256:dd1098c5caf2f886eeac0c045fec57b55096f179c1a3e18bc05ddb80459c51c9",
+              "isCurrent": false
+            }
+          ],
+          "nextCursor": null
+        }
+      },
+      "ok": true,
+      "settled": 3318
+    },
+    {
+      "name": "file_working_open",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "d96375a3-db2e-401c-90c5-5b6349a45cbd",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "3"
+            }
+          }
+        }
+      },
+      "started": 3318,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "d96375a3-db2e-401c-90c5-5b6349a45cbd",
+        "ok": true,
+        "data": {
+          "object": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            },
+            "kind": "file",
+            "id": "3"
+          },
+          "revision": 0,
+          "contentHash": "sha256:c8a4d58ef288052a90b51a431a49df1b2ed2a6d3c17b2aecd7edcfaedfdbbb29",
+          "archivedVersionNumber": 3,
+          "pendingArchive": false,
+          "lastActivityAtMs": null,
+          "archiveDueAtMs": null,
+          "noChange": false,
+          "sessionId": "a7bf6c9104afb5a8cf52f00c2b14f137",
+          "name": "replace.md",
+          "base64": "IyBOYXRpdmUgcmVwbGFjZW1lbnQKR2VuZXJhdGVkIGV4Y2x1c2l2ZWx5IGZvciBHMTQgYWNjZXB0YW5jZS4K",
+          "format": null,
+          "model": null
+        }
+      },
+      "ok": true,
+      "settled": 3322
+    },
+    {
+      "name": "file_versions_list",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "4a057888-72b5-48fe-ac2e-6c0e081b6efc",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "3"
+            }
+          }
+        }
+      },
+      "started": 3370,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "4a057888-72b5-48fe-ac2e-6c0e081b6efc",
+        "ok": true,
+        "data": {
+          "object": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            },
+            "kind": "file",
+            "id": "3"
+          },
+          "currentVersionNumber": 3,
+          "currentContentHash": "sha256:c8a4d58ef288052a90b51a431a49df1b2ed2a6d3c17b2aecd7edcfaedfdbbb29",
+          "versions": [
+            {
+              "displayName": null,
+              "isImportant": false,
+              "metadataRevision": 0,
+              "id": "6",
+              "versionNumber": 3,
+              "name": "replace.md",
+              "createdAt": "2026-11-10T15:14:47.696796+00:00",
+              "contentHash": "sha256:c8a4d58ef288052a90b51a431a49df1b2ed2a6d3c17b2aecd7edcfaedfdbbb29",
+              "isCurrent": true
+            },
+            {
+              "displayName": null,
+              "isImportant": false,
+              "metadataRevision": 0,
+              "id": "5",
+              "versionNumber": 2,
+              "name": "replace.md",
+              "createdAt": "2026-11-10T15:14:47.665048+00:00",
+              "contentHash": "sha256:adfbe18ac69b61d7635f1a7b4d09d2bdf09ea7be1f678f765e45acaa90130e17",
+              "isCurrent": false
+            },
+            {
+              "displayName": null,
+              "isImportant": false,
+              "metadataRevision": 0,
+              "id": "3",
+              "versionNumber": 1,
+              "name": "replace.md",
+              "createdAt": "2026-11-10T15:14:45.709843+00:00",
+              "contentHash": "sha256:dd1098c5caf2f886eeac0c045fec57b55096f179c1a3e18bc05ddb80459c51c9",
+              "isCurrent": false
+            }
+          ],
+          "nextCursor": null
+        }
+      },
+      "ok": true,
+      "settled": 3371
+    },
+    {
+      "name": "file_source_read",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "fd7e5b36-562f-459c-ac6c-76d2ad99afd1",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "3"
+            },
+            "versionNumber": 3,
+            "expectedContentHash": "sha256:c8a4d58ef288052a90b51a431a49df1b2ed2a6d3c17b2aecd7edcfaedfdbbb29",
+            "budgetChars": 4096
+          }
+        }
+      },
+      "started": 3371,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "fd7e5b36-562f-459c-ac6c-76d2ad99afd1",
+        "ok": true,
+        "data": {
+          "object": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            },
+            "kind": "file",
+            "id": "3"
+          },
+          "versionNumber": 3,
+          "contentHash": "sha256:c8a4d58ef288052a90b51a431a49df1b2ed2a6d3c17b2aecd7edcfaedfdbbb29",
+          "title": "replace.md",
+          "format": "markdown",
+          "byteLength": 63,
+          "text": "# Native replacement\nGenerated exclusively for G14 acceptance.\n",
+          "startChar": 0,
+          "endChar": 63,
+          "totalChars": 63,
+          "nextCursor": null,
+          "complete": true
+        }
+      },
+      "ok": true,
+      "settled": 3372
+    },
+    {
+      "name": "file_source_read",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "794236e9-d57a-4616-9498-708aa1b32561",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "3"
+            },
+            "versionNumber": 2,
+            "expectedContentHash": "sha256:adfbe18ac69b61d7635f1a7b4d09d2bdf09ea7be1f678f765e45acaa90130e17",
+            "budgetChars": 4096
+          }
+        }
+      },
+      "started": 3372,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "794236e9-d57a-4616-9498-708aa1b32561",
+        "ok": true,
+        "data": {
+          "object": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            },
+            "kind": "file",
+            "id": "3"
+          },
+          "versionNumber": 2,
+          "contentHash": "sha256:adfbe18ac69b61d7635f1a7b4d09d2bdf09ea7be1f678f765e45acaa90130e17",
+          "title": "replace.md",
+          "format": "markdown",
+          "byteLength": 52,
+          "text": "# Saved pending text retained as a version boundary\n",
+          "startChar": 0,
+          "endChar": 52,
+          "totalChars": 52,
+          "nextCursor": null,
+          "complete": true
+        }
+      },
+      "ok": true,
+      "settled": 3373
+    },
+    {
+      "name": "file_source_read",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "4c0d2e4c-efda-4933-8531-4e312fdde137",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "3"
+            },
+            "versionNumber": 1,
+            "expectedContentHash": "sha256:dd1098c5caf2f886eeac0c045fec57b55096f179c1a3e18bc05ddb80459c51c9",
+            "budgetChars": 4096
+          }
+        }
+      },
+      "started": 3373,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "4c0d2e4c-efda-4933-8531-4e312fdde137",
+        "ok": true,
+        "data": {
+          "object": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            },
+            "kind": "file",
+            "id": "3"
+          },
+          "versionNumber": 1,
+          "contentHash": "sha256:dd1098c5caf2f886eeac0c045fec57b55096f179c1a3e18bc05ddb80459c51c9",
+          "title": "replace.md",
+          "format": "markdown",
+          "byteLength": 21,
+          "text": "# Replacement target\n",
+          "startChar": 0,
+          "endChar": 21,
+          "totalChars": 21,
+          "nextCursor": null,
+          "complete": true
+        }
+      },
+      "ok": true,
+      "settled": 3374
+    },
+    {
+      "name": "file_version_metadata_update",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "5bd948b8-0571-4b04-9fa3-8f7c1f2506a2",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "3"
+            },
+            "versionId": "6",
+            "expectedMetadataRevision": 0,
+            "displayName": "Native acceptance label",
+            "isImportant": true
+          }
+        }
+      },
+      "started": 3430,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "5bd948b8-0571-4b04-9fa3-8f7c1f2506a2",
+        "ok": true,
+        "data": {
+          "object": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            },
+            "kind": "file",
+            "id": "3"
+          },
+          "versionId": "6",
+          "displayName": "Native acceptance label",
+          "isImportant": true,
+          "metadataRevision": 1
+        }
+      },
+      "ok": true,
+      "settled": 3434
+    },
+    {
+      "name": "file_versions_list",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "0f870ae2-65e8-4fa8-aeab-738661f9a771",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "3"
+            },
+            "limit": 50
+          }
+        }
+      },
+      "started": 3435,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "0f870ae2-65e8-4fa8-aeab-738661f9a771",
+        "ok": true,
+        "data": {
+          "object": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            },
+            "kind": "file",
+            "id": "3"
+          },
+          "currentVersionNumber": 3,
+          "currentContentHash": "sha256:c8a4d58ef288052a90b51a431a49df1b2ed2a6d3c17b2aecd7edcfaedfdbbb29",
+          "versions": [
+            {
+              "displayName": "Native acceptance label",
+              "isImportant": true,
+              "metadataRevision": 1,
+              "id": "6",
+              "versionNumber": 3,
+              "name": "replace.md",
+              "createdAt": "2026-11-10T15:14:47.696796+00:00",
+              "contentHash": "sha256:c8a4d58ef288052a90b51a431a49df1b2ed2a6d3c17b2aecd7edcfaedfdbbb29",
+              "isCurrent": true
+            },
+            {
+              "displayName": null,
+              "isImportant": false,
+              "metadataRevision": 0,
+              "id": "5",
+              "versionNumber": 2,
+              "name": "replace.md",
+              "createdAt": "2026-11-10T15:14:47.665048+00:00",
+              "contentHash": "sha256:adfbe18ac69b61d7635f1a7b4d09d2bdf09ea7be1f678f765e45acaa90130e17",
+              "isCurrent": false
+            },
+            {
+              "displayName": null,
+              "isImportant": false,
+              "metadataRevision": 0,
+              "id": "3",
+              "versionNumber": 1,
+              "name": "replace.md",
+              "createdAt": "2026-11-10T15:14:45.709843+00:00",
+              "contentHash": "sha256:dd1098c5caf2f886eeac0c045fec57b55096f179c1a3e18bc05ddb80459c51c9",
+              "isCurrent": false
+            }
+          ],
+          "nextCursor": null
+        }
+      },
+      "ok": true,
+      "settled": 3437.0000000000005
+    },
+    {
+      "name": "file_working_tick",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "d16af8dc-6d69-4f12-97ff-d9909e52f730",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "3"
+            }
+          }
+        }
+      },
+      "started": 3437.0000000000005,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "d16af8dc-6d69-4f12-97ff-d9909e52f730",
+        "ok": true,
+        "data": {
+          "object": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            },
+            "kind": "file",
+            "id": "3"
+          },
+          "revision": 0,
+          "contentHash": "sha256:c8a4d58ef288052a90b51a431a49df1b2ed2a6d3c17b2aecd7edcfaedfdbbb29",
+          "archivedVersionNumber": 3,
+          "pendingArchive": false,
+          "lastActivityAtMs": null,
+          "archiveDueAtMs": null,
+          "noChange": false
+        }
+      },
+      "ok": true,
+      "settled": 3440
+    },
+    {
+      "name": "file_versions_get",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "f29e47b6-8ff2-44a8-b280-39273030045a",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "3"
+            },
+            "versionId": "6"
+          }
+        }
+      },
+      "started": 3455,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "f29e47b6-8ff2-44a8-b280-39273030045a",
+        "ok": true,
+        "data": {
+          "object": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            },
+            "kind": "file",
+            "id": "3"
+          },
+          "currentVersionNumber": 3,
+          "currentContentHash": "sha256:c8a4d58ef288052a90b51a431a49df1b2ed2a6d3c17b2aecd7edcfaedfdbbb29",
+          "version": {
+            "displayName": "Native acceptance label",
+            "isImportant": true,
+            "metadataRevision": 1,
+            "id": "6",
+            "versionNumber": 3,
+            "name": "replace.md",
+            "createdAt": "2026-11-10T15:14:47.696796+00:00",
+            "contentHash": "sha256:c8a4d58ef288052a90b51a431a49df1b2ed2a6d3c17b2aecd7edcfaedfdbbb29",
+            "isCurrent": true
+          }
+        }
+      },
+      "ok": true,
+      "settled": 3456
+    },
+    {
+      "name": "file_working_tick",
+      "args": {
+        "input": {
+          "binding": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+          },
+          "requestId": "41cb7300-89ff-4a04-97c2-84519ccac7b3",
+          "data": {
+            "object": {
+              "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+              "scope": {
+                "kind": "project",
+                "projectId": 1
+              },
+              "kind": "file",
+              "id": "4"
+            }
+          }
+        }
+      },
+      "started": 3502,
+      "result": {
+        "apiVersion": 1,
+        "requestId": "41cb7300-89ff-4a04-97c2-84519ccac7b3",
+        "ok": true,
+        "data": {
+          "object": {
+            "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+            "scope": {
+              "kind": "project",
+              "projectId": 1
+            },
+            "kind": "file",
+            "id": "4"
+          },
+          "revision": 0,
+          "contentHash": "sha256:6e8a51ed799e55cc4dad27dc048648bbaf1f622f58fc725567db5bcee5cc963a",
+          "archivedVersionNumber": 1,
+          "pendingArchive": false,
+          "lastActivityAtMs": 1794323687201,
+          "archiveDueAtMs": null,
+          "noChange": false
+        }
+      },
+      "ok": true,
+      "settled": 3505
+    }
+  ],
+  "events": [
+    {
+      "topic": "file:editor-flush-request",
+      "payload": {
+        "binding": {
+          "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+          "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+        },
+        "object": {
+          "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+          "scope": {
+            "kind": "project",
+            "projectId": 1
+          },
+          "kind": "file",
+          "id": "1"
+        },
+        "editorId": "23618387bd1042a0b209f34053b2ace5",
+        "flushId": "f10c9c631e0002a2d372f768a4f81ee2",
+        "operationId": "f115d4ce-720a-4be6-805a-78f0ec4ad7cc"
+      }
+    },
+    {
+      "topic": "content:owner-move-released",
+      "payload": {
+        "binding": {
+          "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+          "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+        },
+        "operationId": "f115d4ce-720a-4be6-805a-78f0ec4ad7cc",
+        "source": {
+          "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+          "scope": {
+            "kind": "project",
+            "projectId": 1
+          },
+          "kind": "file",
+          "id": "1"
+        }
+      }
+    },
+    {
+      "topic": "file:editor-flush-request",
+      "payload": {
+        "binding": {
+          "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+          "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+        },
+        "object": {
+          "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+          "scope": {
+            "kind": "project",
+            "projectId": 1
+          },
+          "kind": "file",
+          "id": "1"
+        },
+        "editorId": "23618387bd1042a0b209f34053b2ace5",
+        "flushId": "4d4f106580457711118283061c25a421",
+        "operationId": "c54f8773-5591-49c2-983c-b18911d8e919"
+      }
+    },
+    {
+      "topic": "content:owner-moved",
+      "payload": {
+        "binding": {
+          "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+          "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+        },
+        "operationId": "c54f8773-5591-49c2-983c-b18911d8e919",
+        "source": {
+          "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+          "scope": {
+            "kind": "project",
+            "projectId": 1
+          },
+          "kind": "file",
+          "id": "1"
+        },
+        "target": {
+          "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+          "scope": {
+            "kind": "project",
+            "projectId": 2
+          },
+          "kind": "file",
+          "id": "1"
+        },
+        "oldSessionsClosed": true
+      }
+    },
+    {
+      "topic": "file:editor-flush-request",
+      "payload": {
+        "binding": {
+          "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+          "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+        },
+        "object": {
+          "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+          "scope": {
+            "kind": "project",
+            "projectId": 1
+          },
+          "kind": "file",
+          "id": "3"
+        },
+        "editorId": "f1db956dfe6547eb93d225ea76e0d037",
+        "flushId": "ecf5ad95cd188de5bb0c77158c74b422",
+        "operationId": "93c2c5d5-f5e8-4ddb-ac3d-9017c6a72751"
+      }
+    },
+    {
+      "topic": "content:file-replaced",
+      "payload": {
+        "binding": {
+          "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+          "generation": "9dcc9ade0333a5b2fa53fc190fddb8bd"
+        },
+        "operationId": "93c2c5d5-f5e8-4ddb-ac3d-9017c6a72751",
+        "object": {
+          "workspaceId": "8616a474735cfded4da41eb27a7bbf2f",
+          "scope": {
+            "kind": "project",
+            "projectId": 1
+          },
+          "kind": "file",
+          "id": "3"
+        },
+        "versionNumber": 3,
+        "contentHash": "sha256:c8a4d58ef288052a90b51a431a49df1b2ed2a6d3c17b2aecd7edcfaedfdbbb29",
+        "noChange": false,
+        "oldSessionsClosed": true
+      }
+    }
+  ],
+  "snapshots": {
+    "save-failed": {
+      "1": {
+        "document": {
+          "id": 1,
+          "project_id": 1,
+          "name": "move.md",
+          "current_version_number": 1,
+          "managed_path": "workspace:File flow source/move.md"
+        },
+        "working": null,
+        "sessions": [],
+        "versions": [
+          {
+            "id": 1,
+            "version_number": 1,
+            "content_hash": "sha256:c35df04d5bd063b6607d7cd70a3901d3224c6835c30535f37ed71361969646d2",
+            "display_name": null,
+            "is_important": 0,
+            "metadata_revision": 0
+          }
+        ]
+      },
+      "2": {
+        "document": {
+          "id": 2,
+          "project_id": 1,
+          "name": "failed-save.md",
+          "current_version_number": 1,
+          "managed_path": "workspace:File flow source/failed-save.md"
+        },
+        "working": {
+          "state": {
+            "revision": 1,
+            "hash": "sha256:13ea334977cbef218c73407491d7e9aa0b846f526ad56adc08c6a6e194b63231",
+            "identity": {
+              "device": 16777232,
+              "file": 64802417
+            },
+            "activity": 1794323687271,
+            "pending": true
+          },
+          "text": "# Concurrent native saved content\n"
+        },
+        "sessions": [
+          "a48ca492421cca58d969cba596ee7168"
+        ],
+        "versions": [
+          {
+            "id": 2,
+            "version_number": 1,
+            "content_hash": "sha256:b2ef8f74cdc0c93379711155f96b656a6f57dd0809e89e92e8307a6f78945f58",
+            "display_name": null,
+            "is_important": 0,
+            "metadata_revision": 0
+          }
+        ]
+      },
+      "3": {
+        "document": {
+          "id": 3,
+          "project_id": 1,
+          "name": "replace.md",
+          "current_version_number": 1,
+          "managed_path": "workspace:File flow source/replace.md"
+        },
+        "working": null,
+        "sessions": [],
+        "versions": [
+          {
+            "id": 3,
+            "version_number": 1,
+            "content_hash": "sha256:dd1098c5caf2f886eeac0c045fec57b55096f179c1a3e18bc05ddb80459c51c9",
+            "display_name": null,
+            "is_important": 0,
+            "metadata_revision": 0
+          }
+        ]
+      },
+      "4": {
+        "document": {
+          "id": 4,
+          "project_id": 1,
+          "name": "unrelated.md",
+          "current_version_number": 1,
+          "managed_path": "workspace:File flow source/unrelated.md"
+        },
+        "working": {
+          "state": {
+            "revision": 0,
+            "hash": "sha256:6e8a51ed799e55cc4dad27dc048648bbaf1f622f58fc725567db5bcee5cc963a",
+            "identity": {
+              "device": 16777232,
+              "file": 64802374
+            },
+            "activity": 1794323687201,
+            "pending": false
+          },
+          "text": "# Unrelated content\n"
+        },
+        "sessions": [
+          "d711dc004f7c27567ce262ef6c8e4b93"
+        ],
+        "versions": [
+          {
+            "id": 4,
+            "version_number": 1,
+            "content_hash": "sha256:6e8a51ed799e55cc4dad27dc048648bbaf1f622f58fc725567db5bcee5cc963a",
+            "display_name": null,
+            "is_important": 0,
+            "metadata_revision": 0
+          }
+        ]
+      }
+    },
+    "move-rejected": {
+      "1": {
+        "document": {
+          "id": 1,
+          "project_id": 1,
+          "name": "move.md",
+          "current_version_number": 1,
+          "managed_path": "workspace:File flow source/move.md"
+        },
+        "working": {
+          "state": {
+            "revision": 1,
+            "hash": "sha256:bbcfaa1540263e771f9eed9e55aca5a4b9a515210c85cd78fdaff878614b235c",
+            "identity": {
+              "device": 16777232,
+              "file": 64802425
+            },
+            "activity": 1794323687395,
+            "pending": true
+          },
+          "text": "# Saved target before rejected move\n"
+        },
+        "sessions": [
+          "7d7acc2209d323eb08aab315224293dd"
+        ],
+        "versions": [
+          {
+            "id": 1,
+            "version_number": 1,
+            "content_hash": "sha256:c35df04d5bd063b6607d7cd70a3901d3224c6835c30535f37ed71361969646d2",
+            "display_name": null,
+            "is_important": 0,
+            "metadata_revision": 0
+          }
+        ]
+      },
+      "2": {
+        "document": {
+          "id": 2,
+          "project_id": 1,
+          "name": "failed-save.md",
+          "current_version_number": 1,
+          "managed_path": "workspace:File flow source/failed-save.md"
+        },
+        "working": {
+          "state": {
+            "revision": 1,
+            "hash": "sha256:13ea334977cbef218c73407491d7e9aa0b846f526ad56adc08c6a6e194b63231",
+            "identity": {
+              "device": 16777232,
+              "file": 64802417
+            },
+            "activity": 1794323687271,
+            "pending": true
+          },
+          "text": "# Concurrent native saved content\n"
+        },
+        "sessions": [
+          "a48ca492421cca58d969cba596ee7168"
+        ],
+        "versions": [
+          {
+            "id": 2,
+            "version_number": 1,
+            "content_hash": "sha256:b2ef8f74cdc0c93379711155f96b656a6f57dd0809e89e92e8307a6f78945f58",
+            "display_name": null,
+            "is_important": 0,
+            "metadata_revision": 0
+          }
+        ]
+      },
+      "3": {
+        "document": {
+          "id": 3,
+          "project_id": 1,
+          "name": "replace.md",
+          "current_version_number": 1,
+          "managed_path": "workspace:File flow source/replace.md"
+        },
+        "working": null,
+        "sessions": [],
+        "versions": [
+          {
+            "id": 3,
+            "version_number": 1,
+            "content_hash": "sha256:dd1098c5caf2f886eeac0c045fec57b55096f179c1a3e18bc05ddb80459c51c9",
+            "display_name": null,
+            "is_important": 0,
+            "metadata_revision": 0
+          }
+        ]
+      },
+      "4": {
+        "document": {
+          "id": 4,
+          "project_id": 1,
+          "name": "unrelated.md",
+          "current_version_number": 1,
+          "managed_path": "workspace:File flow source/unrelated.md"
+        },
+        "working": {
+          "state": {
+            "revision": 0,
+            "hash": "sha256:6e8a51ed799e55cc4dad27dc048648bbaf1f622f58fc725567db5bcee5cc963a",
+            "identity": {
+              "device": 16777232,
+              "file": 64802374
+            },
+            "activity": 1794323687201,
+            "pending": false
+          },
+          "text": "# Unrelated content\n"
+        },
+        "sessions": [
+          "d711dc004f7c27567ce262ef6c8e4b93"
+        ],
+        "versions": [
+          {
+            "id": 4,
+            "version_number": 1,
+            "content_hash": "sha256:6e8a51ed799e55cc4dad27dc048648bbaf1f622f58fc725567db5bcee5cc963a",
+            "display_name": null,
+            "is_important": 0,
+            "metadata_revision": 0
+          }
+        ]
+      }
+    },
+    "moved": {
+      "1": {
+        "document": {
+          "id": 1,
+          "project_id": 2,
+          "name": "move.md",
+          "current_version_number": 1,
+          "managed_path": "workspace:File flow destination/move.md"
+        },
+        "working": {
+          "state": {
+            "revision": 2,
+            "hash": "sha256:ced75a1a638588f2436cc62c9e3b1c45ec27a77ca044ad1af82485c6325bfe05",
+            "identity": {
+              "device": 16777232,
+              "file": 64802435
+            },
+            "activity": 1794323687479,
+            "pending": true
+          },
+          "text": "# Saved by the real move flow\n"
+        },
+        "sessions": [],
+        "versions": [
+          {
+            "id": 1,
+            "version_number": 1,
+            "content_hash": "sha256:c35df04d5bd063b6607d7cd70a3901d3224c6835c30535f37ed71361969646d2",
+            "display_name": null,
+            "is_important": 0,
+            "metadata_revision": 0
+          }
+        ]
+      },
+      "2": {
+        "document": {
+          "id": 2,
+          "project_id": 1,
+          "name": "failed-save.md",
+          "current_version_number": 1,
+          "managed_path": "workspace:File flow source/failed-save.md"
+        },
+        "working": {
+          "state": {
+            "revision": 1,
+            "hash": "sha256:13ea334977cbef218c73407491d7e9aa0b846f526ad56adc08c6a6e194b63231",
+            "identity": {
+              "device": 16777232,
+              "file": 64802417
+            },
+            "activity": 1794323687271,
+            "pending": true
+          },
+          "text": "# Concurrent native saved content\n"
+        },
+        "sessions": [
+          "a48ca492421cca58d969cba596ee7168"
+        ],
+        "versions": [
+          {
+            "id": 2,
+            "version_number": 1,
+            "content_hash": "sha256:b2ef8f74cdc0c93379711155f96b656a6f57dd0809e89e92e8307a6f78945f58",
+            "display_name": null,
+            "is_important": 0,
+            "metadata_revision": 0
+          }
+        ]
+      },
+      "3": {
+        "document": {
+          "id": 3,
+          "project_id": 1,
+          "name": "replace.md",
+          "current_version_number": 1,
+          "managed_path": "workspace:File flow source/replace.md"
+        },
+        "working": null,
+        "sessions": [],
+        "versions": [
+          {
+            "id": 3,
+            "version_number": 1,
+            "content_hash": "sha256:dd1098c5caf2f886eeac0c045fec57b55096f179c1a3e18bc05ddb80459c51c9",
+            "display_name": null,
+            "is_important": 0,
+            "metadata_revision": 0
+          }
+        ]
+      },
+      "4": {
+        "document": {
+          "id": 4,
+          "project_id": 1,
+          "name": "unrelated.md",
+          "current_version_number": 1,
+          "managed_path": "workspace:File flow source/unrelated.md"
+        },
+        "working": {
+          "state": {
+            "revision": 0,
+            "hash": "sha256:6e8a51ed799e55cc4dad27dc048648bbaf1f622f58fc725567db5bcee5cc963a",
+            "identity": {
+              "device": 16777232,
+              "file": 64802374
+            },
+            "activity": 1794323687201,
+            "pending": false
+          },
+          "text": "# Unrelated content\n"
+        },
+        "sessions": [
+          "d711dc004f7c27567ce262ef6c8e4b93"
+        ],
+        "versions": [
+          {
+            "id": 4,
+            "version_number": 1,
+            "content_hash": "sha256:6e8a51ed799e55cc4dad27dc048648bbaf1f622f58fc725567db5bcee5cc963a",
+            "display_name": null,
+            "is_important": 0,
+            "metadata_revision": 0
+          }
+        ]
+      }
+    },
+    "replaced": {
+      "1": {
+        "document": {
+          "id": 1,
+          "project_id": 2,
+          "name": "move.md",
+          "current_version_number": 1,
+          "managed_path": "workspace:File flow destination/move.md"
+        },
+        "working": {
+          "state": {
+            "revision": 2,
+            "hash": "sha256:ced75a1a638588f2436cc62c9e3b1c45ec27a77ca044ad1af82485c6325bfe05",
+            "identity": {
+              "device": 16777232,
+              "file": 64802435
+            },
+            "activity": 1794323687479,
+            "pending": true
+          },
+          "text": "# Saved by the real move flow\n"
+        },
+        "sessions": [],
+        "versions": [
+          {
+            "id": 1,
+            "version_number": 1,
+            "content_hash": "sha256:c35df04d5bd063b6607d7cd70a3901d3224c6835c30535f37ed71361969646d2",
+            "display_name": null,
+            "is_important": 0,
+            "metadata_revision": 0
+          }
+        ]
+      },
+      "2": {
+        "document": {
+          "id": 2,
+          "project_id": 1,
+          "name": "failed-save.md",
+          "current_version_number": 1,
+          "managed_path": "workspace:File flow source/failed-save.md"
+        },
+        "working": {
+          "state": {
+            "revision": 1,
+            "hash": "sha256:13ea334977cbef218c73407491d7e9aa0b846f526ad56adc08c6a6e194b63231",
+            "identity": {
+              "device": 16777232,
+              "file": 64802417
+            },
+            "activity": 1794323687271,
+            "pending": true
+          },
+          "text": "# Concurrent native saved content\n"
+        },
+        "sessions": [
+          "a48ca492421cca58d969cba596ee7168"
+        ],
+        "versions": [
+          {
+            "id": 2,
+            "version_number": 1,
+            "content_hash": "sha256:b2ef8f74cdc0c93379711155f96b656a6f57dd0809e89e92e8307a6f78945f58",
+            "display_name": null,
+            "is_important": 0,
+            "metadata_revision": 0
+          }
+        ]
+      },
+      "3": {
+        "document": {
+          "id": 3,
+          "project_id": 1,
+          "name": "replace.md",
+          "current_version_number": 3,
+          "managed_path": "workspace:File flow source/replace.md"
+        },
+        "working": {
+          "state": {
+            "revision": 0,
+            "hash": "sha256:c8a4d58ef288052a90b51a431a49df1b2ed2a6d3c17b2aecd7edcfaedfdbbb29",
+            "identity": {
+              "device": 16777232,
+              "file": 64802459
+            },
+            "activity": null,
+            "pending": false
+          },
+          "text": "# Native replacement\nGenerated exclusively for G14 acceptance.\n"
+        },
+        "sessions": [
+          "a7bf6c9104afb5a8cf52f00c2b14f137"
+        ],
+        "versions": [
+          {
+            "id": 3,
+            "version_number": 1,
+            "content_hash": "sha256:dd1098c5caf2f886eeac0c045fec57b55096f179c1a3e18bc05ddb80459c51c9",
+            "display_name": null,
+            "is_important": 0,
+            "metadata_revision": 0
+          },
+          {
+            "id": 5,
+            "version_number": 2,
+            "content_hash": "sha256:adfbe18ac69b61d7635f1a7b4d09d2bdf09ea7be1f678f765e45acaa90130e17",
+            "display_name": null,
+            "is_important": 0,
+            "metadata_revision": 0
+          },
+          {
+            "id": 6,
+            "version_number": 3,
+            "content_hash": "sha256:c8a4d58ef288052a90b51a431a49df1b2ed2a6d3c17b2aecd7edcfaedfdbbb29",
+            "display_name": null,
+            "is_important": 0,
+            "metadata_revision": 0
+          }
+        ]
+      },
+      "4": {
+        "document": {
+          "id": 4,
+          "project_id": 1,
+          "name": "unrelated.md",
+          "current_version_number": 1,
+          "managed_path": "workspace:File flow source/unrelated.md"
+        },
+        "working": {
+          "state": {
+            "revision": 0,
+            "hash": "sha256:6e8a51ed799e55cc4dad27dc048648bbaf1f622f58fc725567db5bcee5cc963a",
+            "identity": {
+              "device": 16777232,
+              "file": 64802374
+            },
+            "activity": 1794323687201,
+            "pending": false
+          },
+          "text": "# Unrelated content\n"
+        },
+        "sessions": [
+          "d711dc004f7c27567ce262ef6c8e4b93"
+        ],
+        "versions": [
+          {
+            "id": 4,
+            "version_number": 1,
+            "content_hash": "sha256:6e8a51ed799e55cc4dad27dc048648bbaf1f622f58fc725567db5bcee5cc963a",
+            "display_name": null,
+            "is_important": 0,
+            "metadata_revision": 0
+          }
+        ]
+      }
+    },
+    "metadata": {
+      "1": {
+        "document": {
+          "id": 1,
+          "project_id": 2,
+          "name": "move.md",
+          "current_version_number": 1,
+          "managed_path": "workspace:File flow destination/move.md"
+        },
+        "working": {
+          "state": {
+            "revision": 2,
+            "hash": "sha256:ced75a1a638588f2436cc62c9e3b1c45ec27a77ca044ad1af82485c6325bfe05",
+            "identity": {
+              "device": 16777232,
+              "file": 64802435
+            },
+            "activity": 1794323687479,
+            "pending": true
+          },
+          "text": "# Saved by the real move flow\n"
+        },
+        "sessions": [],
+        "versions": [
+          {
+            "id": 1,
+            "version_number": 1,
+            "content_hash": "sha256:c35df04d5bd063b6607d7cd70a3901d3224c6835c30535f37ed71361969646d2",
+            "display_name": null,
+            "is_important": 0,
+            "metadata_revision": 0
+          }
+        ]
+      },
+      "2": {
+        "document": {
+          "id": 2,
+          "project_id": 1,
+          "name": "failed-save.md",
+          "current_version_number": 1,
+          "managed_path": "workspace:File flow source/failed-save.md"
+        },
+        "working": {
+          "state": {
+            "revision": 1,
+            "hash": "sha256:13ea334977cbef218c73407491d7e9aa0b846f526ad56adc08c6a6e194b63231",
+            "identity": {
+              "device": 16777232,
+              "file": 64802417
+            },
+            "activity": 1794323687271,
+            "pending": true
+          },
+          "text": "# Concurrent native saved content\n"
+        },
+        "sessions": [
+          "a48ca492421cca58d969cba596ee7168"
+        ],
+        "versions": [
+          {
+            "id": 2,
+            "version_number": 1,
+            "content_hash": "sha256:b2ef8f74cdc0c93379711155f96b656a6f57dd0809e89e92e8307a6f78945f58",
+            "display_name": null,
+            "is_important": 0,
+            "metadata_revision": 0
+          }
+        ]
+      },
+      "3": {
+        "document": {
+          "id": 3,
+          "project_id": 1,
+          "name": "replace.md",
+          "current_version_number": 3,
+          "managed_path": "workspace:File flow source/replace.md"
+        },
+        "working": {
+          "state": {
+            "revision": 0,
+            "hash": "sha256:c8a4d58ef288052a90b51a431a49df1b2ed2a6d3c17b2aecd7edcfaedfdbbb29",
+            "identity": {
+              "device": 16777232,
+              "file": 64802459
+            },
+            "activity": null,
+            "pending": false
+          },
+          "text": "# Native replacement\nGenerated exclusively for G14 acceptance.\n"
+        },
+        "sessions": [
+          "a7bf6c9104afb5a8cf52f00c2b14f137"
+        ],
+        "versions": [
+          {
+            "id": 3,
+            "version_number": 1,
+            "content_hash": "sha256:dd1098c5caf2f886eeac0c045fec57b55096f179c1a3e18bc05ddb80459c51c9",
+            "display_name": null,
+            "is_important": 0,
+            "metadata_revision": 0
+          },
+          {
+            "id": 5,
+            "version_number": 2,
+            "content_hash": "sha256:adfbe18ac69b61d7635f1a7b4d09d2bdf09ea7be1f678f765e45acaa90130e17",
+            "display_name": null,
+            "is_important": 0,
+            "metadata_revision": 0
+          },
+          {
+            "id": 6,
+            "version_number": 3,
+            "content_hash": "sha256:c8a4d58ef288052a90b51a431a49df1b2ed2a6d3c17b2aecd7edcfaedfdbbb29",
+            "display_name": "Native acceptance label",
+            "is_important": 1,
+            "metadata_revision": 1
+          }
+        ]
+      },
+      "4": {
+        "document": {
+          "id": 4,
+          "project_id": 1,
+          "name": "unrelated.md",
+          "current_version_number": 1,
+          "managed_path": "workspace:File flow source/unrelated.md"
+        },
+        "working": {
+          "state": {
+            "revision": 0,
+            "hash": "sha256:6e8a51ed799e55cc4dad27dc048648bbaf1f622f58fc725567db5bcee5cc963a",
+            "identity": {
+              "device": 16777232,
+              "file": 64802374
+            },
+            "activity": 1794323687201,
+            "pending": false
+          },
+          "text": "# Unrelated content\n"
+        },
+        "sessions": [
+          "d711dc004f7c27567ce262ef6c8e4b93"
+        ],
+        "versions": [
+          {
+            "id": 4,
+            "version_number": 1,
+            "content_hash": "sha256:6e8a51ed799e55cc4dad27dc048648bbaf1f622f58fc725567db5bcee5cc963a",
+            "display_name": null,
+            "is_important": 0,
+            "metadata_revision": 0
+          }
+        ]
+      }
+    },
+    "final": {
+      "1": {
+        "document": {
+          "id": 1,
+          "project_id": 2,
+          "name": "move.md",
+          "current_version_number": 1,
+          "managed_path": "workspace:File flow destination/move.md"
+        },
+        "working": {
+          "state": {
+            "revision": 2,
+            "hash": "sha256:ced75a1a638588f2436cc62c9e3b1c45ec27a77ca044ad1af82485c6325bfe05",
+            "identity": {
+              "device": 16777232,
+              "file": 64802435
+            },
+            "activity": 1794323687479,
+            "pending": true
+          },
+          "text": "# Saved by the real move flow\n"
+        },
+        "sessions": [],
+        "versions": [
+          {
+            "id": 1,
+            "version_number": 1,
+            "content_hash": "sha256:c35df04d5bd063b6607d7cd70a3901d3224c6835c30535f37ed71361969646d2",
+            "display_name": null,
+            "is_important": 0,
+            "metadata_revision": 0
+          }
+        ]
+      },
+      "2": {
+        "document": {
+          "id": 2,
+          "project_id": 1,
+          "name": "failed-save.md",
+          "current_version_number": 1,
+          "managed_path": "workspace:File flow source/failed-save.md"
+        },
+        "working": {
+          "state": {
+            "revision": 1,
+            "hash": "sha256:13ea334977cbef218c73407491d7e9aa0b846f526ad56adc08c6a6e194b63231",
+            "identity": {
+              "device": 16777232,
+              "file": 64802417
+            },
+            "activity": 1794323687271,
+            "pending": true
+          },
+          "text": "# Concurrent native saved content\n"
+        },
+        "sessions": [
+          "a48ca492421cca58d969cba596ee7168"
+        ],
+        "versions": [
+          {
+            "id": 2,
+            "version_number": 1,
+            "content_hash": "sha256:b2ef8f74cdc0c93379711155f96b656a6f57dd0809e89e92e8307a6f78945f58",
+            "display_name": null,
+            "is_important": 0,
+            "metadata_revision": 0
+          }
+        ]
+      },
+      "3": {
+        "document": {
+          "id": 3,
+          "project_id": 1,
+          "name": "replace.md",
+          "current_version_number": 3,
+          "managed_path": "workspace:File flow source/replace.md"
+        },
+        "working": {
+          "state": {
+            "revision": 0,
+            "hash": "sha256:c8a4d58ef288052a90b51a431a49df1b2ed2a6d3c17b2aecd7edcfaedfdbbb29",
+            "identity": {
+              "device": 16777232,
+              "file": 64802459
+            },
+            "activity": null,
+            "pending": false
+          },
+          "text": "# Native replacement\nGenerated exclusively for G14 acceptance.\n"
+        },
+        "sessions": [
+          "a7bf6c9104afb5a8cf52f00c2b14f137"
+        ],
+        "versions": [
+          {
+            "id": 3,
+            "version_number": 1,
+            "content_hash": "sha256:dd1098c5caf2f886eeac0c045fec57b55096f179c1a3e18bc05ddb80459c51c9",
+            "display_name": null,
+            "is_important": 0,
+            "metadata_revision": 0
+          },
+          {
+            "id": 5,
+            "version_number": 2,
+            "content_hash": "sha256:adfbe18ac69b61d7635f1a7b4d09d2bdf09ea7be1f678f765e45acaa90130e17",
+            "display_name": null,
+            "is_important": 0,
+            "metadata_revision": 0
+          },
+          {
+            "id": 6,
+            "version_number": 3,
+            "content_hash": "sha256:c8a4d58ef288052a90b51a431a49df1b2ed2a6d3c17b2aecd7edcfaedfdbbb29",
+            "display_name": "Native acceptance label",
+            "is_important": 1,
+            "metadata_revision": 1
+          }
+        ]
+      },
+      "4": {
+        "document": {
+          "id": 4,
+          "project_id": 1,
+          "name": "unrelated.md",
+          "current_version_number": 1,
+          "managed_path": "workspace:File flow source/unrelated.md"
+        },
+        "working": {
+          "state": {
+            "revision": 0,
+            "hash": "sha256:6e8a51ed799e55cc4dad27dc048648bbaf1f622f58fc725567db5bcee5cc963a",
+            "identity": {
+              "device": 16777232,
+              "file": 64802374
+            },
+            "activity": 1794323687201,
+            "pending": false
+          },
+          "text": "# Unrelated content\n"
+        },
+        "sessions": [
+          "d711dc004f7c27567ce262ef6c8e4b93"
+        ],
+        "versions": [
+          {
+            "id": 4,
+            "version_number": 1,
+            "content_hash": "sha256:6e8a51ed799e55cc4dad27dc048648bbaf1f622f58fc725567db5bcee5cc963a",
+            "display_name": null,
+            "is_important": 0,
+            "metadata_revision": 0
+          }
+        ]
+      }
+    }
+  },
+  "runtimeErrors": [],
+  "windowLabel": "main",
+  "visibility": "visible",
+  "scope": "one main Webview; real ProjectContentWorkspace/ProjectFileContent/Markdown + native IPC + read-only SQLite",
+  "notCovered": [
+    "cross-window / multiple target instances",
+    "Record",
+    "Office formats",
+    "OS keyboard / IME",
+    "native drag hit testing",
+    "Windows",
+    "crash / cross-volume recovery"
+  ],
+  "runner": {
+    "binary": "/private/tmp/project-mind-review-combined/output/g12-file-flows/G12 File Flows.app/Contents/MacOS/project_mind_alpha",
+    "binarySha256": "e304c1738612543866ad1d2b755ff57bf847087ce171f125c21ee99d1ccaf0f7",
+    "harnessCommit": "cc99b732d5a18400af8c7722024e134117c5e73e",
+    "workspaceRoot": "/private/tmp/project-mind-g12-file-flows-run2/workspace",
+    "appData": "/private/tmp/project-mind-g12-file-flows-run2/app-data",
+    "assistantData": "/private/tmp/project-mind-g12-file-flows-run2/assistant-data",
+    "assistantProfile": "/private/tmp/project-mind-g12-file-flows-run2/assistant-profile",
+    "output": "/private/tmp/project-mind-g12-file-flows-run2",
+    "platform": "darwin"
+  }
+}

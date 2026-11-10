@@ -1,0 +1,861 @@
+vite v8.0.3 building client environment for production...
+[2Ktransforming...✓ 5880 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/assets/office-8b057eb8633b45ee/renderer.html                                                0.20 kB │ gzip:     0.16 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/save-actions-KHY4DWVF.mjs                    0.24 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/it-IT-BTJNIGEA.mjs                           0.26 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/pt-BR-BZZYGFVX.mjs                           0.26 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/es-ES-4VJQICWE.mjs                           0.26 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/id-ID-7APNSAVJ.mjs                           0.27 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/fr-FR-D5KPDCHN.mjs                           0.27 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/de-DE-XWUYKZ3H.mjs                           0.27 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/pl-PL-X4TQUT3U.mjs                           0.28 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/chunk-54FHCFJX.mjs                           0.29 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/vi-VN-O2AOGW54.mjs                           0.29 kB
+dist/assets/office-8b057eb8633b45ee/assets/GenOfficePUABlank-MVJKPYDM.woff2                      0.31 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/zh-CN-LA4IR6XB.mjs                           0.31 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/zh-TW-MVVEC3O3.mjs                           0.31 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ko-KR-K3CMCG2S.mjs                           0.33 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ja-JP-7ENVL5EK.mjs                           0.38 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ar-SA-U7DCZNZW.mjs                           0.49 kB
+dist/assets/office-20b72ba6de1fad62/renderer.html                                                0.50 kB │ gzip:     0.33 kB
+dist/assets/office-8b057eb8633b45ee/print-fonts.json                                             0.53 kB │ gzip:     0.19 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/assets/file-general-RBNZJX3D.png                    0.53 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/assets/file-document-UPUOFD4R.png                   0.61 kB
+dist/assets/office-1593dce9eb5be3d8/renderer.html                                                0.65 kB │ gzip:     0.39 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ru-RU-HG2FU7FE.mjs                           0.66 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/assets/file-excel-MJDWAPFS.png                      0.70 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/assets/file-video-MHOSPHHD.png                      0.71 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/assets/file-ppt-PIZSWP5G.png                        0.71 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/assets/file-voice-D3VENU62.png                      0.72 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/pa-C54UG8eN-BTHRJDGS.mjs                     0.73 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/assets/file-image-LJDOUUIY.png                      0.75 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/assets/file-pdf-SHX6OCEA.png                        0.77 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/or-50rxpoq4-MNTEQ2XO.mjs                     0.79 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/assets/file-word-KNIHNUC3.png                       0.79 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/gu-Bjl0l-cf-AR22WNTM.mjs                     0.80 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/hi-DsAaTPCC-UMF7NRKN.mjs                     0.84 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/mr-CjWJPVmH-BCVVQR2O.mjs                     0.84 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/chunk-C72KTEHH.mjs                           0.86 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/as-BPtSu6VN-2I6VFILS.mjs                     0.86 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/bn-NCLZcWHi-NJJUH3EX.mjs                     0.86 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/te-B5Spl2Jk-ZQSTQ6N7.mjs                     0.86 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/kn-C6Lov-DP-UMDIO2MQ.mjs                     0.88 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/pi-B9cgjyG1-VZQI2TL5.mjs                     0.93 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ta-BcghgTbD-ZDBQOSOT.mjs                     0.95 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ml-2xLVYkVY-CZZZXXIJ.mjs                     1.09 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/id-ID-5L7UNVWM.mjs                           1.10 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/it-IT-GXJ7ZVTG.mjs                           1.16 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/es-ES-YEKYXVS2.mjs                           1.18 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/de-DE-MEETXAKS.mjs                           1.19 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/pl-PL-Q6FDEFKZ.mjs                           1.21 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/pt-BR-J23OQLQG.mjs                           1.22 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/fr-FR-HNGO2S2W.mjs                           1.24 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/id-ID-JXILANPU.mjs                           1.28 kB
+dist/voice.html                                                                                  1.30 kB │ gzip:     0.47 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/zh-latn-pinyin-BdYb-Ey_-UQZQXWYT.mjs         1.31 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/de-DE-ZPCLQ3IF.mjs                           1.36 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/assets/attach-icon-MBVLQIAN.png                     1.41 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/it-IT-CMDFWWPD.mjs                           1.44 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/zh-TW-PVV4F6Q5.mjs                           1.46 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/zh-CN-GTWEP6GA.mjs                           1.46 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/es-ES-KEHRUHGP.mjs                           1.52 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/eu-Ctv_kq9Z-ZKF4FJ3U.mjs                     1.54 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/pt-BR-E6KQKXSH.mjs                           1.58 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/fr-FR-ERKS7W5O.mjs                           1.63 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ko-KR-HKYDKRXK.mjs                           1.63 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/pl-PL-N4YSN36J.mjs                           1.64 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/zh-CN-RFUYBE6U.mjs                           1.76 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/vi-VN-7W7LDCES.mjs                           1.78 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/zh-TW-N4XOX73J.mjs                           1.85 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ja-JP-KVRDVM4K.mjs                           1.99 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/vi-VN-PTMWIGEU.mjs                           2.01 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ko-KR-YNYMDNMM.mjs                           2.09 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ja-JP-RVM35RXG.mjs                           2.25 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/it-IT-WZ6IL7JC.mjs                           2.32 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/id-ID-GTNX7XMM.mjs                           2.35 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/de-DE-TDJEKW4X.mjs                           2.35 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/es-ES-4EPSI5XN.mjs                           2.37 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/pt-BR-E2ONHOJY.mjs                           2.41 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/fr-FR-EG5WSO3I.mjs                           2.52 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/id-DifDyWg9-TMYFL6MH.mjs                     2.54 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/oc-P_i3-xLA-YQA5EEIS.mjs                     2.60 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/pt-Cum2_NUC-J3Q4TNLA.mjs                     2.65 kB
+dist/index.html                                                                                  2.65 kB │ gzip:     0.69 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ar-SA-4RJUZOX4.mjs                           2.66 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/pl-PL-KOU6VYEX.mjs                           2.68 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/zh-TW-OYUMQFJP.mjs                           2.79 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/zh-CN-MQGPCMAE.mjs                           2.80 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/kmr-Cfwhwuff-L6RMIQBI.mjs                    2.84 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/assets/send-stop-FFCF5AKW.png                       2.87 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/id-ID-JPAIK27Y.mjs                           3.00 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/vi-VN-W5S5FUXR.mjs                           3.06 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/la-DuvHjUWw-MYFIHYHJ.mjs                     3.22 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/it-IT-WFS7ZMSF.mjs                           3.28 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/fi-RW5VB8Yp-7WZTE7QP.mjs                     3.31 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/es-ES-ZS35SVSN.mjs                           3.33 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/de-DE-EOYLHZTL.mjs                           3.34 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ko-KR-76TYFTOG.mjs                           3.38 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/pms-BRGfm5gS-A7C56YNU.mjs                    3.40 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/pt-BR-ZMNRJYNT.mjs                           3.40 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/id-ID-JUYUHPZQ.mjs                           3.46 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/fr-FR-L4HV4BNS.mjs                           3.51 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/it-IT-I4Y55PFI.mjs                           3.54 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ar-SA-KCBNJ6QS.mjs                           3.58 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/es-ES-CIZQSIQX.mjs                           3.59 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/pt-BR-DMZZWQFW.mjs                           3.60 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/pl-PL-KAM5RQ3K.mjs                           3.62 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/it-Bt_Meacx-HMXWZHOU.mjs                     3.65 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/de-DE-LOXFUQGS.mjs                           3.66 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/rm-C0MIK9N4-EQZPRKX6.mjs                     3.69 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/assets/send-enter-on-UPAREMXP.png                   3.74 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ja-JP-73GQ6QLQ.mjs                           3.75 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/fr-FR-SLI5BNY3.mjs                           3.83 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/fur-AC12wySk-FROQAZSQ.mjs                    3.93 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/pl-PL-MZHWF22H.mjs                           3.99 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/id-ID-NUS2ZXAX.mjs                           4.07 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/zh-CN-62VIAJOV.mjs                           4.10 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/zh-TW-FXVPB5LW.mjs                           4.10 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/it-IT-XAYQE5DP.mjs                           4.11 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/de-DE-2ST3ZK6V.mjs                           4.13 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/es-ES-UWXNM7XK.mjs                           4.13 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ru-RU-QUAW5UPI.mjs                           4.15 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/assets/send-enter-off-4TV6GWGO.png                  4.24 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/pt-BR-IR263QPV.mjs                           4.27 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/zh-TW-5OKHMVPT.mjs                           4.31 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/zh-CN-BPZCX6SZ.mjs                           4.33 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/vi-VN-E6AWZ7RN.mjs                           4.33 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ru-RU-PVGPO6V2.mjs                           4.36 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/tr-CIHIuzqc-3TL6Q2BU.mjs                     4.38 kB
+dist/assets/KaTeX_Size3-Regular-CTq5MqoE.woff                                                    4.42 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/fr-FR-C2V3XLDD.mjs                           4.51 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/vi-VN-OT5VLCLQ.mjs                           4.55 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/pl-PL-JG722ONJ.mjs                           4.71 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ko-KR-6X4GK7CU.mjs                           4.79 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/zh-TW-V2JA7G7O.mjs                           4.87 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/zh-CN-M3E5VJQF.mjs                           4.89 kB
+dist/assets/KaTeX_Size4-Regular-Dl5lxZxV.woff2                                                   4.92 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/id-6DKR3YEI.mjs                              4.93 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ms-CUNIF43D.mjs                              4.95 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ko-KR-XOI7KJHG.mjs                           4.98 kB
+dist/assets/work-sans-vietnamese-400-normal-BxGuknnG.woff2                                       5.02 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ja-JP-UQWRT2O6.mjs                           5.02 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/mul-ethi-D_CMSMEq-6KY4IJP3.mjs               5.07 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/nl-3UXNO5R6.mjs                              5.19 kB
+dist/assets/KaTeX_Size2-Regular-Dy4dx90m.woff2                                                   5.20 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ko-KR-2PPM5V5U.mjs                           5.25 kB
+dist/assets/work-sans-vietnamese-600-normal-DizFELYt.woff2                                       5.36 kB
+dist/assets/work-sans-vietnamese-500-normal-Czn2Xkog.woff2                                       5.37 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/pt-P6KZL7C2.mjs                              5.37 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/es-RXITX7SB.mjs                              5.38 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/de-3TOBE5YE.mjs                              5.39 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/it-HZP5NG5Z.mjs                              5.39 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ja-JP-XTUWO23I.mjs                           5.40 kB
+dist/assets/KaTeX_Size1-Regular-mCD8mA8B.woff2                                                   5.46 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/pl-7764CBX5.mjs                              5.63 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/vi-VN-G6IWFMNX.mjs                           5.64 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ar-SA-HD2TIBIU.mjs                           5.68 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/fr-BOXAKIQK.mjs                              5.71 kB
+dist/assets/KaTeX_Size4-Regular-BF-4gkZK.woff                                                    5.98 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ja-JP-ELKFRZ6J.mjs                           6.04 kB
+dist/assets/KaTeX_Size2-Regular-oD1tc_U0.woff                                                    6.18 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/cs-MCZIVR7T.mjs                              6.29 kB
+dist/assets/KaTeX_Size1-Regular-C195tn64.woff                                                    6.49 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ia-Cr4TJH0c-IM6WNMOO.mjs                     6.51 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/zh-TW-FPB5TQGZ.mjs                           6.69 kB
+dist/assets/KaTeX_Caligraphic-Regular-Di6jR-x-.woff2                                             6.90 kB
+dist/assets/KaTeX_Caligraphic-Bold-Dq_IR9rO.woff2                                                6.91 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/el-monoton-D3aKqTz2-JWYMOD72.mjs             7.04 kB
+dist/assets/work-sans-vietnamese-400-normal-DFZk_KN_.woff                                        7.08 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ru-RU-V53SPU2A.mjs                           7.11 kB
+dist/assets/noto-sans-sc-88-wght-normal-ClNDOCGW.woff2                                           7.33 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/mn-cyrl-x-lmc-3aetruI8-M7644KPS.mjs          7.33 kB
+dist/assets/work-sans-vietnamese-600-normal-ue5fzGW6.woff                                        7.53 kB
+dist/assets/work-sans-vietnamese-500-normal-90nhZfxs.woff                                        7.55 kB
+dist/assets/KaTeX_Size3-Regular-DgpXs0kz.ttf                                                     7.58 kB
+dist/assets/KaTeX_Caligraphic-Regular-CTRA-rTL.woff                                              7.65 kB
+dist/assets/KaTeX_Caligraphic-Bold-BEiXGLvX.woff                                                 7.71 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ro-0fmdH0HA-VHCGDCGP.mjs                     7.74 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/vi-7MIL6E6Q.mjs                              7.83 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ko-QCQ7S546.mjs                              7.90 kB
+dist/assets/noto-sans-sc-87-wght-normal-DYfJ-vGE.woff2                                           8.01 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ar-SA-OZFGAFSN.mjs                           8.13 kB
+dist/assets/noto-sans-sc-latin-ext-wght-normal-CqPqLCfe.woff2                                    8.24 kB
+dist/assets/office-8b057eb8633b45ee/assets/GenOfficeCheLatinKR-DS5X5SKC.woff2                    8.29 kB
+dist/assets/noto-sans-sc-91-wght-normal-CGekvDdH.woff2                                           8.70 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ca-SUf6Y2Om-HC2WQJBG.mjs                     8.77 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/cop-C3sk0IUo-FV33IGJY.mjs                    8.95 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/la-x-classic-yTyAOQEt-P7R2H4OF.mjs           8.95 kB
+dist/assets/noto-sans-sc-vietnamese-wght-normal-y5SU35Rl.woff2                                   9.09 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ar-SA-KTZ4EYR6.mjs                           9.23 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ja-SAL7OZJ7.mjs                              9.25 kB
+dist/assets/office-8b057eb8633b45ee/print-fonts/GenOfficeCheLatinKR.woff2                        9.28 kB
+dist/assets/noto-sans-sc-90-wght-normal-BWcrRNoG.woff2                                           9.34 kB
+dist/assets/KaTeX_Script-Regular-D3wIWfF6.woff2                                                  9.64 kB
+dist/assets/noto-sans-sc-99-wght-normal-Q_IptJM5.woff2                                           9.70 kB
+dist/assets/noto-sans-sc-cyrillic-wght-normal-CRA5_Pf1.woff2                                    10.00 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ar-SA-XQMXTINC.mjs                          10.33 kB
+dist/assets/KaTeX_SansSerif-Regular-DDBCnlJ7.woff2                                              10.34 kB
+dist/assets/KaTeX_Size4-Regular-DWFBv043.ttf                                                    10.36 kB
+dist/assets/KaTeX_Script-Regular-D5yQViql.woff                                                  10.58 kB
+dist/assets/noto-sans-sc-89-wght-normal-IQU_KQA8.woff2                                          10.98 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ru-RU-3E3B44DQ.mjs                          11.03 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ru-RU-3F45KAKP.mjs                          11.31 kB
+dist/assets/KaTeX_Fraktur-Regular-CTYiF6lA.woff2                                                11.31 kB
+dist/assets/KaTeX_Fraktur-Bold-CL6g_b3V.woff2                                                   11.34 kB
+dist/assets/noto-sans-sc-21-wght-normal-DIu_1ZBI.woff2                                          11.35 kB
+dist/assets/noto-sans-sc-6-wght-normal-ozUCEY9O.woff2                                           11.46 kB
+dist/assets/KaTeX_Size2-Regular-B7gKUWhC.ttf                                                    11.50 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/sa-CKY9c_Vq-PT53HDNA.mjs                    11.99 kB
+dist/assets/KaTeX_SansSerif-Italic-C3H0VqGB.woff2                                               12.02 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/hr-DT1SBBes-TF62T76B.mjs                    12.12 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/id-ID-US36ZLRX.mjs                          12.14 kB
+dist/assets/KaTeX_SansSerif-Bold-D1sUS0GD.woff2                                                 12.21 kB
+dist/assets/KaTeX_Size1-Regular-Dbsnue_I.ttf                                                    12.22 kB
+dist/assets/KaTeX_SansSerif-Regular-CS6fqUqJ.woff                                               12.31 kB
+dist/assets/KaTeX_Caligraphic-Regular-wX97UBjC.ttf                                              12.34 kB
+dist/assets/KaTeX_Caligraphic-Bold-ATXxdsX0.ttf                                                 12.36 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ru-RU-SXXJIDNV.mjs                          12.47 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/he-O4B4FMMN.mjs                             12.67 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/it-IT-SNRC64IE.mjs                          12.67 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/es-ES-J6YZF6SH.mjs                          12.85 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/da-CCDXfXtG-QVBTQKY2.mjs                    12.89 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/sl-DpiklF-D-RRBGDKW6.mjs                    13.09 kB
+dist/assets/KaTeX_Fraktur-Regular-Dxdc4cR9.woff                                                 13.20 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/pt-BR-S64OXXTC.mjs                          13.23 kB
+dist/assets/KaTeX_Fraktur-Bold-BsDP51OF.woff                                                    13.29 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/de-DE-AUOUBYRQ.mjs                          13.56 kB
+dist/assets/KaTeX_Typewriter-Regular-CO6r4hn1.woff2                                             13.56 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/fr-FR-Q7TBOJQB.mjs                          14.05 kB
+dist/assets/KaTeX_SansSerif-Italic-DN2j7dab.woff                                                14.11 kB
+dist/assets/office-8b057eb8633b45ee/assets/GenOfficePoppins-Bold-subset-6AJ65GON.woff2          14.12 kB
+dist/assets/office-8b057eb8633b45ee/assets/GenOfficePoppins-Regular-subset-CULJREXW.woff2       14.16 kB
+dist/assets/KaTeX_SansSerif-Bold-DbIhKOiC.woff                                                  14.40 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/hsb-DC_ITc1e-BRTFI3QZ.mjs                   14.52 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/hi-RQWDUFGZ.mjs                             14.72 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ar-AI55ZZ25.mjs                             15.19 kB
+dist/assets/work-sans-latin-ext-400-normal-zfQnhXzv.woff2                                       15.29 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/th-HL4SGGPC.mjs                             15.55 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/pl-PL-FBUYJP2I.mjs                          15.60 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/lt-BBe8DlDF-AOI2ANDO.mjs                    15.91 kB
+dist/assets/work-sans-latin-ext-500-normal-CAKEIVkc.woff2                                       16.00 kB
+dist/assets/KaTeX_Typewriter-Regular-C0xS9mPB.woff                                              16.02 kB
+dist/assets/work-sans-latin-ext-600-normal-DNiHHggD.woff2                                       16.18 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/zh-TW-LRALQ6IP.mjs                          16.34 kB
+dist/assets/KaTeX_Math-BoldItalic-CZnvNsCZ.woff2                                                16.40 kB
+dist/assets/KaTeX_Math-Italic-t53AETM-.woff2                                                    16.44 kB
+dist/assets/KaTeX_Script-Regular-C5JkGWo-.ttf                                                   16.64 kB
+dist/assets/KaTeX_Main-BoldItalic-DxDJ3AOS.woff2                                                16.78 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/zh-CN-7FFB2JIL.mjs                          16.83 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ru-5BP6DW2S.mjs                             16.83 kB
+dist/assets/KaTeX_Main-Italic-NWA7e6Wa.woff2                                                    16.98 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/mn-cyrl-lHM4n0oC-GHL5DJSY.mjs               18.29 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/vi-VN-H2COPK5G.mjs                          18.41 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/hy-e995ysyO-POQU3YWQ.mjs                    18.51 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/tk-BMbKB10q-2KNMKSEP.mjs                    18.66 kB
+dist/assets/KaTeX_Math-BoldItalic-iY-2wyZ7.woff                                                 18.66 kB
+dist/assets/KaTeX_Math-Italic-DA0__PXp.woff                                                     18.74 kB
+dist/assets/KaTeX_Main-BoldItalic-SpSLRI95.woff                                                 19.41 kB
+dist/assets/KaTeX_SansSerif-Regular-BNo7hRIc.ttf                                                19.43 kB
+dist/assets/KaTeX_Fraktur-Regular-CB_wures.ttf                                                  19.57 kB
+dist/assets/KaTeX_Fraktur-Bold-BdnERNNW.ttf                                                     19.58 kB
+dist/assets/KaTeX_Main-Italic-BMLOBm91.woff                                                     19.67 kB
+dist/assets/work-sans-latin-400-normal-jUejSri3.woff2                                           19.90 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ko-KR-CNUGKNPR.mjs                          20.01 kB
+dist/assets/noto-sans-sc-5-wght-normal-DI846rD9.woff2                                           20.17 kB
+dist/assets/work-sans-latin-500-normal-BKGnScDy.woff2                                           20.84 kB
+dist/assets/work-sans-latin-600-normal-DB-2V89X.woff2                                           20.98 kB
+dist/assets/work-sans-latin-ext-400-normal-j7TZlk-s.woff                                        21.11 kB
+dist/assets/running-whale@2x-BPLgiMmr.png                                                       21.63 kB
+dist/assets/work-sans-latin-ext-500-normal-CW9ss9Cz.woff                                        21.84 kB
+dist/assets/work-sans-latin-ext-600-normal-B1NFRnx8.woff                                        21.99 kB
+dist/assets/KaTeX_SansSerif-Italic-YYjJ1zSn.ttf                                                 22.36 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/la-x-liturgic-CXeQb4FY-GNO46WRM.mjs         23.43 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ja-JP-623IEPTH.mjs                          24.30 kB
+dist/assets/KaTeX_SansSerif-Bold-CFMepnvq.ttf                                                   24.50 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/fr-BC2onEz9-VIJ5GINO.mjs                    24.59 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/el-polyton-ogVWcTzh-3ZKEQO34.mjs            25.19 kB
+dist/assets/noto-sans-sc-latin-wght-normal-DYAKOyvl.woff2                                       25.24 kB
+dist/assets/work-sans-latin-400-normal-DE1_0GuN.woff                                            25.24 kB
+dist/assets/office-8b057eb8633b45ee/assets/GenOfficeUIKanaJP-Regular-VJTKC6ZS.woff2             25.28 kB
+dist/assets/KaTeX_Main-Bold-Cx986IdX.woff2                                                      25.32 kB
+dist/assets/work-sans-latin-500-normal-BmdXWF6_.woff                                            26.17 kB
+dist/assets/office-8b057eb8633b45ee/assets/GenOfficeUIKanaJP-Bold-35THHJD5.woff2                26.20 kB
+dist/assets/KaTeX_Main-Regular-B22Nviop.woff2                                                   26.27 kB
+dist/assets/work-sans-latin-600-normal-Cg-NlmS7.woff                                            26.31 kB
+dist/assets/noto-sans-sc-85-wght-normal-DBcDBu1n.woff2                                          26.90 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ms-AOKMFUKA.mjs                             27.20 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/id-ZTR5J7H3.mjs                             27.36 kB
+dist/assets/KaTeX_Typewriter-Regular-D3Ib7_Hf.ttf                                               27.55 kB
+dist/assets/KaTeX_AMS-Regular-BQhdFMY1.woff2                                                    28.07 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/nl-UYHYIJ24.mjs                             28.09 kB
+dist/assets/office-8b057eb8633b45ee/assets/GenOfficeDMSans-Bold-subset-TK23CR4M.woff2           28.42 kB
+dist/assets/office-8b057eb8633b45ee/assets/GenOfficeDMSans-Regular-subset-2VSQZUX5.woff2        28.63 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/it-K54OT63J.mjs                             28.67 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/es-F5TKYH6L.mjs                             29.33 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/de-HJOMEBD5.mjs                             29.38 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/pt-ZQJNI4FU.mjs                             29.48 kB
+dist/assets/KaTeX_Main-Bold-Jm3AIy58.woff                                                       29.91 kB
+dist/assets/KaTeX_Main-Regular-Dr94JaBh.woff                                                    30.77 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/fr-32RPLTRB.mjs                             31.03 kB
+dist/assets/KaTeX_Math-BoldItalic-B3XSjfu4.ttf                                                  31.19 kB
+dist/assets/KaTeX_Math-Italic-flOr_0UB.ttf                                                      31.30 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/pl-WUUEJHQR.mjs                             31.48 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/sh-latn-sRy4Tuaj-KRMWW3AY.mjs               31.83 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/cs-LMAHIYZE.mjs                             32.57 kB
+dist/assets/noto-sans-sc-84-wght-normal-C7NxT478.woff2                                          32.61 kB
+dist/assets/noto-sans-sc-80-wght-normal-BEFypWOO.woff2                                          32.63 kB
+dist/assets/KaTeX_Main-BoldItalic-DzxPMmG6.ttf                                                  32.96 kB
+dist/assets/office-8b057eb8633b45ee/assets/GenOfficeTamil-Regular-5SNYJESB.woff2                33.07 kB
+dist/assets/KaTeX_AMS-Regular-DMm9YOAa.woff                                                     33.51 kB
+dist/assets/noto-sans-sc-86-wght-normal-CLJIoPpl.woff2                                          33.57 kB
+dist/assets/KaTeX_Main-Italic-3WenGoN9.ttf                                                      33.58 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ar-SA-37X63AQV.mjs                          33.76 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/sk-_iOeDNrQ-Z473CO3N.mjs                    33.79 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ka-jyoLzyDE-JACEFRTD.mjs                    34.80 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/gl-DZGc-K_G-ADRCA5BW.mjs                    35.06 kB
+dist/assets/noto-sans-sc-41-wght-normal-CZqajZnl.woff2                                          36.41 kB
+dist/assets/noto-sans-sc-77-wght-normal-Dkbi3pye.woff2                                          36.78 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/be-CrQ0smca-XR5S5TTI.mjs                    37.88 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/zh-TW-FAAC7JWD.mjs                          37.92 kB
+dist/assets/noto-sans-sc-73-wght-normal-DwSJRYPJ.woff2                                          39.31 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/vi-QT7QFGVZ.mjs                             39.74 kB
+dist/assets/noto-sans-sc-79-wght-normal-DoJG4UTB.woff2                                          41.23 kB
+dist/assets/noto-sans-sc-60-wght-normal-C1lngC61.woff2                                          41.43 kB
+dist/assets/noto-sans-sc-64-wght-normal-CbIuD2Eg.woff2                                          41.54 kB
+dist/assets/noto-sans-sc-68-wght-normal-c0FjfUaj.woff2                                          41.56 kB
+dist/assets/noto-sans-sc-65-wght-normal-BGqvKda2.woff2                                          41.60 kB
+dist/assets/noto-sans-sc-51-wght-normal-C2bq6hC8.woff2                                          41.61 kB
+dist/assets/noto-sans-sc-36-wght-normal-CtU9CyKw.woff2                                          41.83 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ru-RU-HHYWQG67.mjs                          42.12 kB
+dist/assets/noto-sans-sc-70-wght-normal-ColEcmtJ.woff2                                          42.23 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/cs-CmAteokq-C53IZXSL.mjs                    42.48 kB
+dist/assets/noto-sans-sc-83-wght-normal-C9UjAcMM.woff2                                          43.50 kB
+dist/assets/noto-sans-sc-53-wght-normal-Bgkuo2tF.woff2                                          43.52 kB
+dist/assets/noto-sans-sc-75-wght-normal-B0qL41rF.woff2                                          43.94 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ko-4ABK2V2H.mjs                             44.06 kB
+dist/assets/noto-sans-sc-61-wght-normal-BxWkGF5M.woff2                                          45.27 kB
+dist/assets/noto-sans-sc-42-wght-normal-CQ4lY28u.woff2                                          45.54 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/es-DcaaHPU_-BWRLUZOG.mjs                    45.60 kB
+dist/assets/noto-sans-sc-50-wght-normal-C5KfAmFp.woff2                                          45.87 kB
+dist/assets/noto-sans-sc-82-wght-normal-DcxfR5OJ.woff2                                          46.17 kB
+dist/assets/noto-sans-sc-118-wght-normal-BPEb0gM9.woff2                                         46.19 kB
+dist/assets/noto-sans-sc-43-wght-normal-psppu0d8.woff2                                          46.62 kB
+dist/assets/noto-sans-sc-40-wght-normal-BVn4-kgX.woff2                                          46.62 kB
+dist/assets/noto-sans-sc-34-wght-normal-BF1rqDSt.woff2                                          46.88 kB
+dist/assets/noto-sans-sc-72-wght-normal-D1VyfEG3.woff2                                          47.03 kB
+dist/assets/noto-sans-sc-31-wght-normal-DW0t445S.woff2                                          47.22 kB
+dist/assets/noto-sans-sc-33-wght-normal-BOTZYTjM.woff2                                          47.45 kB
+dist/assets/noto-sans-sc-27-wght-normal-BP2pEGQH.woff2                                          47.48 kB
+dist/assets/noto-sans-sc-81-wght-normal-ed_TZlfo.woff2                                          47.54 kB
+dist/assets/noto-sans-sc-59-wght-normal-Azv2Ku9_.woff2                                          47.67 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/et-B_spaleu-GXVKLZMG.mjs                    47.83 kB
+dist/assets/noto-sans-sc-71-wght-normal-ChZfXpdg.woff2                                          47.90 kB
+dist/assets/noto-sans-sc-55-wght-normal-BV_Oy6IF.woff2                                          48.13 kB
+dist/assets/noto-sans-sc-76-wght-normal-BPLMO_2x.woff2                                          48.42 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/sr-cyrl-Dpzrbd0W-6432YA3Y.mjs               48.55 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/pl-9fg-ESVt-YV4QBUWI.mjs                    49.12 kB
+dist/assets/noto-sans-sc-78-wght-normal-BFUXeSw6.woff2                                          49.15 kB
+dist/assets/noto-sans-sc-63-wght-normal-4La5uKvS.woff2                                          49.18 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/sh-cyrl-BpCRFOmq-OPC7MHT3.mjs               49.70 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ja-XWJRJM4L.mjs                             49.78 kB
+dist/assets/noto-sans-sc-28-wght-normal-BWPKDbtH.woff2                                          50.20 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/is-BT8UVRze-7AHODDMB.mjs                    50.24 kB
+dist/assets/noto-sans-sc-35-wght-normal-Bosspiyr.woff2                                          50.68 kB
+dist/assets/noto-sans-sc-48-wght-normal-DFMjDDY6.woff2                                          50.76 kB
+dist/assets/noto-sans-sc-26-wght-normal-YNOygvr_.woff2                                          50.88 kB
+dist/assets/KaTeX_Main-Bold-waoOVXN0.ttf                                                        51.33 kB
+dist/assets/noto-sans-sc-39-wght-normal-Ddtm1XVC.woff2                                          51.78 kB
+dist/assets/noto-sans-sc-52-wght-normal-P18e_Y0j.woff2                                          51.84 kB
+dist/assets/noto-sans-sc-54-wght-normal-DL5lmlUd.woff2                                          52.00 kB
+dist/assets/noto-sans-sc-117-wght-normal-Dsz3vkzU.woff2                                         52.46 kB
+dist/assets/noto-sans-sc-32-wght-normal-ShbWPcei.woff2                                          52.54 kB
+dist/assets/noto-sans-sc-67-wght-normal-CC-WRBV-.woff2                                          52.58 kB
+dist/assets/noto-sans-sc-49-wght-normal-B7l_3BZr.woff2                                          52.84 kB
+dist/assets/noto-sans-sc-66-wght-normal-BvNozWOY.woff2                                          52.86 kB
+dist/assets/noto-sans-sc-116-wght-normal-vdFVzbO2.woff2                                         52.98 kB
+dist/assets/noto-sans-sc-56-wght-normal-B4L7Hj8f.woff2                                          53.50 kB
+dist/assets/noto-sans-sc-37-wght-normal-ghDiyiuv.woff2                                          53.52 kB
+dist/assets/KaTeX_Main-Regular-ypZvNtVU.ttf                                                     53.58 kB
+dist/assets/noto-sans-sc-29-wght-normal-45aVmHn_.woff2                                          54.00 kB
+dist/assets/noto-sans-sc-44-wght-normal-cbKJlTUe.woff2                                          54.24 kB
+dist/assets/noto-sans-sc-38-wght-normal-4Nz8k_dt.woff2                                          54.59 kB
+dist/assets/noto-sans-sc-30-wght-normal-B8_s30jZ.woff2                                          54.65 kB
+dist/assets/noto-sans-sc-57-wght-normal-DU8YBsDj.woff2                                          55.49 kB
+dist/assets/noto-sans-sc-69-wght-normal-D596Jjl2.woff2                                          55.60 kB
+dist/assets/noto-sans-sc-47-wght-normal-C5Kgg1_m.woff2                                          56.15 kB
+dist/assets/noto-sans-sc-74-wght-normal-Cte7o1QG.woff2                                          56.42 kB
+dist/assets/noto-sans-sc-115-wght-normal-BN__2iBG.woff2                                         56.50 kB
+dist/assets/noto-sans-sc-23-wght-normal-4HrHKhpL.woff2                                          56.79 kB
+dist/assets/noto-sans-sc-112-wght-normal-CiZxJMyY.woff2                                         57.64 kB
+dist/assets/noto-sans-sc-58-wght-normal-CE0BKS9u.woff2                                          57.64 kB
+dist/assets/noto-sans-sc-46-wght-normal-CErGc6Mt.woff2                                          57.66 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/sv-CFm5y56M-C62M5IZF.mjs                    57.68 kB
+dist/assets/noto-sans-sc-114-wght-normal-CRH9SDZu.woff2                                         57.96 kB
+dist/assets/noto-sans-sc-101-wght-normal-c94LAl5p.woff2                                         58.20 kB
+dist/assets/noto-sans-sc-25-wght-normal-C3Jm6l7O.woff2                                          58.32 kB
+dist/assets/noto-sans-sc-113-wght-normal-OgQXOX6x.woff2                                         58.64 kB
+dist/assets/office-8b057eb8633b45ee/assets/Caladea-Bold-ZXCWCE6U.ttf                            58.89 kB
+dist/assets/office-8b057eb8633b45ee/assets/Caladea-Regular-AX7F4KBQ.ttf                         58.96 kB
+dist/assets/noto-sans-sc-62-wght-normal-CXXMAq-5.woff2                                          59.11 kB
+dist/assets/noto-sans-sc-109-wght-normal-CnjNbNmw.woff2                                         60.37 kB
+dist/assets/noto-sans-sc-102-wght-normal-C1RtbCZr.woff2                                         60.70 kB
+dist/assets/noto-sans-sc-107-wght-normal-kFQzJDLH.woff2                                         61.07 kB
+dist/assets/noto-sans-sc-110-wght-normal-D2JBr045.woff2                                         61.47 kB
+dist/assets/noto-sans-sc-104-wght-normal-CJT2ioDJ.woff2                                         61.58 kB
+dist/assets/noto-sans-sc-105-wght-normal-BFoiJwz2.woff2                                         61.82 kB
+dist/assets/office-8b057eb8633b45ee/assets/Caladea-BoldItalic-J7MV3OYL.ttf                      61.82 kB
+dist/assets/office-8b057eb8633b45ee/assets/Caladea-Italic-YBI5H2QW.ttf                          61.86 kB
+dist/assets/noto-sans-sc-24-wght-normal-B58DWgHS.woff2                                          62.58 kB
+dist/assets/noto-sans-sc-106-wght-normal-D6uUHw3w.woff2                                         62.63 kB
+dist/assets/noto-sans-sc-111-wght-normal-ClFr5QXM.woff2                                         62.66 kB
+dist/assets/KaTeX_AMS-Regular-DRggAlZN.ttf                                                      63.63 kB
+dist/assets/office-8b057eb8633b45ee/assets/NotoSansArabic-Regular-subset-MEZAHUNP.woff2         63.67 kB
+dist/assets/noto-sans-sc-103-wght-normal-DGHo20nu.woff2                                         63.86 kB
+dist/assets/noto-sans-sc-100-wght-normal-DrqXJETY.woff2                                         64.54 kB
+dist/assets/noto-sans-sc-108-wght-normal-7aXvqIa2.woff2                                         64.55 kB
+dist/assets/noto-sans-sc-22-wght-normal-VXjdYcT-.woff2                                          65.38 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/he-F55IAAQK.mjs                             66.25 kB
+dist/assets/noto-sans-sc-45-wght-normal-MKIEVRIC.woff2                                          67.62 kB
+dist/assets/office-8b057eb8633b45ee/assets/NotoNaskhArabic-Regular-subset-LVA5QITC.woff2        69.62 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ar-KOLVRNAI.mjs                             72.35 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/id-IYT5J24N.mjs                             72.74 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ms-DGSJ5GCB.mjs                             73.20 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/renderer-entry-FDJBA64A.mjs                        73.84 kB
+dist/assets/noto-sans-sc-119-wght-normal-BfzSEbFz.woff2                                         76.80 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/nl-QAQQ3HCI.mjs                             76.99 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/it-X6TSCWDO.mjs                             79.60 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/th-KZC633QR.mjs                             80.01 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/cy-BBPa6z2x-HOCOF3SZ.mjs                    80.28 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/hi-UOBRK3DG.mjs                             80.34 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/es-QUZ3VXMH.mjs                             80.53 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/de-WKMQ3FGY.mjs                             81.85 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/pt-4XEFXFP6.mjs                             81.96 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/bg-CrQqGwni-NWR62JVT.mjs                    83.99 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ga-Cn6LkudM-7A22MD4E.mjs                    85.21 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/fr-FXBPUMLF.mjs                             85.90 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/uk-Dir3oxLs-3KZKVGDE.mjs                    87.23 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/pl-WRIF7MZB.mjs                             87.29 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/th-DWX5iPSo-5WPESSPN.mjs                    89.97 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/cs-C2M5IXO3.mjs                             90.63 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ru-2FI5JISX.mjs                             90.87 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/grc-DOlGgO8T-ARDZRFGF.mjs                  100.49 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/zh-TW-RKB6TBNX.mjs                         102.97 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/en-gb-B7Al27b_-WPN4DUVW.mjs                105.40 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/vi-DA2VDU6N.mjs                            109.28 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ru-v4l-ayaq-ZDVZLCFK.mjs                   123.75 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ko-IKJF46LQ.mjs                            126.73 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/lv-Q2BBHnzp-J6L2A53G.mjs                   127.82 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/nl-BHQJ6Gvn-NEEOCNJY.mjs                   138.71 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ja-I6TRI3S7.mjs                            146.09 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/af-DK_CjRn6-R3UPC6L3.mjs                   180.18 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/he-GGMD7XXI.mjs                            187.27 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ar-H6D22EQU.mjs                            207.36 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/th-XMYNYLCD.mjs                            224.36 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/hi-ST4IFP5Q.mjs                            226.04 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/cu-CBUlrW6Y-33E5IPFS.mjs                   234.45 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ru-PHSLTOJI.mjs                            256.18 kB
+dist/assets/office-8b057eb8633b45ee/assets/GenOfficeSansKR-Regular-subset-3GGIFHJO.woff2       266.12 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/de-ch-1901-hVThVHVb-L7FC2Q5V.mjs           266.53 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/de-1996-BL6awyxG-I33CIMF3.mjs              269.07 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/de-1901-CWoAOigE-UKNCKXTL.mjs              272.26 kB
+dist/assets/office-8b057eb8633b45ee/assets/LiberationMono-Italic-XAJBNBKF.ttf                  281.53 kB
+dist/assets/office-8b057eb8633b45ee/assets/GenOfficeGothicKR-Regular-subset-RIYIY3FN.woff2     281.98 kB
+dist/assets/office-8b057eb8633b45ee/assets/LiberationMono-BoldItalic-ICJIBNMC.ttf              284.06 kB
+dist/assets/office-8b057eb8633b45ee/assets/LiberationMono-Bold-TIRBNMK5.ttf                    307.99 kB
+dist/assets/office-8b057eb8633b45ee/print-fonts/GenOfficeSansKR-Regular-subset.woff2           309.16 kB
+dist/assets/nori-bust-11aLOysc.png                                                             311.34 kB
+dist/assets/office-8b057eb8633b45ee/assets/LiberationMono-Regular-GYVCRHWB.ttf                 319.50 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/id-ID-QRUMS324.mjs                         324.37 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/it-IT-IZB7JSSA.mjs                         326.02 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/pt-BR-KPY7VTEG.mjs                         327.11 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/de-DE-XRI5G37Y.mjs                         327.55 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/pl-PL-GEYKA3IA.mjs                         328.37 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/fr-FR-CJOIOD4X.mjs                         328.91 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/no-B8ItS0F3-CAE6FJ3C.mjs                   344.70 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/nb-DI8u59ch-ZEYPS4BW.mjs                   344.72 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/nn-ntZvarUK-5A65OITD.mjs                   344.72 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/es-ES-UQJ26IGW.mjs                         353.06 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ar-SA-EE5SOWE7.mjs                         369.78 kB
+dist/assets/office-8b057eb8633b45ee/assets/LiberationSerif-Bold-GFJI4LOQ.ttf                   370.09 kB
+dist/assets/office-8b057eb8633b45ee/assets/LiberationSerif-Italic-BXGYG72K.ttf                 375.63 kB
+dist/assets/office-8b057eb8633b45ee/assets/LiberationSerif-BoldItalic-54UBVHY3.ttf             376.77 kB
+dist/assets/docxExportWorker-B83Z1B-D.js                                                       381.30 kB
+dist/assets/office-8b057eb8633b45ee/assets/LiberationSerif-Regular-VZ45NXY7.ttf                393.57 kB
+dist/assets/office-8b057eb8633b45ee/assets/LiberationSans-BoldItalic-ODXAWDEC.ttf              408.99 kB
+dist/assets/office-8b057eb8633b45ee/assets/LiberationSans-Regular-ACOJ7TR2.ttf                 410.71 kB
+dist/assets/office-8b057eb8633b45ee/assets/LiberationSans-Bold-3HNXPWZR.ttf                    414.45 kB
+dist/assets/office-8b057eb8633b45ee/assets/LiberationSans-Italic-N3DVAW7O.ttf                  415.81 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/zh-TW-M6C4JDLN.mjs                         429.05 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/zh-CN-FAAUFPJE.mjs                         433.40 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/renderer-output-Z2GUKGAJ.mjs               437.42 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/chunk-UFH62PUN.mjs                         445.61 kB
+dist/assets/snow-mountain-cover-BpBuyE_R.jpg                                                   455.45 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ko-KR-2324RJC4.mjs                         458.96 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/vi-VN-ECSZPCLO.mjs                         508.11 kB
+dist/assets/office-8b057eb8633b45ee/assets/GenOfficeSerifKR-Regular-subset-3FVLIYRJ.woff2      512.43 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ja-JP-O7BYRQ57.mjs                         584.23 kB
+dist/assets/office-8b057eb8633b45ee/print-fonts/GenOfficeSerifKR-Regular-subset.woff2          617.54 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/assets/Carlito-Italic-MLXN4G64.ttf                619.05 kB
+dist/assets/office-20b72ba6de1fad62/renderer-fonts/de59348ac812a347537b.ttf                    619.05 kB
+dist/assets/office-8b057eb8633b45ee/assets/Carlito-Italic-MLXN4G64.ttf                         619.05 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/assets/Carlito-Regular-EAFXTI6P.ttf               631.71 kB
+dist/assets/office-20b72ba6de1fad62/renderer-fonts/cca497a63f1cf8111d21.ttf                    631.71 kB
+dist/assets/office-8b057eb8633b45ee/assets/Carlito-Regular-EAFXTI6P.ttf                        631.71 kB
+dist/assets/forest-cover-BidLayYw.jpg                                                          640.37 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/assets/Carlito-Bold-B6YOE2TL.ttf                  686.24 kB
+dist/assets/office-20b72ba6de1fad62/renderer-fonts/ed778b78ce652f5b1764.ttf                    686.24 kB
+dist/assets/office-8b057eb8633b45ee/assets/Carlito-Bold-B6YOE2TL.ttf                           686.24 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/hu-DVk7Y_ka-ZUCR4IG6.mjs                   803.38 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/assets/Carlito-BoldItalic-TKKYKFV6.ttf            812.34 kB
+dist/assets/office-20b72ba6de1fad62/renderer-fonts/0468067dde1d54111862.ttf                    812.34 kB
+dist/assets/office-8b057eb8633b45ee/assets/Carlito-BoldItalic-TKKYKFV6.ttf                     812.34 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/chunk-R4NID45C.mjs                       1,225.77 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/ru-RU-3MS7ALFF.mjs                       1,235.08 kB
+dist/assets/pdfExportWorker-BtWAwbZn.js                                                      1,373.27 kB
+dist/assets/office-8b057eb8633b45ee/print-fonts/NotoSansCJKsc-Regular-subset.woff2           2,199.63 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/main-J6DNUSVY.mjs                        2,381.69 kB
+dist/assets/office-8b057eb8633b45ee/assets/NotoSansCJKsc-Regular-subset-4EU5DBOO.woff2       2,533.16 kB
+dist/assets/office-8b057eb8633b45ee/print-fonts/NotoSerifCJKsc-Regular-subset.woff2          2,934.80 kB
+dist/assets/office-8b057eb8633b45ee/assets/NotoSerifCJKsc-Regular-subset-BLYZTWGZ.woff2      3,495.92 kB
+dist/assets/office-20b72ba6de1fad62/renderer.mjs                                             5,351.13 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/chunk-KBHFVGLC.mjs                       5,530.28 kB
+dist/assets/office-8b057eb8633b45ee/renderer.mjs                                             8,031.02 kB
+dist/assets/NotoSansMonoCJKsc-Regular-BS_L75PQ.otf                                          16,393.78 kB
+dist/assets/NotoSansCJKsc-Regular-DxgKpThH.otf                                              16,437.36 kB
+dist/assets/ProjectSidebar-C7LwU-cP.css                                                          0.13 kB │ gzip:     0.12 kB
+dist/assets/SkillsPanel-BG-gNQaf.css                                                             0.16 kB │ gzip:     0.14 kB
+dist/assets/ProjectSessionContent-CBPyVRhK.css                                                   0.25 kB │ gzip:     0.16 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/save-actions-UQHZYP5Q.css                    0.28 kB │ gzip:     0.21 kB
+dist/assets/PptxEditor-DleMuUXY.css                                                              0.45 kB │ gzip:     0.27 kB
+dist/assets/office-file-content-CLxjdajb.css                                                     0.46 kB │ gzip:     0.26 kB
+dist/assets/record-history-Cn5eFIl8.css                                                          0.79 kB │ gzip:     0.37 kB
+dist/assets/file-icons-BDOgEhk6.css                                                              0.96 kB │ gzip:     0.26 kB
+dist/assets/FileVersionHistory-8Z9dmeLo.css                                                      1.09 kB │ gzip:     0.47 kB
+dist/assets/ScheduledTasksPanel-C5M1Irir.css                                                     1.24 kB │ gzip:     0.44 kB
+dist/assets/ProjectFileIdentityActions-DrLJj-he.css                                              1.60 kB │ gzip:     0.57 kB
+dist/assets/XlsxEditor-DCA14sw_.css                                                              2.38 kB │ gzip:     0.72 kB
+dist/assets/HomeProjectFiles-LJGNqqCu.css                                                        2.41 kB │ gzip:     0.80 kB
+dist/assets/pdf-Bbb5677M.css                                                                     2.56 kB │ gzip:     0.92 kB
+dist/assets/dsh-assistant-B6hAoRhE.css                                                           2.80 kB │ gzip:     0.86 kB
+dist/assets/project-file-content-D49F5ML_.css                                                    3.42 kB │ gzip:     0.96 kB
+dist/assets/EditorLoading-Bm5ZVHA7.css                                                           3.48 kB │ gzip:     0.99 kB
+dist/assets/voice-CZBQGAFv.css                                                                   3.98 kB │ gzip:     1.18 kB
+dist/assets/DocxEditor-5zJ7j9e5.css                                                              4.40 kB │ gzip:     1.28 kB
+dist/assets/FileVersionMenu-aAu0xIfM.css                                                         5.21 kB │ gzip:     1.32 kB
+dist/assets/rich-editor-Cqo6BZYA.css                                                             5.70 kB │ gzip:     1.58 kB
+dist/assets/MarkdownEditor-CLEE4BO4.css                                                          9.94 kB │ gzip:     1.89 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/host.css                                           13.89 kB │ gzip:     3.14 kB
+dist/assets/markdown-editor-C3GPTEd4.css                                                        13.89 kB │ gzip:     3.10 kB
+dist/assets/ProjectFileContent-FhljTEEP.css                                                     14.02 kB │ gzip:     3.10 kB
+dist/assets/todo-D4ca5ual.css                                                                   28.30 kB │ gzip:     4.39 kB
+dist/assets/scoped-D5aJPbUy.css                                                                 34.81 kB │ gzip:     5.09 kB
+dist/assets/primitives-DqOQf059.css                                                             54.63 kB │ gzip:    10.35 kB
+dist/assets/main-sg3r1kCZ.css                                                                   73.29 kB │ gzip:    11.94 kB
+dist/assets/vendor-CcQCqx88.css                                                                140.28 kB │ gzip:    54.91 kB
+dist/assets/office-20b72ba6de1fad62/renderer.css                                               153.30 kB │ gzip:    27.84 kB
+dist/assets/adapters-Dch9bBM4.css                                                              190.81 kB │ gzip:    31.94 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/renderer-entry-GVHAMOT7.css                       201.45 kB │ gzip:    34.60 kB
+dist/assets/office-1593dce9eb5be3d8/renderer/chunks/main-VR3IQREI.css                          201.46 kB │ gzip:    34.60 kB
+dist/assets/react-root-CYZKT1sg.css                                                            210.65 kB │ gzip:    28.53 kB
+dist/assets/office-8b057eb8633b45ee/renderer.css                                               267.55 kB │ gzip:    42.68 kB
+dist/assets/dist-DI5Hqjc1.js                                                                     0.06 kB │ gzip:     0.07 kB
+dist/assets/katex-B4i5caLk.js                                                                    0.06 kB │ gzip:     0.07 kB
+dist/assets/asciidoc-Yc5ulnEl.js                                                                 0.06 kB │ gzip:     0.07 kB
+dist/assets/bat-ai4W6thL.js                                                                      0.06 kB │ gzip:     0.07 kB
+dist/assets/bibtex-BdWLMa85.js                                                                   0.06 kB │ gzip:     0.07 kB
+dist/assets/c-CsWZ4Sy9.js                                                                        0.06 kB │ gzip:     0.07 kB
+dist/assets/clojure-_KkRC6EM.js                                                                  0.06 kB │ gzip:     0.07 kB
+dist/assets/cmake-zt-tVvsC.js                                                                    0.06 kB │ gzip:     0.07 kB
+dist/assets/cpp-CYiv8QaM.js                                                                      0.06 kB │ gzip:     0.07 kB
+dist/assets/csharp--shHXDcx.js                                                                   0.06 kB │ gzip:     0.07 kB
+dist/assets/css-BqaiUSLS.js                                                                      0.06 kB │ gzip:     0.07 kB
+dist/assets/csv-Do3R9NP3.js                                                                      0.06 kB │ gzip:     0.07 kB
+dist/assets/dart-DZUS91TB.js                                                                     0.06 kB │ gzip:     0.07 kB
+dist/assets/diff-CzzrMW_3.js                                                                     0.06 kB │ gzip:     0.07 kB
+dist/assets/dotenv-C8IZUO2M.js                                                                   0.06 kB │ gzip:     0.07 kB
+dist/assets/elixir-C3-pGMK8.js                                                                   0.06 kB │ gzip:     0.07 kB
+dist/assets/erlang-DvXwl-Zj.js                                                                   0.06 kB │ gzip:     0.07 kB
+dist/assets/fish-oF8-8vjr.js                                                                     0.06 kB │ gzip:     0.07 kB
+dist/assets/fsharp-DOL062DC.js                                                                   0.06 kB │ gzip:     0.07 kB
+dist/assets/go-CnhdIFgZ.js                                                                       0.06 kB │ gzip:     0.07 kB
+dist/assets/graphql-DT5NlJMd.js                                                                  0.06 kB │ gzip:     0.07 kB
+dist/assets/groovy-DmbFU4zt.js                                                                   0.06 kB │ gzip:     0.07 kB
+dist/assets/haskell-B5ZscCd3.js                                                                  0.06 kB │ gzip:     0.07 kB
+dist/assets/hcl-CeImBAM3.js                                                                      0.06 kB │ gzip:     0.07 kB
+dist/assets/html-mu5CQmxE.js                                                                     0.06 kB │ gzip:     0.07 kB
+dist/assets/http-BaUIESAO.js                                                                     0.06 kB │ gzip:     0.07 kB
+dist/assets/ini-gBN09bny.js                                                                      0.06 kB │ gzip:     0.07 kB
+dist/assets/java-9W6Eq_kI.js                                                                     0.06 kB │ gzip:     0.07 kB
+dist/assets/julia-B-z-6gAK.js                                                                    0.06 kB │ gzip:     0.07 kB
+dist/assets/kotlin-r-w-JdfD.js                                                                   0.06 kB │ gzip:     0.07 kB
+dist/assets/latex-BzE2oFNJ.js                                                                    0.06 kB │ gzip:     0.07 kB
+dist/assets/less-Dc-Db8IP.js                                                                     0.06 kB │ gzip:     0.07 kB
+dist/assets/log-BceBwa-c.js                                                                      0.06 kB │ gzip:     0.07 kB
+dist/assets/lua-CFBTsqpT.js                                                                      0.06 kB │ gzip:     0.07 kB
+dist/assets/make-B_0VaXtO.js                                                                     0.06 kB │ gzip:     0.07 kB
+dist/assets/markdown-CUXHihRF.js                                                                 0.06 kB │ gzip:     0.07 kB
+dist/assets/mdx-DHupMwEe.js                                                                      0.06 kB │ gzip:     0.07 kB
+dist/assets/nix-BEUNCNuT.js                                                                      0.06 kB │ gzip:     0.07 kB
+dist/assets/perl-NO01dTNE.js                                                                     0.06 kB │ gzip:     0.07 kB
+dist/assets/php-B10wmyfV.js                                                                      0.06 kB │ gzip:     0.07 kB
+dist/assets/powershell-DTkde3mT.js                                                               0.06 kB │ gzip:     0.07 kB
+dist/assets/proto-DmipZeIg.js                                                                    0.06 kB │ gzip:     0.07 kB
+dist/assets/python-Bq5mAdzV.js                                                                   0.06 kB │ gzip:     0.07 kB
+dist/assets/r-BhPx8lx-.js                                                                        0.06 kB │ gzip:     0.07 kB
+dist/assets/rst-D3fZrzbf.js                                                                      0.06 kB │ gzip:     0.07 kB
+dist/assets/ruby-DctmJsL9.js                                                                     0.06 kB │ gzip:     0.07 kB
+dist/assets/rust-BzgI-H_w.js                                                                     0.06 kB │ gzip:     0.07 kB
+dist/assets/scala-Du9cygSs.js                                                                    0.06 kB │ gzip:     0.07 kB
+dist/assets/scss-ddo3xjYi.js                                                                     0.06 kB │ gzip:     0.07 kB
+dist/assets/sql-AHSaM8Po.js                                                                      0.06 kB │ gzip:     0.07 kB
+dist/assets/svelte-BEbQ_dda.js                                                                   0.06 kB │ gzip:     0.07 kB
+dist/assets/swift-CCg56J9Z.js                                                                    0.06 kB │ gzip:     0.07 kB
+dist/assets/system-verilog-DBwZjFMk.js                                                           0.06 kB │ gzip:     0.07 kB
+dist/assets/toml-Drt6eQDw.js                                                                     0.06 kB │ gzip:     0.07 kB
+dist/assets/vb-BpBHgMFz.js                                                                       0.06 kB │ gzip:     0.07 kB
+dist/assets/verilog-DZo4QdWh.js                                                                  0.06 kB │ gzip:     0.07 kB
+dist/assets/vue-v7Sb-4AI.js                                                                      0.06 kB │ gzip:     0.07 kB
+dist/assets/xml-B47Pk2_0.js                                                                      0.06 kB │ gzip:     0.07 kB
+dist/assets/yaml-DSRXqmZb.js                                                                     0.06 kB │ gzip:     0.07 kB
+dist/assets/es-CY5hMZiB.js                                                                       0.07 kB │ gzip:     0.08 kB
+dist/assets/diagrams--B1e9y_w.js                                                                 0.07 kB │ gzip:     0.08 kB
+dist/assets/ProjectSidebar-D3-GtU3x.js                                                           0.07 kB │ gzip:     0.08 kB
+dist/assets/diagramPreviewSafety-DHynqmJx.js                                                     0.08 kB │ gzip:     0.09 kB
+dist/assets/array-DwXgdKJS.js                                                                    0.10 kB │ gzip:     0.11 kB
+dist/assets/browser-CC9e5E_n.js                                                                  0.11 kB │ gzip:     0.11 kB
+dist/assets/channel-CiCCPaca.js                                                                  0.11 kB │ gzip:     0.12 kB
+dist/assets/pie-WAS4IAKB-B0y-rCMG.js                                                             0.11 kB │ gzip:     0.11 kB
+dist/assets/info-A6RAGUB7-BWx8Gq3e.js                                                            0.11 kB │ gzip:     0.12 kB
+dist/assets/radar-RG4KPBEZ-0-mV01Rc.js                                                           0.11 kB │ gzip:     0.12 kB
+dist/assets/packet-AYTQ26CC-CpHXlvae.js                                                          0.12 kB │ gzip:     0.12 kB
+dist/assets/cynefin-OW5HDTMX-iJoTeBur.js                                                         0.12 kB │ gzip:     0.12 kB
+dist/assets/treemap-WGGIJYW6-ByluLGAF.js                                                         0.12 kB │ gzip:     0.12 kB
+dist/assets/wardley-WFR3VGLG-BXh0xNMd.js                                                         0.12 kB │ gzip:     0.12 kB
+dist/assets/gitGraph-4MIJSDKK-Dp_zk60h.js                                                        0.12 kB │ gzip:     0.12 kB
+dist/assets/railroad-74A4TZTK-kBGWR4Lw.js                                                        0.12 kB │ gzip:     0.12 kB
+dist/assets/treeView-Q6P3EWNA-DGus7HU4.js                                                        0.12 kB │ gzip:     0.12 kB
+dist/assets/railroad-peg-WCYAUIDC-CsrKozd0.js                                                    0.12 kB │ gzip:     0.12 kB
+dist/assets/architecture-7GRP2DOG-pFzdsK90.js                                                    0.12 kB │ gzip:     0.12 kB
+dist/assets/railroad-abnf-HS5TGJTU-ru8vgOLR.js                                                   0.12 kB │ gzip:     0.12 kB
+dist/assets/railroad-ebnf-LZEXJU2U-DLAZxL1d.js                                                   0.12 kB │ gzip:     0.12 kB
+dist/assets/eventmodeling-NTZA5JFV-CdNgRF8l.js                                                   0.12 kB │ gzip:     0.12 kB
+dist/assets/init-CrvLZbcs.js                                                                     0.14 kB │ gzip:     0.12 kB
+dist/assets/chunk-Y2CYZVJY-CTJz8-f3.js                                                           0.15 kB │ gzip:     0.14 kB
+dist/assets/chunk-2Q5K7J3B-Cl4UZU6F.js                                                           0.19 kB │ gzip:     0.16 kB
+dist/assets/chunk-JWPE2WC7-XaeKKKQC.js                                                           0.22 kB │ gzip:     0.17 kB
+dist/assets/chunk-XXDRQBXY-TE2kDSIz.js                                                           0.26 kB │ gzip:     0.22 kB
+dist/assets/chunk-CLGD4ZFX-CWc3imAj.js                                                           0.32 kB │ gzip:     0.25 kB
+dist/assets/chunk-5VM5RSS4-DXl3JQSD.js                                                           0.36 kB │ gzip:     0.27 kB
+dist/assets/record-history-CKidVq8H.js                                                           0.38 kB │ gzip:     0.26 kB
+dist/assets/renderer.html-BeLO1taA.js                                                            0.40 kB │ gzip:     0.28 kB
+dist/assets/renderer.html-DzRi-CAT.js                                                            0.40 kB │ gzip:     0.28 kB
+dist/assets/shared-DULzGbpn.js                                                                   0.42 kB │ gzip:     0.26 kB
+dist/assets/chunk-UY3FDG6J-0YE6PkC4.js                                                           0.45 kB │ gzip:     0.31 kB
+dist/assets/chunk-I5DQTOEV-Owd2jVgl.js                                                           0.45 kB │ gzip:     0.31 kB
+dist/assets/chunk-5V3GS4D5-CThlXvXJ.js                                                           0.46 kB │ gzip:     0.31 kB
+dist/assets/chunk-KI3K4JFJ-CH2wXIuF.js                                                           0.46 kB │ gzip:     0.31 kB
+dist/assets/chunk-6TQVIW2G-2bMJpweJ.js                                                           0.46 kB │ gzip:     0.31 kB
+dist/assets/chunk-ICYGCRZG-BpdMuJ9n.js                                                           0.50 kB │ gzip:     0.35 kB
+dist/assets/fileEditorApi-CYgyEiwP.js                                                            0.52 kB │ gzip:     0.25 kB
+dist/assets/renderer.html-D_Uf3HJ4.js                                                            0.55 kB │ gzip:     0.34 kB
+dist/assets/chunk-POPQ4Y6H-cnw88mHG.js                                                           0.57 kB │ gzip:     0.40 kB
+dist/assets/chunk-3Z5EZCMW-CVMgDMzN.js                                                           0.60 kB │ gzip:     0.39 kB
+dist/assets/fileWorkingApi-DrEjkck1.js                                                           0.61 kB │ gzip:     0.30 kB
+dist/assets/flowDiagram-HODETNUW-CNug7RZv.js                                                     0.61 kB │ gzip:     0.32 kB
+dist/assets/infoDiagram-27XIBGKW-BrB6zbZR.js                                                     0.65 kB │ gzip:     0.42 kB
+dist/assets/exportPresentation-BM07zseQ.js                                                       0.69 kB │ gzip:     0.42 kB
+dist/assets/project-file-navigation-Dxt92n5N.js                                                  0.69 kB │ gzip:     0.42 kB
+dist/assets/documentVersionAction-B1oESX3g.js                                                    0.71 kB │ gzip:     0.51 kB
+dist/assets/fileDocumentApi-C7oGlYTJ.js                                                          0.75 kB │ gzip:     0.36 kB
+dist/assets/classDiagram-ZZMXUADV-Df-nq4-s.js                                                    0.78 kB │ gzip:     0.44 kB
+dist/assets/classDiagram-v2-VYDZK3BY-BkmHFpVT.js                                                 0.78 kB │ gzip:     0.44 kB
+dist/assets/stateDiagram-v2-MP3YSRHH-DgOqxZyW.js                                                 0.78 kB │ gzip:     0.45 kB
+dist/assets/useFileApplications-DsTH1JVh.js                                                      0.83 kB │ gzip:     0.54 kB
+dist/assets/useOfficePreview-BVYfSkyk.js                                                         0.83 kB │ gzip:     0.50 kB
+dist/assets/chunk-XHIXRSVI--htFjX3Z.js                                                           0.83 kB │ gzip:     0.46 kB
+dist/assets/swimlanesDiagram-VR7AAH4N-CXuQKbXG.js                                                0.87 kB │ gzip:     0.49 kB
+dist/assets/sizeCapture-INFHLROL-BAGTItgV.js                                                     0.87 kB │ gzip:     0.51 kB
+dist/assets/chunk-6AZGARVD-XmBF5_LU.js                                                           0.90 kB │ gzip:     0.48 kB
+dist/assets/dshAssistantApi-Bi_IHR1j.js                                                          0.92 kB │ gzip:     0.44 kB
+dist/assets/chunk-IH6LHLGP-vwsDUDso.js                                                           0.92 kB │ gzip:     0.49 kB
+dist/assets/line-C2B-yJo1.js                                                                     0.94 kB │ gzip:     0.47 kB
+dist/assets/resources-CWMFe0Ke.js                                                                1.02 kB │ gzip:     0.52 kB
+dist/assets/tauri-DzE8r67i.js                                                                    1.02 kB │ gzip:     0.50 kB
+dist/assets/chunk-OUJLGHUK-BjBq0__g.js                                                           1.04 kB │ gzip:     0.58 kB
+dist/assets/chunk-747NJXEK-Cat7G9jr.js                                                           1.06 kB │ gzip:     0.58 kB
+dist/assets/chunk-2ZTRR5NV-BPMow3Hy.js                                                           1.13 kB │ gzip:     0.61 kB
+dist/assets/ordinal-DdZd_4BH.js                                                                  1.17 kB │ gzip:     0.56 kB
+dist/assets/recordExportTarget-Bm1_2tE-.js                                                       1.19 kB │ gzip:     0.79 kB
+dist/assets/rolldown-runtime-B0vHOyS1.js                                                         1.20 kB │ gzip:     0.66 kB
+dist/assets/chunk-GVQU2GXP-Cmnj6BLy.js                                                           1.42 kB │ gzip:     0.79 kB
+dist/assets/chunk-6K3QC6MW-DDaEpcQY.js                                                           1.46 kB │ gzip:     0.78 kB
+dist/assets/EditorFileMenu-CXBZBYb9.js                                                           1.50 kB │ gzip:     0.90 kB
+dist/assets/deleted-record-close-CUFeW55D.js                                                     1.59 kB │ gzip:     0.98 kB
+dist/assets/scrollEdges-Dj9KLCzZ.js                                                              1.61 kB │ gzip:     0.77 kB
+dist/assets/record-save-persistence-CLjMCltG.js                                                  1.62 kB │ gzip:     0.97 kB
+dist/assets/chunk-6EIED4P4-Bnp-F8rf.js                                                           1.67 kB │ gzip:     0.73 kB
+dist/assets/railroadDiagram-O6MQD6OU-DeXmzuIR.js                                                 1.71 kB │ gzip:     0.79 kB
+dist/assets/voiceApi-BdSx9MDe.js                                                                 1.72 kB │ gzip:     0.47 kB
+dist/assets/diagramPreviewSafety-BQreGxmS.js                                                     1.77 kB │ gzip:     1.11 kB
+dist/assets/office-component-loader-CASfO4vT.js                                                  1.79 kB │ gzip:     0.84 kB
+dist/assets/abnfDiagram-VCTEODGH-CFBvsD3W.js                                                     1.90 kB │ gzip:     0.92 kB
+dist/assets/chunk-P2QGCYS3-ChSAFKan.js                                                           1.94 kB │ gzip:     0.95 kB
+dist/assets/recordDocumentApi-P654C2AP.js                                                        1.95 kB │ gzip:     0.56 kB
+dist/assets/chunk-F27PBJKO-DH4yCdYR.js                                                           1.97 kB │ gzip:     0.88 kB
+dist/assets/EditorLoading-kfw4oOGx.js                                                            1.98 kB │ gzip:     0.92 kB
+dist/assets/pegDiagram-XKGWAZYB-ABr4Jkf-.js                                                      2.06 kB │ gzip:     0.96 kB
+dist/assets/ebnfDiagram-PWID7BFC-B6ImxCtS.js                                                     2.11 kB │ gzip:     0.91 kB
+dist/assets/dist-C3ETzvsg.js                                                                     2.17 kB │ gzip:     0.97 kB
+dist/assets/path-C_Kr-p16.js                                                                     2.31 kB │ gzip:     0.99 kB
+dist/assets/office-file-content-DGtb7EJM.js                                                      2.32 kB │ gzip:     1.19 kB
+dist/assets/voiceWindowPosition-LJPrxTXr.js                                                      2.36 kB │ gzip:     1.02 kB
+dist/assets/ArchivedProjectsDialogContent-DB3g3j5C.js                                            2.46 kB │ gzip:     1.10 kB
+dist/assets/DshSettingsPanel-DW-hss-x.js                                                         2.69 kB │ gzip:     1.32 kB
+dist/assets/XlsxEditor-D_HggChR.js                                                               2.78 kB │ gzip:     1.26 kB
+dist/assets/projectContentApi-lbWZBasx.js                                                        2.91 kB │ gzip:     1.33 kB
+dist/assets/DocxEditor-Doj9asws.js                                                               2.91 kB │ gzip:     1.40 kB
+dist/assets/ProjectSessionContent-GpyNIEJH.js                                                    3.35 kB │ gzip:     1.66 kB
+dist/assets/arc-DSIpu3Pq.js                                                                      3.47 kB │ gzip:     1.46 kB
+dist/assets/UpdateSettingsPanel-DapnQxBT.js                                                      3.47 kB │ gzip:     1.51 kB
+dist/assets/ProjectFileSessionReference-Btc2irgM.js                                              3.60 kB │ gzip:     1.71 kB
+dist/assets/project-content-lifecycle-boybvywX.js                                                3.76 kB │ gzip:     1.61 kB
+dist/assets/chunk-TLUHSLCS-CB7LB5EA.js                                                           3.88 kB │ gzip:     1.61 kB
+dist/assets/react-root-Drj0E0O7.js                                                               3.95 kB │ gzip:     1.72 kB
+dist/assets/agent-panel-store-DVg52Xb1.js                                                        4.15 kB │ gzip:     1.50 kB
+dist/assets/diagram-Z3DM3KII-Bfctkuv9.js                                                         4.28 kB │ gzip:     1.85 kB
+dist/assets/defaultLocale-DCNclIT7.js                                                            4.64 kB │ gzip:     2.12 kB
+dist/assets/record-save-coordinator-C9oIJO4I.js                                                  5.13 kB │ gzip:     1.95 kB
+dist/assets/RecordConflictDialog-BRtgs8v1.js                                                     5.19 kB │ gzip:     2.26 kB
+dist/assets/MarkdownFileContent-CZsDlsIf.js                                                      5.43 kB │ gzip:     2.56 kB
+dist/assets/linear-DUV0xaA7.js                                                                   5.52 kB │ gzip:     2.25 kB
+dist/assets/browser-BtjF_eOQ.js                                                                  5.73 kB │ gzip:     2.49 kB
+dist/assets/HomeProjectSidebar-aI0jObWv.js                                                       5.75 kB │ gzip:     2.43 kB
+dist/assets/chunk-PWAF6VOD-Cn-GY_cD.js                                                           5.82 kB │ gzip:     2.68 kB
+dist/assets/diagram-UQ7AKVKN-Cp14pr07.js                                                         6.06 kB │ gzip:     2.56 kB
+dist/assets/pieDiagram-E7YTZNPT-BEe734sW.js                                                      6.23 kB │ gzip:     2.60 kB
+dist/assets/ProjectSidebarSessions-ChobSp9K.js                                                   6.36 kB │ gzip:     2.72 kB
+dist/assets/mermaid-parser.core-Dopv_JR7.js                                                      6.71 kB │ gzip:     1.86 kB
+dist/assets/docxGenerator-ClAtu0SA.js                                                            7.02 kB │ gzip:     2.93 kB
+dist/assets/markdownEscape-BVrMhv3Y.js                                                           7.21 kB │ gzip:     3.54 kB
+dist/assets/project-content-store-BgzjOIPA.js                                                    7.24 kB │ gzip:     2.56 kB
+dist/assets/RecordHistoryDialog-kcsH9o2p.js                                                      7.28 kB │ gzip:     2.89 kB
+dist/assets/ProjectFileIdentityActions-WH8iWwOi.js                                               7.50 kB │ gzip:     3.01 kB
+dist/assets/diagrams-Cs_RLfCZ.js                                                                 7.66 kB │ gzip:     3.54 kB
+dist/assets/full-editor-QyhfgNw1.js                                                              8.05 kB │ gzip:     3.35 kB
+dist/assets/diagram-S7CK7UJ4-CaJHUOqn.js                                                         8.19 kB │ gzip:     3.66 kB
+dist/assets/PptxEditor-M-cNU0Ye.js                                                               9.12 kB │ gzip:     2.96 kB
+dist/assets/DshAssistantPanel-Crh9gZMM.js                                                        9.23 kB │ gzip:     3.52 kB
+dist/assets/pdfGenerator-wnt8BaVp.js                                                             9.23 kB │ gzip:     3.81 kB
+dist/assets/voice-226--xR5.js                                                                    9.40 kB │ gzip:     3.27 kB
+dist/assets/chunk-L3NEJ4N5-BPkeXWoy.js                                                           9.71 kB │ gzip:     2.93 kB
+dist/assets/cynefinDiagram-5FMLGOSQ-CKoQmj3p.js                                                  9.90 kB │ gzip:     3.51 kB
+dist/assets/AgentSettingsPanel-Cs9w3ndP.js                                                       9.98 kB │ gzip:     4.30 kB
+dist/assets/SettingsDialog-BzH9SkyK.js                                                          10.14 kB │ gzip:     3.40 kB
+dist/assets/SkillsPanel-BdREakdc.js                                                             10.22 kB │ gzip:     3.44 kB
+dist/assets/chunk-2E4U76K2-_gHyOgLe.js                                                          10.41 kB │ gzip:     4.16 kB
+dist/assets/FileVersionMenu-CSwjm1Ej.js                                                         10.43 kB │ gzip:     4.06 kB
+dist/assets/stateDiagram-D77RDMKH-D4wfSwNH.js                                                   10.64 kB │ gzip:     3.73 kB
+dist/assets/diagram-VSXAHHWV-ENGpjLCY.js                                                        10.66 kB │ gzip:     4.13 kB
+dist/assets/FileVersionHistory-TZ4wR7uh.js                                                      10.69 kB │ gzip:     3.98 kB
+dist/assets/dagre-GXQ25YYZ-CfXiXkmL.js                                                          10.96 kB │ gzip:     4.14 kB
+dist/assets/ContactSettingsPanel-BsYDn-_e.js                                                    12.09 kB │ gzip:     4.38 kB
+dist/assets/RichTextStylePanel-QZJu42Zm.js                                                      12.24 kB │ gzip:     4.01 kB
+dist/assets/ScheduledTasksPanel-Dld-QVyF.js                                                     13.31 kB │ gzip:     4.31 kB
+dist/assets/ExternalConnectionsPanel-B75A7DtL.js                                                13.97 kB │ gzip:     4.82 kB
+dist/assets/VoiceSettingsPanel-CDFFQW4U.js                                                      14.18 kB │ gzip:     4.70 kB
+dist/assets/chunk-SVP7TREG-D3EM8WCA.js                                                          15.64 kB │ gzip:     4.35 kB
+dist/assets/diagram-VX7I27RA-DetFrqQc.js                                                        15.74 kB │ gzip:     5.51 kB
+dist/assets/ProjectNoteFocusPage-DW43XY6g.js                                                    16.70 kB │ gzip:     6.16 kB
+dist/assets/document-DErU5igA.js                                                                16.88 kB │ gzip:     6.89 kB
+dist/assets/ishikawaDiagram-5VMMS53U-hQTZiVCS.js                                                17.34 kB │ gzip:     6.54 kB
+dist/assets/OfficeFileContent-CI-N_h1x.js                                                       18.66 kB │ gzip:     6.60 kB
+dist/assets/WorkspaceRecordFocusPage-Bwn2exdd.js                                                19.01 kB │ gzip:     7.10 kB
+dist/assets/kanban-definition-UXKFOSKX-C63hDNI9.js                                              20.34 kB │ gzip:     7.18 kB
+dist/assets/sankeyDiagram-P5KCCOFB-DWz-1puq.js                                                  22.82 kB │ gzip:     8.26 kB
+dist/assets/HomeProjectFiles-CGReU4o5.js                                                        23.14 kB │ gzip:     7.83 kB
+dist/assets/journeyDiagram-3NMN7TZE-DKsYw_5z.js                                                 23.20 kB │ gzip:     8.18 kB
+dist/assets/mindmap-definition-YA3MSWOX-CBOohNx0.js                                             23.49 kB │ gzip:     8.02 kB
+dist/assets/graphlib-DupmttfJ.js                                                                23.90 kB │ gzip:     8.31 kB
+dist/assets/wardleyDiagram-VM6X3IG4-CplT1i-B.js                                                 25.22 kB │ gzip:     6.55 kB
+dist/assets/rough.esm-jVsucJem.js                                                               27.10 kB │ gzip:     8.85 kB
+dist/assets/gitGraphDiagram-WWUBYQGX-D9ejqQX0.js                                                29.01 kB │ gzip:     8.57 kB
+dist/assets/query-BXont_FA.js                                                                   30.07 kB │ gzip:     9.17 kB
+dist/assets/timeline-definition-24CTP7MA-CAHYCise.js                                            30.42 kB │ gzip:     9.99 kB
+dist/assets/erDiagram-RLTQ6QDP-DEOyRU9O.js                                                      30.72 kB │ gzip:    10.57 kB
+dist/assets/chunk-75Z2AOVW-CSTdWhEN.js                                                          30.87 kB │ gzip:     8.52 kB
+dist/assets/requirementDiagram-BXWQKSXE-N0w-JR_k.js                                             31.03 kB │ gzip:     9.79 kB
+dist/assets/quadrantDiagram-AXDQQJYC-Dao9TysH.js                                                33.54 kB │ gzip:     9.74 kB
+dist/assets/AiSettingsPanel-DA-pf2k2.js                                                         33.98 kB │ gzip:     9.17 kB
+dist/assets/MarkdownEditor-DNjJQUqK.js                                                          35.45 kB │ gzip:    12.64 kB
+dist/assets/ProjectSidebar-oyH9O3TV.js                                                          36.36 kB │ gzip:    12.17 kB
+dist/assets/chunk-OSK3NFVY-nwXhtSHC.js                                                          36.46 kB │ gzip:     7.95 kB
+dist/assets/dagre-mLCCQPDK.js                                                                   36.85 kB │ gzip:    13.22 kB
+dist/assets/mermaid.core-D0V1qSgn.js                                                            37.14 kB │ gzip:    12.30 kB
+dist/assets/chunk-IMKFNOWR-CIQd1LYX.js                                                          37.75 kB │ gzip:    12.31 kB
+dist/assets/vennDiagram-4TSXK5OY-NwNrUaRF.js                                                    41.19 kB │ gzip:    15.11 kB
+dist/assets/blockDiagram-I7D4REHJ-sMbsgcef.js                                                   41.45 kB │ gzip:    13.33 kB
+dist/assets/xychartDiagram-S5SC5T6Z-CyyFaAcX.js                                                 44.19 kB │ gzip:    12.23 kB
+dist/assets/src-rzQty2Ui.js                                                                     45.71 kB │ gzip:    16.02 kB
+dist/assets/chunk-LNGE3PJU-py0AsHGS.js                                                          46.39 kB │ gzip:    15.54 kB
+dist/assets/chunk-TICWLB2K-BtvFhb79.js                                                          48.87 kB │ gzip:    15.78 kB
+dist/assets/chunk-GMAD6QVW-BzUhlbAr.js                                                          51.88 kB │ gzip:    16.70 kB
+dist/assets/useDeletedRecordClose-BJKQyV2V.js                                                   59.21 kB │ gzip:    19.94 kB
+dist/assets/chunk-SHT3W25Y-C-2YnUDh.js                                                          61.32 kB │ gzip:    19.88 kB
+dist/assets/ProjectFileContent-CCNrU7Nz.js                                                      64.21 kB │ gzip:    21.68 kB
+dist/assets/c4Diagram-7LVT6UL2-B0xoXV3v.js                                                      64.76 kB │ gzip:    18.54 kB
+dist/assets/ganttDiagram-EL5Y4UJY-Dd4oJ31n.js                                                   69.43 kB │ gzip:    22.77 kB
+dist/assets/file-icons-BfOKpMF1.js                                                              73.29 kB │ gzip:    28.40 kB
+dist/assets/cose-bilkent-JH36ORCC-DLmuS2xy.js                                                   81.44 kB │ gzip:    21.59 kB
+dist/assets/router-PFppyjF4.js                                                                  92.56 kB │ gzip:    30.56 kB
+dist/assets/lib-BuFd6T3p.js                                                                    100.65 kB │ gzip:    22.55 kB
+dist/assets/chunk-4HAMMTFA-CXu0lDl0.js                                                         104.85 kB │ gzip:    25.62 kB
+dist/assets/host-common-DZkIYGc1.js                                                            106.18 kB │ gzip:    32.29 kB
+dist/assets/swimlanes-42K2YHIH-_oZzZZNa.js                                                     111.17 kB │ gzip:    38.01 kB
+dist/assets/sequenceDiagram-WJ2MYXX4-dQ6yhF6S.js                                               115.86 kB │ gzip:    30.63 kB
+dist/assets/architectureDiagram-5GKGNRK7-Cx055sl4.js                                           149.33 kB │ gzip:    41.21 kB
+dist/assets/primitives-C5rcrCQ4.js                                                             180.29 kB │ gzip:    56.70 kB
+dist/assets/react-vendor-BR3NmD1W.js                                                           189.64 kB │ gzip:    59.63 kB
+dist/assets/ImageAnnotationDialog-BzHV_b94.js                                                  200.27 kB │ gzip:    61.36 kB
+dist/assets/chunk-DU6HZSFF-DAgyn4Uv.js                                                         208.93 kB │ gzip:    27.65 kB
+dist/assets/rich-editor-BgCdCZfF.js                                                            242.60 kB │ gzip:    72.90 kB
+dist/assets/main-DD0xx-8r.js                                                                   254.06 kB │ gzip:    77.75 kB
+dist/assets/extensions-Ctlf2ZKn.js                                                             273.03 kB │ gzip:    86.84 kB
+dist/assets/todo-Tz4-Otnw.js                                                                   378.64 kB │ gzip:   169.42 kB
+dist/assets/cytoscape.esm-qB01hlFJ.js                                                          435.57 kB │ gzip:   137.95 kB
+dist/assets/SourceEditor-V3F4yy82.js                                                           535.29 kB │ gzip:   185.26 kB
+dist/assets/chunk-FOHPRMQF-ETilXcHf.js                                                         662.60 kB │ gzip:   143.20 kB
+dist/assets/browser-DGgaVzpg.js                                                                718.59 kB │ gzip:   237.31 kB
+dist/assets/dist-DuSADxvI.js                                                                   762.97 kB │ gzip:   219.39 kB
+dist/assets/editor-B_6qylLx.js                                                                 925.06 kB │ gzip:   299.55 kB
+dist/assets/adapters-CQl6dM1n.js                                                             1,063.73 kB │ gzip:   306.79 kB
+dist/assets/pdf--pFdbNxR.js                                                                  4,634.41 kB │ gzip: 2,393.43 kB
+dist/assets/vendor-CslGVS3h.js                                                               8,365.44 kB │ gzip: 1,961.75 kB
+
+[33m[EVAL] Warning:[0m Use of direct `eval` function is strongly discouraged as it poses security risks and may cause issues with minification.
+    [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m node_modules/wavedrom/lib/eva.js:17:22 [38;5;246m][0m
+    [38;5;246m│[0m
+ [38;5;246m17 │[0m [38;5;249m [0m[38;5;249m [0m[38;5;249m [0m[38;5;249m [0m[38;5;249m [0m[38;5;249m [0m[38;5;249m [0m[38;5;249m [0m[38;5;249m [0m[38;5;249m [0m[38;5;249m [0m[38;5;249m [0m[38;5;249ms[0m[38;5;249mo[0m[38;5;249mu[0m[38;5;249mr[0m[38;5;249mc[0m[38;5;249me[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0meval[38;5;249m([0m[38;5;249m'[0m[38;5;249m([0m[38;5;249m'[0m[38;5;249m [0m[38;5;249m+[0m[38;5;249m [0m[38;5;249mT[0m[38;5;249mh[0m[38;5;249me[0m[38;5;249mT[0m[38;5;249me[0m[38;5;249mx[0m[38;5;249mt[0m[38;5;249mB[0m[38;5;249mo[0m[38;5;249mx[0m[38;5;249m.[0m[38;5;249mv[0m[38;5;249ma[0m[38;5;249ml[0m[38;5;249mu[0m[38;5;249me[0m[38;5;249m [0m[38;5;249m+[0m[38;5;249m [0m[38;5;249m'[0m[38;5;249m)[0m[38;5;249m'[0m[38;5;249m)[0m[38;5;249m;[0m
+ [38;5;240m   │[0m                      ──┬─  
+ [38;5;240m   │[0m                        ╰─── Use of direct `eval` here.
+ [38;5;240m   │[0m 
+ [38;5;240m   │[0m [38;5;115mHelp[0m: Consider using indirect eval. For more information, check the documentation: https://rolldown.rs/guide/troubleshooting#avoiding-direct-eval
+[38;5;246m────╯[0m
+
+[plugin builtin:vite-reporter] 
+(!) Some chunks are larger than 900 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+[33m[EVAL] Warning:[0m Use of direct `eval` function is strongly discouraged as it poses security risks and may cause issues with minification.
+    [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m node_modules/wavedrom/lib/eva.js:23:22 [38;5;246m][0m
+    [38;5;246m│[0m
+ [38;5;246m23 │[0m [38;5;249m [0m[38;5;249m [0m[38;5;249m [0m[38;5;249m [0m[38;5;249m [0m[38;5;249m [0m[38;5;249m [0m[38;5;249m [0m[38;5;249m [0m[38;5;249m [0m[38;5;249m [0m[38;5;249m [0m[38;5;249ms[0m[38;5;249mo[0m[38;5;249mu[0m[38;5;249mr[0m[38;5;249mc[0m[38;5;249me[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0meval[38;5;249m([0m[38;5;249m'[0m[38;5;249m([0m[38;5;249m'[0m[38;5;249m [0m[38;5;249m+[0m[38;5;249m [0m[38;5;249mT[0m[38;5;249mh[0m[38;5;249me[0m[38;5;249mT[0m[38;5;249me[0m[38;5;249mx[0m[38;5;249mt[0m[38;5;249mB[0m[38;5;249mo[0m[38;5;249mx[0m[38;5;249m.[0m[38;5;249mi[0m[38;5;249mn[0m[38;5;249mn[0m[38;5;249me[0m[38;5;249mr[0m[38;5;249mH[0m[38;5;249mT[0m[38;5;249mM[0m[38;5;249mL[0m[38;5;249m [0m[38;5;249m+[0m[38;5;249m [0m[38;5;249m'[0m[38;5;249m)[0m[38;5;249m'[0m[38;5;249m)[0m[38;5;249m;[0m
+ [38;5;240m   │[0m                      ──┬─  
+ [38;5;240m   │[0m                        ╰─── Use of direct `eval` here.
+ [38;5;240m   │[0m 
+ [38;5;240m   │[0m [38;5;115mHelp[0m: Consider using indirect eval. For more information, check the documentation: https://rolldown.rs/guide/troubleshooting#avoiding-direct-eval
+[38;5;246m────╯[0m
+
+✓ built in 2.99s

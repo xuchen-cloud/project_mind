@@ -40,7 +40,7 @@ pub(crate) struct FileVersionUpdate {
 }
 /// Trusted local GUI intent. Physical bytes are frozen by hash at preflight;
 /// unknown/externally changed bytes require an explicit registration decision.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct GuiFileVersionPrepare {
     pub document_id: i64,
@@ -69,7 +69,7 @@ pub(crate) struct GuiFileVersionIntent {
     pub new_content_hash: String,
     pub source_path: Option<String>,
 }
-fn agent_failure(error: anyhow::Error) -> AgentError {
+pub(super) fn agent_failure(error: anyhow::Error) -> AgentError {
     match error.downcast::<CommitFailure>() {
         Ok(failure) => failure.0,
         Err(_) => AgentError::new(ErrorCode::IoFailed, "Cannot prepare or commit File Version"),
@@ -103,6 +103,7 @@ pub(super) enum CommitPayload {
         expected_content_hash: String,
         version_id: String,
     },
+    NativeDrop { intent: GuiFileVersionIntent },
     NativeCas {
         intent: GuiFileVersionIntent,
         register_current_bytes: bool,
@@ -561,6 +562,8 @@ impl Database {
         )?;
         let project = self.file_project_lock(project_id, false)?;
         let file = self.file_version_lock(document_id)?;
+        let document = self.document_record(document_id)?;
+        self.directory_require_file_no_pending(&document)?;
         Ok((project, file))
     }
     pub(super) fn file_scope_storage_lock(&self, directory: &str, project_id: Option<i64>, exclusive: bool) -> Result<File> {
@@ -574,6 +577,24 @@ impl Database {
         directory: &str,
         object_id: i64,
         exclusive: bool,
+    ) -> Result<File> {
+        self.file_storage_lock_mode(directory, object_id, exclusive, true)
+    }
+    /// Lifecycle-fenced directory mutations must never block behind a File
+    /// writer which may itself be waiting to enter that same fence.
+    pub(super) fn file_storage_try_lock(
+        &self,
+        directory: &str,
+        object_id: i64,
+    ) -> Result<File> {
+        self.file_storage_lock_mode(directory, object_id, true, false)
+    }
+    fn file_storage_lock_mode(
+        &self,
+        directory: &str,
+        object_id: i64,
+        exclusive: bool,
+        wait: bool,
     ) -> Result<File> {
         use fs2::FileExt;
         if object_id <= 0 {
@@ -608,7 +629,9 @@ impl Database {
         if !lock.metadata()?.is_file() || lock.metadata()?.file_type().is_symlink() {
             bail!("Invalid File lock handle");
         }
-        if exclusive {
+        if !wait {
+            lock.try_lock_exclusive()?;
+        } else if exclusive {
             lock.lock_exclusive()?;
         } else {
             FileExt::lock_shared(&lock)?;
@@ -820,6 +843,8 @@ impl Database {
         self.file_journal_clear(directory)
     }
     pub(crate) fn file_version_recover_pending(&self) -> Result<()> {
+        self.file_owner_move_recover_pending()?;
+        self.project_directory_recover_pending(None)?;
         self.file_working_recover_pending()?;
         self.file_import_recover_pending()?;
         self.file_metadata_recover_pending()?;
@@ -980,6 +1005,9 @@ impl Database {
         )
         .map(|outcome| outcome.receipt)
     }
+    pub(super) fn file_version_drop_replay(&self, request_id: &str, intent: &GuiFileVersionIntent) -> AgentResult<Option<CommittedVersion>> {
+        self.agent_operation_replay("gui",request_id,"file.version.commit",&CommitPayload::NativeDrop {intent:intent.clone()})
+    }
     pub(crate) fn file_version_commit_gui_bound(
         &mut self,
         binding: &WorkspaceBinding,
@@ -1093,17 +1121,32 @@ impl Database {
                 "File Workspace binding changed",
             ));
         }
-        let actual = self
-            .agent_resolve_object(object, &binding.workspace_id)?
-            .ok_or_else(|| AgentError::new(ErrorCode::NotFound, "File no longer exists"))?;
-        let operation = if operation == "file.restore"
-            && super::agent_file_undo::file_undo_authorize_target(
+        // Validate the request before any target or recovery-receipt lookup.
+        // Undo authority is provisional until the original receipt is verified.
+        match request.authorize(binding, &object.scope, operation) {
+            Err(error) if operation == "file.restore" && error.code == ErrorCode::ScopeDenied => {
+                request.authorize(binding, &object.scope, "operation.undo")?;
+            }
+            result => result?,
+        }
+        // Writes require claimed == actual; unlike read aliases, a claimed
+        // object's Workspace and allowlist can therefore be checked up front.
+        if object.workspace_id != binding.workspace_id {
+            return Err(AgentError::new(ErrorCode::ScopeDenied, "Object is outside the granted scope"));
+        }
+        request.require_object_allowed(object)?;
+        let operation = if operation == "file.restore" {
+            let permission = if super::agent_file_undo::file_undo_authorize_target(
                 &self.conn, request, binding, object,
-            )? {
-            "operation.undo"
+            )? { "operation.undo" } else { operation };
+            request.authorize(binding, &object.scope, permission)?;
+            permission
         } else {
             operation
         };
+        let actual = self
+            .agent_resolve_object(object, &binding.workspace_id)?
+            .ok_or_else(|| AgentError::new(ErrorCode::NotFound, "File no longer exists"))?;
         request.authorize_object(binding, object, &actual, operation)?;
         self.agent_connection_require_live(request, binding, &actual.scope, operation)?;
         self.source_live_scope(&actual.scope)?;
@@ -2104,12 +2147,15 @@ mod tests {
     use std::fs;
 
     fn hidden_test_command(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
-        let mut command = std::process::Command::new(program);
+        let command = std::process::Command::new(program);
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
+            let mut command = command;
             command.creation_flags(0x08000000);
+            return command;
         }
+        #[cfg(not(windows))]
         command
     }
     fn assert_crashed(status: std::process::ExitStatus) {
@@ -2221,6 +2267,51 @@ mod tests {
             document,
             staged,
         }
+    }
+
+    #[test]
+    fn file_version_target_authorizes_claimed_object_before_missing_diagnostics() {
+        use crate::agent::{access::Caller, errors::ErrorCode};
+        let fixture = registered_fixture(b"unused candidate");
+        let existing = fixture.update.object.clone();
+        let missing = crate::agent::models::ObjectRef {
+            id: "999999999".into(), ..existing.clone()
+        };
+        // Exercise the DB boundary with a trusted, object-limited native request.
+        let mut request = fixture.request.clone();
+        request.caller = Caller::Gui;
+        request.scope_grant.object_keys = Some(vec![existing.key().unwrap()]);
+        assert_eq!(fixture.db.file_version_registered_target(&request, &fixture.binding, &existing).unwrap().id, fixture.document.id);
+        request.scope_grant.object_keys = Some(vec![missing.key().unwrap()]);
+        assert_eq!(fixture.db.file_version_registered_target(&request, &fixture.binding, &missing).unwrap_err().code, ErrorCode::NotFound);
+
+        let error = |request: &crate::agent::access::RequestContext, object: &crate::agent::models::ObjectRef| {
+            fixture.db.file_version_registered_target(request, &fixture.binding, object).unwrap_err().code
+        };
+        request.scope_grant.object_keys = Some(vec![]);
+        let mut results = vec![
+            ("unlisted-existing", error(&request, &existing)),
+            ("unlisted-missing", error(&request, &missing)),
+        ];
+        request.binding.generation = "stale".into();
+        results.push(("stale-request", error(&request, &missing)));
+        request.binding = fixture.binding.clone();
+        request.request_id.clear();
+        results.push(("invalid-request", error(&request, &missing)));
+        request.request_id = "target-validation".into();
+        request.scope_grant.object_keys = None;
+        for (label, mut foreign) in [("workspace-existing", existing), ("workspace-missing", missing)] {
+            foreign.workspace_id = "another-workspace".into();
+            results.push((label, error(&request, &foreign)));
+        }
+        assert_eq!(results, vec![
+            ("unlisted-existing", ErrorCode::ScopeDenied),
+            ("unlisted-missing", ErrorCode::ScopeDenied),
+            ("stale-request", ErrorCode::WorkspaceChanged),
+            ("invalid-request", ErrorCode::InvalidArgument),
+            ("workspace-existing", ErrorCode::ScopeDenied),
+            ("workspace-missing", ErrorCode::ScopeDenied),
+        ]);
     }
 
     #[test]

@@ -1,0 +1,26 @@
+{
+  "sourceCommit": "6806ad7634dd539e0bcb4a526aa980e9532df929",
+  "consumerHead": "2b241e5d74c06e04b9cc67d765b448c4526d510a",
+  "identicalTrackedSourcePaths": [
+    "src",
+    "packages",
+    "scripts/record-worker-notices.mjs",
+    "vite.record-worker.config.ts",
+    "package.json",
+    "package-lock.json"
+  ],
+  "bundleCount": 118,
+  "distributionSha256": "04847e2ae44c64272c6ac3f3f0bd16466c8cff393d06c991501c0edfc411f55f",
+  "checks": [
+    {
+      "check": "record-stage",
+      "exit": 0,
+      "log": "/tmp/project-mind-wavedrom-record-stage.log"
+    },
+    {
+      "check": "record-runtime",
+      "exit": 1,
+      "log": "/tmp/project-mind-wavedrom-record-runtime.log"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "sourceHead": "f99ad344a8aa6d88659afc806018e3f9da8f34c9",
+  "graphSha256": "e0d3ce3d94be33a5afefa5e5665f711fb83502c2b51a36c01d072dde37bd2062",
+  "chunkCount": 274,
+  "removedPackagesPresent": [],
+  "mermaidChunkCount": 66,
+  "katexRetained": true,
+  "evalDiagnostics": 0,
+  "limits": "Normal shipping build, no native launch. Main source matches f99ad34; three uncommitted test/schema fixture files listed in README do not affect shipping graph."
+}

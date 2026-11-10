@@ -1,10 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createPortal } from "react-dom";
 import { Archive, Clock, GitFork, LoaderCircle, Pencil, Pin, PinOff, Plus, Trash2 } from "lucide-react";
 import { useUiStore } from "../../state/ui-store";
 import { getErrorMessage } from "../../lib/errors";
-import { dshAssistantApi } from "../../services/dshAssistantApi";
+import { refreshSessionSummaries, sessionSummariesBindingOptions, sessionSummariesQueryOptions } from "../../lib/session-summaries";
+import { dshAssistantApi, type DshSessionSummary } from "../../services/dshAssistantApi";
 import { manageProjectSession, openProjectContent, type ProjectSessionAction } from "../../services/projectContentApi";
 import { dshProjectRunKey, useAgentPanelStore } from "../../state/agent-panel-store";
 import { AiChatIcon } from "../icons/ContentTypeIcon";
@@ -19,7 +20,7 @@ export interface ProjectSidebarSessionsProps {
   activeSessionId?: string | null;
 }
 
-type Session = Awaited<ReturnType<typeof dshAssistantApi.sessions>>[number];
+type Session = DshSessionSummary;
 
 export function ProjectSidebarSessions(props: ProjectSidebarSessionsProps) {
   // Remount the async owner at scope/visibility boundaries; known names live in the scoped query cache.
@@ -28,16 +29,19 @@ export function ProjectSidebarSessions(props: ProjectSidebarSessionsProps) {
 
 function ScopedSessions({ workspaceRoot, projectId, query, enabled, activeSessionId }: ProjectSidebarSessionsProps) {
   const queryClient = useQueryClient();
-  const sessionsKey = ["agent", "sidebar-sessions", workspaceRoot, projectId] as const;
-  const [sessions, setSessions] = useState<Session[]>(() => queryClient.getQueryData<Session[]>(sessionsKey) ?? []);
-  const [loading, setLoading] = useState(enabled);
+  const binding = useQuery({ ...sessionSummariesBindingOptions(workspaceRoot), enabled });
+  const summaries = useQuery({
+    ...sessionSummariesQueryOptions(binding.data ?? { workspaceId: "", generation: "" }, projectId),
+    enabled: enabled && !!binding.data,
+  });
+  const sessions = summaries.data?.items ?? [];
+  const loading = enabled && (binding.isPending || summaries.isFetching);
   const [opening, setOpening] = useState(false);
   const [busyLabel, setBusyLabel] = useState("正在打开会话");
   const [menu, setMenu] = useState<{ session: Session; x: number; y: number } | null>(null);
   const [editing, setEditing] = useState<{ session: Session; title: string } | null>(null);
   const [deleting, setDeleting] = useState<Session | null>(null);
   const [error, setError] = useState<{ message: string; retry: () => void } | null>(null);
-  const read = useRef<AbortController | null>(null);
   const action = useRef<AbortController | null>(null);
   const active = useRef(false);
   const scopeLabel = projectId === null ? "工作区" : "项目";
@@ -48,29 +52,17 @@ function ScopedSessions({ workspaceRoot, projectId, query, enabled, activeSessio
     active.current = enabled;
     return () => {
       active.current = false;
-      read.current?.abort();
       action.current?.abort();
     };
   }, [enabled]);
 
   async function load() {
     if (!active.current) return;
-    read.current?.abort();
-    const controller = new AbortController();
-    read.current = controller;
-    setLoading(true);
-    setError(null);
-    try {
-      const saved = await dshAssistantApi.sessions(projectId);
-      if (!controller.signal.aborted) {
-        queryClient.setQueryData(sessionsKey, saved);
-        setSessions(saved);
-      }
-    } catch (reason) {
-      if (!controller.signal.aborted) setError({ message: getErrorMessage(reason, "读取项目会话失败"), retry: () => { void load(); } });
-    } finally {
-      if (!controller.signal.aborted) setLoading(false);
-    }
+    const currentBinding = binding.data ?? (await binding.refetch()).data;
+    if (!active.current || !currentBinding) return;
+    // Cancel an older snapshot before mutation reconciliation, then share the
+    // replacement with every consumer of this generation and scope.
+    await refreshSessionSummaries(queryClient, currentBinding, projectId);
   }
 
   async function open(session: Pick<Session, "id" | "title"> | null) {
@@ -133,18 +125,23 @@ function ScopedSessions({ workspaceRoot, projectId, query, enabled, activeSessio
   useEffect(() => {
     if (!enabled) return;
     const refresh = () => { void load(); };
+    const focus = () => {
+      if (binding.data) void queryClient.fetchQuery(sessionSummariesQueryOptions(binding.data, projectId)).catch(() => {});
+      else void binding.refetch();
+    };
     const changed = (event: Event) => {
       if ((event as CustomEvent<{ projectId: number | null }>).detail.projectId === projectId) refresh();
     };
     window.addEventListener("mind:dsh-sessions-changed", changed);
-    window.addEventListener("focus", refresh);
-    refresh();
+    window.addEventListener("focus", focus);
     return () => {
       window.removeEventListener("mind:dsh-sessions-changed", changed);
-      window.removeEventListener("focus", refresh);
+      window.removeEventListener("focus", focus);
     };
-  }, [workspaceRoot, projectId, enabled]);
+  }, [workspaceRoot, projectId, enabled, binding.data, queryClient]);
 
+  const readError = binding.error ?? summaries.error;
+  const displayedError = error ?? (readError ? { message: getErrorMessage(readError, "读取项目会话失败"), retry: () => { void load(); } } : null);
   const needle = query.trim().toLocaleLowerCase();
   const visible = sessions.filter(session => session.title.toLocaleLowerCase().includes(needle));
   return <section className="project-navigation__section" aria-label={`${scopeLabel}会话`}>
@@ -154,7 +151,7 @@ function ScopedSessions({ workspaceRoot, projectId, query, enabled, activeSessio
       <button type="button" aria-label="新增会话" title="新增会话" disabled={!enabled || opening} onClick={() => { void open(null); }}><Plus size={16} /></button>
     </div></div>
     <HomeSidebarList label={`${scopeLabel}会话列表`} searchKey={query}>
-      {error ? <div role="alert" className="home-side__empty"><p>{error.message}</p><button type="button" disabled={loading || opening} onClick={error.retry}>重试</button></div> : null}
+      {displayedError ? <div role="alert" className="home-side__empty"><p>{displayedError.message}</p><button type="button" disabled={loading || opening} onClick={displayedError.retry}>重试</button></div> : null}
       {visible.map(session => editing?.session.id === session.id ? <input key={session.id} autoFocus aria-label="重命名会话" className="home-side__rename"
         value={editing.title} onChange={event => setEditing({ ...editing, title: event.target.value })}
         onBlur={() => { const title = editing.title.trim(); if (title && title !== session.title) void manage(session, { kind: "rename", title }); else setEditing(null); }}
@@ -162,17 +159,17 @@ function ScopedSessions({ workspaceRoot, projectId, query, enabled, activeSessio
         disabled={opening} onClick={() => { void open(session); }}
         onContextMenu={event => { event.preventDefault(); if (!opening) setMenu({ session, x: event.clientX, y: event.clientY }); }}>
         <AiChatIcon size={12} /><span className="min-w-0 flex-1 truncate">{session.title || "新会话"}</span>
-        {sessionRuns?.[session.id] ? <LoaderCircle size={14} role="status" aria-label="运行中" aria-hidden={false} className="home-side__running spin" /> : null}
+        {(sessionRuns ? !!sessionRuns[session.id] : session.running) ? <LoaderCircle size={14} role="status" aria-label="运行中" aria-hidden={false} className="home-side__running spin" /> : null}
         {session.pinned ? <ListPinIndicator /> : null}
       </button>)}
-      {enabled && !loading && !error && !visible.length ? <p className="home-side__empty">{needle ? "没有匹配的会话" : "暂无会话"}</p> : null}
+      {enabled && !loading && !displayedError && !visible.length ? <p className="home-side__empty">{needle ? "没有匹配的会话" : "暂无会话"}</p> : null}
     </HomeSidebarList>
     {menu ? createPortal(<ActionContextMenu x={menu.x} y={menu.y} ariaLabel="会话操作" onClose={() => setMenu(null)} actions={[
       { label: "重命名", icon: Pencil, onSelect: () => setEditing({ session: menu.session, title: menu.session.title }) },
       { label: menu.session.pinned ? "取消置顶" : "置顶", icon: menu.session.pinned ? PinOff : Pin, onSelect: () => void manage(menu.session, { kind: menu.session.pinned ? "unpin" : "pin" }) },
       { label: "分叉会话", icon: GitFork, onSelect: () => void manage(menu.session, { kind: "fork", childSessionId: `session-${crypto.randomUUID()}` }) },
-      { label: "归档", icon: Archive, disabled: !!sessionRuns?.[menu.session.id], onSelect: () => void manage(menu.session, { kind: "archive" }) },
-      { label: "删除", icon: Trash2, tone: "danger", disabled: !!sessionRuns?.[menu.session.id], onSelect: () => setDeleting(menu.session) },
+      { label: "归档", icon: Archive, disabled: !!(sessionRuns ? !!sessionRuns[menu.session.id] : menu.session.running), onSelect: () => void manage(menu.session, { kind: "archive" }) },
+      { label: "删除", icon: Trash2, tone: "danger", disabled: !!(sessionRuns ? !!sessionRuns[menu.session.id] : menu.session.running), onSelect: () => setDeleting(menu.session) },
     ]} />, document.body) : null}
     <Dialog open={!!deleting} title="删除会话" onClose={() => setDeleting(null)} footer={<>
       <Button onClick={() => setDeleting(null)}>取消</Button><Button variant="danger" onClick={() => { if (deleting) void manage(deleting, { kind: "delete" }); }}>删除</Button>

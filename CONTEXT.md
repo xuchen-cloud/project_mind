@@ -129,7 +129,7 @@ _Avoid_：Document、附件记录
 _Avoid_：占位 Project、项目文件汇总、内部数据文件
 
 **File Version**：
-同一个 File 在特定时点的内容版本，依附于该 File，不是新的独立 File。
+同一个 File 在特定时点的内容版本，依附于该 File，不是新的独立 File。版本可有自定义显示名称和重要标记；它们不改变版本号、内容或身份。重要版本不被自动清理。
 _Avoid_：Document Version、独立 File
 
 File 的当前内容可以持续保存，File Version 是不可变历史。人工编辑默认在该文件空闲 15 分钟后归档一次；保存、关闭和历史归档是不同动作。当前内容的 revision/hash 用于并发检查，不能用未归档字节替换已有 File Version。明确的 AI 当前内容读取可收束人工批次以取得固定依据，后台扫描不建立这一边界。

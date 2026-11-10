@@ -116,7 +116,6 @@ impl OverviewModel for MockModel {
         Ok(crate::overview_model::GeneratedOverview {
             text: self.response.lock().unwrap().clone(),
             model_profile_id: "mock-profile".into(),
-            usage: serde_json::json!({}),
         })
     }
 }
@@ -137,7 +136,6 @@ impl OverviewModel for BlockingModel {
         Ok(crate::overview_model::GeneratedOverview {
             text: r#"{"upsertItems":[],"removeItemIds":[]}"#.into(),
             model_profile_id: "blocked-mock".into(),
-            usage: serde_json::json!({}),
         })
     }
 }

@@ -1,0 +1,46 @@
+.rich-editor__mermaid > code[hidden],
+.rich-editor__mermaid-ui[hidden],
+.rich-editor__mermaid-ui > [hidden] {
+  display: none;
+}
+
+.rich-editor__mermaid-ui {
+  display: block;
+  white-space: normal;
+  font-family: inherit;
+}
+
+.rich-editor__mermaid-toggle {
+  display: block;
+  margin-block: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-4);
+  padding: 4px 8px;
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.rich-editor__mermaid-preview {
+  display: block;
+  cursor: pointer;
+}
+
+.rich-editor__mermaid-preview svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin-inline: auto;
+}
+
+.rich-editor__mermaid-toggle:focus-visible,
+.rich-editor__mermaid-preview:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.rich-editor__mermaid-status {
+  display: block;
+  overflow-wrap: anywhere;
+}

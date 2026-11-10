@@ -52,6 +52,8 @@ Record Focus 的页面元数据与草稿在组件首次构造时按以下顺序�
 
 命中前两种来源时首帧显示缓存的页面元数据，避免重复请求整页。canonical 正文和编辑基线仍由 `useCanonicalRecordEditor` 调用原生 `editorGet` 获取；工作区绑定、head revision 和编辑注册就绪后才允许编辑。同 generation 的待保存 canonical 快照可恢复草稿与 base revision，HTML 投影缓存不能替代权威正文。已驻留页面保留加载状态和编辑器；后台 Query 更新不得覆盖其编辑现场。
 
+首次发布可编辑状态时，正文和提交基线必须来自同一快照。读取、异步注册或首次 React commit 期间若有保存完成，加载流程重新读取正文与 revision，不能只推进旧正文的基线。恢复待保存草稿时使用该草稿自己的 binding、generation 与 base revision；不得把较新 head revision 拼接到旧草稿上。
+
 Warm Focus 使用不可见布局、`aria-hidden` 与 `inert`，暂停页面级查询，并将编辑器切换为不可编辑状态；它不获取焦点、不自动聚焦，也不响应 Active 页面交互。重新成为 Active 时复用同一编辑器实例，以保留光标、选区、撤销历史和滚动位置。
 
 ## 富文本与图片缓存
@@ -68,6 +70,8 @@ Warm Focus 使用不可见布局、`aria-hidden` 与 `inert`，暂停页面级�
 - 同一 Record 只有最新提交的成功结果可以写回 React Query；仍在排队或失败的较新快照不会被较旧结果覆盖。
 - 失败任务保留其快照，并通过 Toast 显示。可重试失败能够从失败通知重试，且不阻塞普通导航。
 - 正常退出、切换 Workspace 和安装更新是 flush barrier：必须等待对应 Workspace 的队列完成；flush 失败会取消该生命周期动作并保留任务。
+
+保存失败的恢复分为三种情况。可重试的 I/O 失败保留原请求和快照，可从失败通知重试；`REVISION_CONFLICT` 保留当前草稿，通过“查看差异 / 重载 / 另存 Record”明确选择后再继续。原生明确返回不可重试的 `INVALID_PATCH` 时，用户修正内容产生的新捕获可替换同一 binding、generation、base revision 下的被拒队首，并使用新的请求 ID；它不等于重试原错误请求，也不允许绕过版本冲突或不确定的保存回执。其他不可重试错误仍保留编辑现场和失败快照，应先复制需要保留的可见内容并记录错误，不能把关闭应用当作恢复方法；尚未成功保存的输入没有落盘保证。
 
 ## 性能验收
 

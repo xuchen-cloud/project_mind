@@ -1,0 +1,9 @@
+import base from '/Users/xuchen/project_mind/vite.config';
+import {defineConfig,mergeConfig} from 'vitest/config';
+const config=mergeConfig(base,defineConfig({
+ root:'/private/tmp/project-mind-review-01a', cacheDir:'/private/tmp/project-mind-review-01a/.vite',
+ test:{include:['*.test.tsx'],setupFiles:['/Users/xuchen/project_mind/src/test/setup.ts'],maxWorkers:1},
+}));
+
+config.test.setupFiles=['/Users/xuchen/project_mind/src/test/setup.ts'];
+export default config;

@@ -1,0 +1,41 @@
+cwd: /tmp/project-mind-review-markdown-undo
+command: ["/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node", "node_modules/vitest/vitest.mjs", "run", "src/components/markdown/MarkdownEditor.test.tsx", "src/components/markdown/RichMarkdownEditor.contextMenu.test.tsx", "--maxWorkers=1", "--reporter=verbose"]
+
+ RUN  v4.1.2 /private/tmp/project-mind-review-markdown-undo
+
+ ✓ src/components/markdown/MarkdownEditor.test.tsx > defaults to editable blocks with one icon toolbar and ignores legacy presentationMode 616ms
+ ✓ src/components/markdown/MarkdownEditor.test.tsx > normalizes persisted source mode to source or rich 19ms
+ ✓ src/components/markdown/MarkdownEditor.test.tsx > normalizes persisted split mode to source or rich 23ms
+ ✓ src/components/markdown/MarkdownEditor.test.tsx > normalizes persisted preview mode to source or rich 24ms
+ ✓ src/components/markdown/MarkdownEditor.test.tsx > normalizes persisted rich mode to source or rich 19ms
+ ✓ src/components/markdown/MarkdownEditor.test.tsx > automatically opens source and retains external line jumps through lazy loading and document replacement 101ms
+ ✓ src/components/markdown/MarkdownEditor.test.tsx > supports initial line requests and sourceMode deep links without reinterpreting local mode changes 79ms
+ ✓ src/components/markdown/MarkdownEditor.test.tsx > keeps actual table insertion and undo available in blocks, and source edits across mode changes 110ms
+ ✓ src/components/markdown/MarkdownEditor.test.tsx > offers dismissible image and YAML panels, preserves source bytes and does not insert on cancel 119ms
+ ✓ src/components/markdown/MarkdownEditor.test.tsx > finds and replaces actual block content, and keeps readonly search without mutation 99ms
+ ✓ src/components/markdown/MarkdownEditor.test.tsx > keeps slider, minus, plus and percentage connected to the same zoom across source and blocks 83ms
+ ✓ src/components/markdown/MarkdownEditor.test.tsx > keeps the real body-mounted math editor dismissible and applies formulas to blocks 57ms
+ ✓ src/components/markdown/RichMarkdownEditor.contextMenu.test.tsx > preserves the browser text selection and applies the shared bold command without AI or unsupported marks 114ms
+ ✓ src/components/markdown/RichMarkdownEditor.contextMenu.test.tsx > positions blank-space insertion at the document end and exposes only real insertions 32ms
+ ✓ src/components/markdown/RichMarkdownEditor.contextMenu.test.tsx > uses the shared table context menu for row insertion without a floating table toolbar 26ms
+ ✓ src/components/markdown/RichMarkdownEditor.contextMenu.test.tsx > offers copy only in read-only mode and copies the selected text without changing content 63ms
+ ✓ src/components/markdown/RichMarkdownEditor.contextMenu.test.tsx > closes and cancels a context menu on escape 17ms
+ ✓ src/components/markdown/RichMarkdownEditor.contextMenu.test.tsx > closes and cancels a context menu on outside 17ms
+ ✓ src/components/markdown/RichMarkdownEditor.contextMenu.test.tsx > closes and cancels a context menu on selection 14ms
+ ✓ src/components/markdown/RichMarkdownEditor.contextMenu.test.tsx > discards delayed clipboard paste after document changes 68ms
+ ✓ src/components/markdown/RichMarkdownEditor.contextMenu.test.tsx > discards delayed clipboard paste after selection changes 68ms
+ ✓ src/components/markdown/RichMarkdownEditor.contextMenu.test.tsx > discards delayed clipboard paste after readonly changes 70ms
+ ✓ src/components/markdown/RichMarkdownEditor.contextMenu.test.tsx > discards delayed clipboard paste after reopen changes 71ms
+ ✓ src/components/markdown/RichMarkdownEditor.contextMenu.test.tsx > discards delayed clipboard paste after unmount changes 66ms
+ ✓ src/components/markdown/RichMarkdownEditor.contextMenu.test.tsx > pastes Markdown into the original selection when the clipboard target remains current 18ms
+ ✓ src/components/markdown/RichMarkdownEditor.contextMenu.test.tsx > never deletes a newer selection when a cut write finishes late 66ms
+ ✓ src/components/markdown/RichMarkdownEditor.contextMenu.test.tsx > keeps LocalImage as the clipboard image handler 23ms
+ ✓ src/components/markdown/RichMarkdownEditor.contextMenu.test.tsx > reads native clipboard through the desktop adapter and validates the current target after await 69ms
+ ✓ src/components/markdown/RichMarkdownEditor.contextMenu.test.tsx > reads native clipboard through the desktop adapter and validates the document target after await 69ms
+ ✓ src/components/markdown/RichMarkdownEditor.contextMenu.test.tsx > reads native clipboard through the desktop adapter and validates the readonly target after await 67ms
+
+ Test Files  2 passed (2)
+      Tests  30 passed (30)
+   Start at  00:28:28
+   Duration  3.46s (transform 269ms, setup 87ms, import 539ms, tests 2.29s, environment 430ms)
+

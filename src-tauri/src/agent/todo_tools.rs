@@ -1,5 +1,7 @@
 //! Typed current Todo reads used to prepare revision-checked staged outputs.
-use super::{models::ObjectRef, tools::object_ref_schema};
+use super::models::ObjectRef;
+#[cfg(test)]
+use super::tools::object_ref_schema;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -115,6 +117,7 @@ pub(crate) struct TodoListPage {
     pub stale_count: usize,
 }
 
+#[cfg(test)]
 pub(super) fn todo_ref_schema() -> Value {
     let mut value = object_ref_schema();
     value["properties"]["kind"] = json!({"type":"string","maxLength":4,"const":"todo"});

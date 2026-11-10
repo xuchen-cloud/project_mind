@@ -320,6 +320,7 @@ impl Database {
             directory_complete: !needs_rebuild,
         })
     }
+    #[cfg(test)]
     pub(crate) fn agent_overview_maintenance_coverage(
         &self,
         binding: &WorkspaceBinding,
@@ -689,6 +690,7 @@ impl Database {
         write_ledger(&tx,scope,&ledger,now)?;
         tx.commit().map_err(io_error)
     }
+    #[cfg(test)]
     pub(crate) fn agent_overview_maintenance_save_draft(
         &self,
         binding: &WorkspaceBinding,

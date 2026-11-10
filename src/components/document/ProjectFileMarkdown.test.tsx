@@ -194,3 +194,90 @@ it('does not display working bytes as the archived version while history is load
  expect(await screen.findByText('原文')).toBeVisible();expect(screen.getByRole('button',{name:'编辑文档'})).toBeDisabled();
  expect(fileWorkingApi.close).toHaveBeenCalledOnce();view.unmount();
 });
+
+// Adapted from the retained frontend-probes/file-version.test.tsx reproduction.
+it.each(['success', 'failure'])('guards an incoming fixed-version prop until Markdown save %s', async outcome => {
+    const client = new QueryClient();
+    const wrap = (versionNumber?: number) => <QueryClientProvider client={client}><ProjectFileContent workspaceRoot="/workspace" projectId={2} fileId={7} visible focused versionNumber={versionNumber}/></QueryClientProvider>;
+    vi.mocked(fileDocumentApi.versionsList).mockImplementation(async () => ({object, currentVersionNumber:2, currentContentHash:'hash2', versions:[2,1].map(n => ({id:String(n), versionNumber:n, name:'sample.md', createdAt:'', contentHash:`hash${n}`, isCurrent:n===2})), nextCursor:null}));
+    let resolve!: () => void;
+    let reject!: (error: Error) => void;
+    vi.mocked(fileWorkingApi.saveText).mockImplementationOnce(() => new Promise((done, fail) => {resolve = () => {current=3; done(status());}; reject=fail;}));
+    const view = render(wrap());
+    await screen.findByText('原文');
+    fireEvent.click(screen.getByRole('button', {name:'编辑文档'}));
+    const editor = screen.getByRole('button', {name:'编辑文档'});
+    view.rerender(wrap(1));
+    await waitFor(() => expect(fileWorkingApi.saveText).toHaveBeenCalledOnce());
+    expect(screen.getByRole('button', {name:'编辑文档'})).toBe(editor);
+    expect(editor).not.toBeDisabled();
+    expect(screen.getByText('保留草稿')).toBeVisible();
+    expect(fileWorkingApi.close).not.toHaveBeenCalled();
+    if (outcome === 'failure') {
+        await act(async () => reject(new Error('保存失败，保留现场')));
+        await waitFor(() => expect(screen.getAllByRole('alert').some(a => a.textContent?.includes('保存失败，保留现场'))).toBe(true));
+        expect(editor).not.toBeDisabled();
+        expect(screen.getByText('保留草稿')).toBeVisible();
+        expect(fileWorkingApi.close).not.toHaveBeenCalled();
+        // A failed external request remains recoverable from the retained tab.
+        fireEvent.click(screen.getByRole('button', {name:'文件查看版本'}));
+        fireEvent.click(await screen.findByRole('menuitemradio', {name:'v1', exact:true}));
+        await waitFor(() => expect(screen.getByRole('button', {name:'编辑文档'})).toBeDisabled());
+        expect(fileWorkingApi.saveText).toHaveBeenCalledTimes(2);
+        expect(fileWorkingApi.saveText).toHaveBeenLastCalledWith(binding, expect.objectContaining({sessionId:'session2', expectedRevision:2, text:'保留草稿'}), expect.any(String));
+    } else {
+        await act(async () => resolve());
+        await waitFor(() => expect(screen.getByRole('button', {name:'编辑文档'})).toBeDisabled());
+        expect(fileWorkingApi.close).toHaveBeenCalledOnce();
+        expect(fileWorkingApi.saveText).toHaveBeenCalledWith(binding, expect.objectContaining({sessionId:'session2', text:'保留草稿'}), expect.any(String));
+    }
+    view.unmount();
+});
+
+it.each(['newer version', 'return to current', 'menu choice', 'unmount'])('ignores a superseded external switch after %s', async supersede => {
+    const client = new QueryClient();
+    const onViewChange = vi.fn();
+    const wrap = (versionNumber?: number) => <QueryClientProvider client={client}><ProjectFileContent workspaceRoot="/workspace" projectId={2} fileId={7} visible focused versionNumber={versionNumber} onViewChange={onViewChange}/></QueryClientProvider>;
+    vi.mocked(fileDocumentApi.versionsList).mockImplementation(async () => ({object, currentVersionNumber:2, currentContentHash:'hash2', versions:[2,1].map(n => ({id:String(n), versionNumber:n, name:'sample.md', createdAt:'', contentHash:`hash${n}`, isCurrent:n===2})), nextCursor:null}));
+    let finish!: () => void;
+    vi.mocked(fileWorkingApi.saveText).mockImplementationOnce(() => new Promise(done => {finish=() => {current=3; done(status());};}));
+    const view=render(wrap()); await screen.findByText('原文');
+    fireEvent.click(screen.getByRole('button', {name:'编辑文档'}));
+    view.rerender(wrap(1));
+    await waitFor(() => expect(fileWorkingApi.saveText).toHaveBeenCalledOnce());
+    if (supersede === 'unmount') view.unmount();
+    else if (supersede === 'menu choice') {
+        fireEvent.click(screen.getByRole('button', {name:'文件查看版本'}));
+        fireEvent.click(await screen.findByRole('menuitemradio', {name:'v2', exact:true}));
+    } else view.rerender(wrap(supersede === 'newer version' ? 2 : undefined));
+    await act(async () => finish());
+    if (supersede !== 'unmount') {
+        const historical=supersede !== 'return to current';
+        await waitFor(() => expect(screen.getByRole('button', {name:'文件查看版本'})).toHaveTextContent(historical ? 'v2' : '当前内容'));
+        expect(screen.getByRole('button', {name:'编辑文档'}).hasAttribute('disabled')).toBe(historical);
+        expect(fileWorkingApi.close).toHaveBeenCalledTimes(historical ? 1 : 0);
+        if (!historical) expect(screen.getByText('保留草稿')).toBeVisible();
+        view.unmount();
+    }
+    expect(fileWorkingApi.saveText).toHaveBeenCalledOnce();
+    expect(onViewChange).not.toHaveBeenCalledWith(expect.objectContaining({versionNumber:1}));
+});
+
+it('does not publish a stale failed version request after the parent cancels it', async () => {
+    const client=new QueryClient();
+    const onViewChange=vi.fn();
+    const wrap=(versionNumber?:number) => <QueryClientProvider client={client}><ProjectFileContent workspaceRoot="/workspace" projectId={2} fileId={7} visible focused versionNumber={versionNumber} onViewChange={onViewChange}/></QueryClientProvider>;
+    let reject!: (error:Error) => void;
+    vi.mocked(fileWorkingApi.saveText).mockImplementationOnce(() => new Promise((_, fail) => {reject=fail;}));
+    const view=render(wrap()); await screen.findByText('原文');
+    fireEvent.click(screen.getByRole('button', {name:'编辑文档'}));
+    view.rerender(wrap(1));
+    await waitFor(() => expect(fileWorkingApi.saveText).toHaveBeenCalledOnce());
+    view.rerender(wrap());
+    await act(async () => reject(Error('保存仍失败')));
+    expect(onViewChange).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', {name:'文件查看版本'})).toHaveTextContent('当前内容');
+    expect(screen.getByText('保留草稿')).toBeVisible();
+    expect(fileWorkingApi.close).not.toHaveBeenCalled();
+    view.unmount();
+});

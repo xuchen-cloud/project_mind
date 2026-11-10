@@ -1,6 +1,6 @@
 import { useEffect, useRef, type RefObject } from "react";
 
-interface UseDismissOnOutsideOptions<T extends HTMLElement> {
+interface UseDismissOnOutsideOptions {
   enabled: boolean;
   onDismiss: () => void;
   ignoredRefs?: Array<RefObject<HTMLElement | null>>;
@@ -23,7 +23,7 @@ export function useDismissOnOutside<T extends HTMLElement>({
   onDismiss,
   ignoredRefs = [],
   listenFocusIn = true,
-}: UseDismissOnOutsideOptions<T>) {
+}: UseDismissOnOutsideOptions) {
   const ref = useRef<T | null>(null);
 
   useEffect(() => {

@@ -59,6 +59,9 @@ export interface PptxPictureElement extends PptxTarget {
 }
 export interface PptxModel {
   format: 'pptx';
+  /** GUI view cache only; sourceBase64 remains the complete saving authority. */
+  coverage?: {kind:'partial'|'complete';partial:boolean;sourceHash:string;loadedSlides:number[];totalSlides:number;archiveMs?:number;xmlValidationMs?:number};
+  slideCatalog?: {slideIndex:number;path:string}[];
   originalHash: string;
   /** Baseline bytes for the isolated browser editing session. Host retains CAS authority. */
   sourceBase64?: string;

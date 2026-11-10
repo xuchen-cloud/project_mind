@@ -1,0 +1,23 @@
+from pathlib import Path
+import re, sqlite3, time
+source=Path('/Users/xuchen/project_mind/src-tauri/src/db.rs').read_text()
+method=source[source.index('    pub fn voice_session_create('):source.index('    pub fn voice_current_session(')]
+insert=re.search(r'INSERT INTO notes[\s\S]+?\)\s*"#',method).group(0).rsplit('"#',1)[0].strip()
+select=re.search(r'"(SELECT EXISTS\(SELECT 1 FROM projects WHERE id = \?1 AND kind = \?2\))"',method).group(1)
+path=Path('/tmp/mind-persistence-review-uo_zy3f2/voice-sql-probe-final.sqlite')
+voice=sqlite3.connect(path,timeout=5,isolation_level=None)
+voice.executescript("CREATE TABLE projects(id INTEGER PRIMARY KEY,kind TEXT,name TEXT); INSERT INTO projects VALUES(1,'normal','fixture'); CREATE TABLE notes(id INTEGER PRIMARY KEY,project_id INTEGER,title TEXT,content_markdown TEXT,content_html TEXT,default_code_language TEXT,created_at TEXT,updated_at TEXT);")
+other=sqlite3.connect(path,timeout=5,isolation_level=None)
+print('sqlite',sqlite3.sqlite_version,'journal_mode',voice.execute('pragma journal_mode').fetchone()[0],'busy_timeout',voice.execute('pragma busy_timeout').fetchone()[0])
+voice.execute('BEGIN DEFERRED')
+assert voice.execute(select,(1,'normal')).fetchone()==(1,)
+other.execute('BEGIN IMMEDIATE')
+other.execute("UPDATE projects SET name='concurrent ordinary write' WHERE id=1")
+t0=time.perf_counter()
+try:
+    voice.execute(insert,(1,'voice start','2026-11-10'))
+    raise AssertionError('unexpected successful upgrade')
+except sqlite3.OperationalError as err:
+    print('voice project draft INSERT:',str(err),'code',getattr(err, 'sqlite_errorcode', 'not exposed by Python binding'),'elapsed_ms',round((time.perf_counter()-t0)*1000,3))
+finally:
+    voice.rollback();other.rollback();voice.close();other.close()

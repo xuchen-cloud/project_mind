@@ -1,17 +1,20 @@
 //! Provenance from trusted native result fields only. Text and tool arguments
 //! are deliberately never inspected for references.
 use super::{
-    access::{Caller, RequestContext},
+    access::RequestContext,
     errors::{AgentError, AgentResult, ErrorCode},
     models::{ObjectKind, ObjectRef, Scope, SourceRef, WorkspaceBinding},
-    output_runtime::OutputState,
 };
+#[cfg(test)]
+use super::{access::Caller, output_runtime::OutputState};
 use crate::{
     agent::context::{AiOverview, PublishedOverviewRef},
     db::{agent_run_provenance::{ObservedSource, ObservedIdentity, MemoryDependency, PublishedDependency}, Database},
     source_service::SourceReadTarget,
 };
+#[cfg(test)]
 use serde::de::DeserializeOwned;
+#[cfg(test)]
 use serde_json::Value;
 use std::collections::HashSet;
 
@@ -21,9 +24,11 @@ fn not_ready() -> AgentError {
         "Native result has no traceable source identity",
     )
 }
+#[cfg(test)]
 fn field<'a>(value: &'a Value, key: &str) -> AgentResult<&'a Value> {
     value.get(key).ok_or_else(not_ready)
 }
+#[cfg(test)]
 fn typed<T: DeserializeOwned>(value: &Value) -> AgentResult<T> {
     serde_json::from_value(value.clone()).map_err(|_| not_ready())
 }
@@ -135,18 +140,22 @@ pub(crate) fn expand_sources(
     }
     Ok(out)
 }
+#[cfg(test)]
 fn object(value: &Value) -> AgentResult<ObservedSource> {
     Ok(ObservedSource {
         object: typed::<ObjectRef>(value)?.into(),
         revision: None,
     })
 }
+#[cfg(test)]
 fn array<'a>(value: &'a Value, key: &str) -> AgentResult<&'a Vec<Value>> {
     field(value, key)?.as_array().ok_or_else(not_ready)
 }
+#[cfg(test)]
 fn revision(value: &Value) -> AgentResult<u64> {
     value.as_u64().filter(|n| *n > 0).ok_or_else(not_ready)
 }
+#[cfg(test)]
 fn scope(value: &Value) -> AgentResult<Scope> {
     typed(field(value, "scope")?)
 }
@@ -260,6 +269,7 @@ pub(crate) fn context_derived_sources(db: &Database, request: &RequestContext,
     Ok(out)
 }
 
+#[cfg(test)]
 fn output_card(
     db: &Database,
     request: &RequestContext,
@@ -286,6 +296,7 @@ fn output_card(
     }
     Ok(())
 }
+#[cfg(test)]
 fn add_history(
     db: &Database,
     request: &RequestContext,
@@ -298,6 +309,7 @@ fn add_history(
     out.push(observed(&source));
     Ok(())
 }
+#[cfg(test)]
 /// Extract every source that the native result actually exposed. Unknown reads
 /// fail closed; successful mutation receipts carry no new business body.
 pub(super) fn result_sources(

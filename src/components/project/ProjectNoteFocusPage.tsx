@@ -1,7 +1,8 @@
 import { HomeSaveIndicator } from "../home/HomeSaveIndicator";
 import { HomeRecordHeader } from "../home/HomeRecordHeader";
 import "../home/home.css";
-import { useCallback,useEffect,useLayoutEffect,useMemo,useRef,useState,type KeyboardEvent } from "react";
+import { useCallback,useContext,useEffect,useLayoutEffect,useMemo,useRef,useState,type KeyboardEvent } from "react";
+import { ProjectContentMoveContext } from "../../lib/project-content-move-context";
 import { useQuery,useQueryClient } from "@tanstack/react-query";
 import { useNavigate,useParams,useSearchParams } from "react-router-dom";
 
@@ -70,7 +71,7 @@ export interface ProjectNoteFocusPageProps {
   embedded?: boolean;
   searchParamsOverride?: URLSearchParams;
   onBack?: () => void;
-  registerCloseGuard?: (guard: () => Promise<void>) => () => void;
+  registerCloseGuard?: (close: () => Promise<void>, strictSave?: () => Promise<void>) => () => void;
 }
 
 interface ProjectRecordDraft {
@@ -392,8 +393,10 @@ export function ProjectNoteFocusPage({
     [saveCoordinator, submitCurrentRecord],
   );
 
+  const contentMove = useContext(ProjectContentMoveContext);
   const leaveEditorRef = useRef<() => void>(() => undefined);
   leaveEditorRef.current = () => {
+    if (contentMove?.committed) return;
     if (!editingReady || !submitCurrentRecord()) return;
     void canonical.checkpoint("leave_editor").catch(() => setPersistState("error"));
   };
@@ -500,11 +503,16 @@ export function ProjectNoteFocusPage({
   identityRef.current = `${projectId}:${recordId}`;
   useEffect(() => {
     const identity = `${projectId}:${recordId}`;
+    const strictSave = async () => {
+      if (identityRef.current !== identity) throw new Error("记录页面身份已变化");
+      await closeGuardRef.current();
+      if (identityRef.current !== identity) throw new Error("记录页面身份已变化");
+    };
     return registerCloseGuard?.(async () => {
       if (identityRef.current !== identity) throw new Error("记录页面身份已变化");
-      await deletedRecordClose.prepareClose(() => closeGuardRef.current());
+      await deletedRecordClose.prepareClose(strictSave);
       if (identityRef.current !== identity) throw new Error("记录页面身份已变化");
-    });
+    }, strictSave);
   }, [registerCloseGuard, projectId, recordId]);
 
   useEffect(() => {

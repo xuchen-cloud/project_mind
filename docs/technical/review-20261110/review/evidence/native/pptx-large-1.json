@@ -1,0 +1,1249 @@
+{
+  "runner": {
+    "binary": "/tmp/project-mind-full-review-20261110/Project Mind Review.app/Contents/MacOS/project_mind_alpha",
+    "config": {
+      "workspaceRoot": "/tmp/project-mind-full-review-20261110/workspace",
+      "format": "pptx",
+      "sample": "large",
+      "run": 1,
+      "width": 980,
+      "setup": false,
+      "visible": true,
+      "acceptance": false,
+      "cycles": 0,
+      "races": false,
+      "reportUrl": "http://127.0.0.1:52509/result"
+    },
+    "attempt": 1,
+    "wallMs": 5317.798374999999
+  },
+  "scope": "native ProjectFileContent shell (not full application startup)",
+  "config": {
+    "acceptance": false,
+    "cycles": 0,
+    "format": "pptx",
+    "races": false,
+    "reportUrl": "http://127.0.0.1:52509/result",
+    "run": 1,
+    "sample": "large",
+    "setup": false,
+    "visible": true,
+    "width": 980,
+    "workspaceRoot": "/tmp/project-mind-full-review-20261110/workspace"
+  },
+  "visibility": "visible",
+  "shell_ready": {
+    "startTime": 448,
+    "navigation": [
+      {
+        "name": "tauri://localhost/scripts/office-performance/native.html",
+        "entryType": "navigation",
+        "startTime": 0,
+        "duration": 250,
+        "initiatorType": "navigation",
+        "nextHopProtocol": "",
+        "workerStart": 0,
+        "redirectStart": 0,
+        "redirectEnd": 0,
+        "fetchStart": 0,
+        "domainLookupStart": 0,
+        "domainLookupEnd": 0,
+        "connectStart": 0,
+        "connectEnd": 0,
+        "secureConnectionStart": 0,
+        "requestStart": 0,
+        "finalResponseHeadersStart": 0,
+        "firstInterimResponseStart": 0,
+        "responseStart": 0,
+        "responseEnd": 6,
+        "transferSize": 0,
+        "encodedBodySize": 0,
+        "decodedBodySize": 0,
+        "deliveryType": "",
+        "serverTiming": [],
+        "unloadEventStart": 0,
+        "unloadEventEnd": 0,
+        "domInteractive": 6,
+        "domContentLoadedEventStart": 73,
+        "domContentLoadedEventEnd": 73,
+        "domComplete": 249,
+        "loadEventStart": 250,
+        "loadEventEnd": 250,
+        "type": "navigate",
+        "redirectCount": 0
+      }
+    ]
+  },
+  "commands": [
+    {
+      "api": "command",
+      "name": "workspace_open",
+      "startTime": 448,
+      "duration": 776
+    },
+    {
+      "api": "command",
+      "name": "projects_list",
+      "startTime": 1224,
+      "duration": 3
+    },
+    {
+      "api": "command",
+      "name": "record_workspace_binding_get",
+      "startTime": 1227,
+      "duration": 0
+    },
+    {
+      "api": "fileCommand",
+      "name": "project_file_scan",
+      "startTime": 1227,
+      "duration": 35
+    },
+    {
+      "api": "fileCommand",
+      "name": "project_file_register",
+      "startTime": 1263.0000000000002,
+      "duration": 4.999999999999773
+    },
+    {
+      "api": "fileCommand",
+      "name": "project_file_register",
+      "startTime": 1268,
+      "duration": 2
+    },
+    {
+      "api": "command",
+      "name": "record_workspace_binding_get",
+      "startTime": 1276,
+      "duration": 3.0000000000002274
+    },
+    {
+      "api": "command",
+      "name": "record_workspace_binding_get",
+      "startTime": 1277.0000000000002,
+      "duration": 2.9999999999997726
+    },
+    {
+      "api": "fileCommand",
+      "name": "project_file_applications",
+      "startTime": 1279.0000000000002,
+      "duration": 165.99999999999977
+    },
+    {
+      "api": "fileCommand",
+      "name": "project_file_resolve",
+      "startTime": 1280,
+      "duration": 13
+    },
+    {
+      "api": "command",
+      "name": "file_versions_list",
+      "startTime": 1293,
+      "duration": 2
+    },
+    {
+      "api": "command",
+      "name": "file_working_open",
+      "startTime": 1295,
+      "duration": 791
+    },
+    {
+      "api": "command",
+      "name": "file_working_close",
+      "startTime": 3176,
+      "duration": 9
+    },
+    {
+      "api": "command",
+      "name": "record_workspace_binding_get",
+      "startTime": 3177,
+      "duration": 4
+    },
+    {
+      "api": "fileCommand",
+      "name": "project_file_resolve",
+      "startTime": 3181,
+      "duration": 4
+    },
+    {
+      "api": "command",
+      "name": "file_versions_list",
+      "startTime": 3185,
+      "duration": 1
+    },
+    {
+      "api": "command",
+      "name": "file_working_open",
+      "startTime": 3186,
+      "duration": 144
+    },
+    {
+      "api": "command",
+      "name": "file_working_close",
+      "startTime": 3596,
+      "duration": 7
+    },
+    {
+      "api": "command",
+      "name": "record_workspace_binding_get",
+      "startTime": 3597,
+      "duration": 2
+    },
+    {
+      "api": "fileCommand",
+      "name": "project_file_resolve",
+      "startTime": 3599,
+      "duration": 4
+    },
+    {
+      "api": "command",
+      "name": "file_versions_list",
+      "startTime": 3603,
+      "duration": 1
+    },
+    {
+      "api": "command",
+      "name": "file_working_open",
+      "startTime": 3604,
+      "duration": 135
+    },
+    {
+      "api": "command",
+      "name": "file_working_close",
+      "startTime": 3955,
+      "duration": 8
+    },
+    {
+      "api": "command",
+      "name": "record_workspace_binding_get",
+      "startTime": 3955,
+      "duration": 2.0000000000004547
+    },
+    {
+      "api": "fileCommand",
+      "name": "project_file_resolve",
+      "startTime": 3957.0000000000005,
+      "duration": 5.999999999999545
+    },
+    {
+      "api": "command",
+      "name": "file_versions_list",
+      "startTime": 3963,
+      "duration": 0
+    },
+    {
+      "api": "command",
+      "name": "file_working_open",
+      "startTime": 3963,
+      "duration": 440.0000000000009
+    }
+  ],
+  "errors": [],
+  "measurements": [
+    {
+      "kind": "performance",
+      "name": "cold_open",
+      "file": "large.pptx",
+      "fileId": "7",
+      "version": 1,
+      "startTime": 1270,
+      "duration": 1859,
+      "budgetMs": 1000,
+      "withinBudget": false,
+      "status": "over_budget",
+      "commandOffset": 6,
+      "commandCount": 6,
+      "evidence": {
+        "textSample": "PERF_pptx_large_a第一页：项目概况项目进展正常固定页序标识：PAGE-1未编辑图片说明：黄方块与白圆。",
+        "expectedText": "PERF_pptx_large_a第一页：项目概况",
+        "slideCount": 40,
+        "decodedImages": 2,
+        "canvasCount": 2,
+        "paintedCanvases": 1,
+        "stableDoubleRafPasses": 3,
+        "geometry": [
+          [
+            155,
+            229.7,
+            801,
+            450.6,
+            1440,
+            880
+          ]
+        ],
+        "visibility": "visible"
+      },
+      "resources": [
+        {
+          "document": 0,
+          "url": "tauri://localhost/scripts/office-performance/native.html",
+          "entries": [],
+          "marks": [
+            {
+              "name": "office-component:host:requested",
+              "entryType": "mark",
+              "startTime": 1276,
+              "duration": 0
+            },
+            {
+              "name": "office-component:pptx:requested",
+              "entryType": "mark",
+              "startTime": 1277.0000000000002,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:ready",
+              "entryType": "mark",
+              "startTime": 1287,
+              "duration": 0
+            },
+            {
+              "name": "office-component:pptx:ready",
+              "entryType": "mark",
+              "startTime": 1287,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 2087,
+              "duration": 0
+            },
+            {
+              "name": "office-component:pptx:mounted",
+              "entryType": "mark",
+              "startTime": 2091,
+              "duration": 0
+            }
+          ]
+        },
+        {
+          "document": 1,
+          "url": "tauri://localhost/assets/office-bf327a08b999964f/renderer.html",
+          "entries": [],
+          "marks": []
+        }
+      ]
+    },
+    {
+      "kind": "performance",
+      "name": "first_other_file",
+      "file": "simple.pptx",
+      "fileId": "10",
+      "version": 1,
+      "startTime": 3174,
+      "duration": 391,
+      "budgetMs": 1000,
+      "withinBudget": true,
+      "status": "passed",
+      "commandOffset": 12,
+      "commandCount": 5,
+      "evidence": {
+        "textSample": "PERF_pptx_small_a第一页：项目概况项目进展正常固定页序标识：PAGE-1未编辑图片说明：黄方块与白圆。",
+        "expectedText": "PERF_pptx_small_a第一页：项目概况",
+        "slideCount": 3,
+        "decodedImages": 2,
+        "canvasCount": 2,
+        "paintedCanvases": 1,
+        "stableDoubleRafPasses": 3,
+        "geometry": [
+          [
+            155,
+            229.7,
+            801,
+            450.6,
+            1440,
+            880
+          ]
+        ],
+        "visibility": "visible"
+      },
+      "resources": [
+        {
+          "document": 0,
+          "url": "tauri://localhost/scripts/office-performance/native.html",
+          "entries": [
+            {
+              "name": "http://127.0.0.1:52509/result",
+              "entryType": "resource",
+              "startTime": 3129,
+              "duration": 45,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 3129,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 3174,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            }
+          ],
+          "marks": [
+            {
+              "name": "office-component:host:requested",
+              "entryType": "mark",
+              "startTime": 1276,
+              "duration": 0
+            },
+            {
+              "name": "office-component:pptx:requested",
+              "entryType": "mark",
+              "startTime": 1277.0000000000002,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:ready",
+              "entryType": "mark",
+              "startTime": 1287,
+              "duration": 0
+            },
+            {
+              "name": "office-component:pptx:ready",
+              "entryType": "mark",
+              "startTime": 1287,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 2087,
+              "duration": 0
+            },
+            {
+              "name": "office-component:pptx:mounted",
+              "entryType": "mark",
+              "startTime": 2091,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 3331,
+              "duration": 0
+            },
+            {
+              "name": "office-component:pptx:mounted",
+              "entryType": "mark",
+              "startTime": 3335,
+              "duration": 0
+            }
+          ]
+        },
+        {
+          "document": 1,
+          "url": "tauri://localhost/assets/office-bf327a08b999964f/renderer.html",
+          "entries": [],
+          "marks": []
+        }
+      ]
+    },
+    {
+      "kind": "performance",
+      "name": "close_reopen",
+      "file": "simple.pptx",
+      "fileId": "10",
+      "version": 1,
+      "startTime": 3596,
+      "duration": 330,
+      "budgetMs": 1000,
+      "withinBudget": true,
+      "status": "passed",
+      "commandOffset": 18,
+      "commandCount": 4,
+      "evidence": {
+        "textSample": "PERF_pptx_small_a第一页：项目概况项目进展正常固定页序标识：PAGE-1未编辑图片说明：黄方块与白圆。",
+        "expectedText": "PERF_pptx_small_a第一页：项目概况",
+        "slideCount": 3,
+        "decodedImages": 2,
+        "canvasCount": 2,
+        "paintedCanvases": 1,
+        "stableDoubleRafPasses": 3,
+        "geometry": [
+          [
+            155,
+            229.7,
+            801,
+            450.6,
+            1440,
+            880
+          ]
+        ],
+        "visibility": "visible"
+      },
+      "resources": [
+        {
+          "document": 0,
+          "url": "tauri://localhost/scripts/office-performance/native.html",
+          "entries": [
+            {
+              "name": "http://127.0.0.1:52509/result",
+              "entryType": "resource",
+              "startTime": 3129,
+              "duration": 45,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 3129,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 3174,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:52509/result",
+              "entryType": "resource",
+              "startTime": 3565,
+              "duration": 30,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 3565,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 3595,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            }
+          ],
+          "marks": [
+            {
+              "name": "office-component:host:requested",
+              "entryType": "mark",
+              "startTime": 1276,
+              "duration": 0
+            },
+            {
+              "name": "office-component:pptx:requested",
+              "entryType": "mark",
+              "startTime": 1277.0000000000002,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:ready",
+              "entryType": "mark",
+              "startTime": 1287,
+              "duration": 0
+            },
+            {
+              "name": "office-component:pptx:ready",
+              "entryType": "mark",
+              "startTime": 1287,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 2087,
+              "duration": 0
+            },
+            {
+              "name": "office-component:pptx:mounted",
+              "entryType": "mark",
+              "startTime": 2091,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 3331,
+              "duration": 0
+            },
+            {
+              "name": "office-component:pptx:mounted",
+              "entryType": "mark",
+              "startTime": 3335,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 3740,
+              "duration": 0
+            },
+            {
+              "name": "office-component:pptx:mounted",
+              "entryType": "mark",
+              "startTime": 3743,
+              "duration": 0
+            }
+          ]
+        },
+        {
+          "document": 1,
+          "url": "tauri://localhost/assets/office-bf327a08b999964f/renderer.html",
+          "entries": [],
+          "marks": []
+        }
+      ]
+    },
+    {
+      "kind": "performance",
+      "name": "switch_file",
+      "file": "large.pptx",
+      "fileId": "7",
+      "version": 1,
+      "startTime": 3954,
+      "duration": 866,
+      "budgetMs": 1000,
+      "withinBudget": true,
+      "status": "passed",
+      "commandOffset": 22,
+      "commandCount": 5,
+      "evidence": {
+        "textSample": "PERF_pptx_large_a第一页：项目概况项目进展正常固定页序标识：PAGE-1未编辑图片说明：黄方块与白圆。",
+        "expectedText": "PERF_pptx_large_a第一页：项目概况",
+        "slideCount": 40,
+        "decodedImages": 2,
+        "canvasCount": 2,
+        "paintedCanvases": 1,
+        "stableDoubleRafPasses": 3,
+        "geometry": [
+          [
+            155,
+            229.7,
+            801,
+            450.6,
+            1440,
+            880
+          ]
+        ],
+        "visibility": "visible"
+      },
+      "resources": [
+        {
+          "document": 0,
+          "url": "tauri://localhost/scripts/office-performance/native.html",
+          "entries": [
+            {
+              "name": "http://127.0.0.1:52509/result",
+              "entryType": "resource",
+              "startTime": 3129,
+              "duration": 45,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 3129,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 3174,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:52509/result",
+              "entryType": "resource",
+              "startTime": 3565,
+              "duration": 30,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 3565,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 3595,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:52509/result",
+              "entryType": "resource",
+              "startTime": 3926,
+              "duration": 28,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 3926,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 3954,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            }
+          ],
+          "marks": [
+            {
+              "name": "office-component:host:requested",
+              "entryType": "mark",
+              "startTime": 1276,
+              "duration": 0
+            },
+            {
+              "name": "office-component:pptx:requested",
+              "entryType": "mark",
+              "startTime": 1277.0000000000002,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:ready",
+              "entryType": "mark",
+              "startTime": 1287,
+              "duration": 0
+            },
+            {
+              "name": "office-component:pptx:ready",
+              "entryType": "mark",
+              "startTime": 1287,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 2087,
+              "duration": 0
+            },
+            {
+              "name": "office-component:pptx:mounted",
+              "entryType": "mark",
+              "startTime": 2091,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 3331,
+              "duration": 0
+            },
+            {
+              "name": "office-component:pptx:mounted",
+              "entryType": "mark",
+              "startTime": 3335,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 3740,
+              "duration": 0
+            },
+            {
+              "name": "office-component:pptx:mounted",
+              "entryType": "mark",
+              "startTime": 3743,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 4403.000000000001,
+              "duration": 0
+            },
+            {
+              "name": "office-component:pptx:mounted",
+              "entryType": "mark",
+              "startTime": 4407,
+              "duration": 0
+            }
+          ]
+        },
+        {
+          "document": 1,
+          "url": "tauri://localhost/assets/office-bf327a08b999964f/renderer.html",
+          "entries": [],
+          "marks": []
+        }
+      ]
+    },
+    {
+      "kind": "performance",
+      "name": "preview_to_edit",
+      "file": "large.pptx",
+      "fileId": "7",
+      "version": 1,
+      "startTime": 4845,
+      "duration": 108,
+      "budgetMs": 1000,
+      "withinBudget": true,
+      "status": "passed",
+      "commandOffset": 27,
+      "commandCount": 0,
+      "evidence": {
+        "textSample": "PERF_pptx_large_a第一页：项目概况项目进展正常固定页序标识：PAGE-1未编辑图片说明：黄方块与白圆。",
+        "expectedText": "PERF_pptx_large_a第一页：项目概况",
+        "slideCount": 40,
+        "decodedImages": 2,
+        "canvasCount": 2,
+        "paintedCanvases": 1,
+        "stableDoubleRafPasses": 3,
+        "geometry": [
+          [
+            155,
+            236.7,
+            801,
+            450.6,
+            1440,
+            880
+          ]
+        ],
+        "visibility": "visible"
+      },
+      "resources": [
+        {
+          "document": 0,
+          "url": "tauri://localhost/scripts/office-performance/native.html",
+          "entries": [
+            {
+              "name": "http://127.0.0.1:52509/result",
+              "entryType": "resource",
+              "startTime": 3129,
+              "duration": 45,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 3129,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 3174,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:52509/result",
+              "entryType": "resource",
+              "startTime": 3565,
+              "duration": 30,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 3565,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 3595,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:52509/result",
+              "entryType": "resource",
+              "startTime": 3926,
+              "duration": 28,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 3926,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 3954,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            },
+            {
+              "name": "http://127.0.0.1:52509/result",
+              "entryType": "resource",
+              "startTime": 4820,
+              "duration": 25,
+              "initiatorType": "fetch",
+              "nextHopProtocol": "",
+              "workerStart": 0,
+              "redirectStart": 0,
+              "redirectEnd": 0,
+              "fetchStart": 4820,
+              "domainLookupStart": 0,
+              "domainLookupEnd": 0,
+              "connectStart": 0,
+              "connectEnd": 0,
+              "secureConnectionStart": 0,
+              "requestStart": 0,
+              "finalResponseHeadersStart": 0,
+              "firstInterimResponseStart": 0,
+              "responseStart": 0,
+              "responseEnd": 4845,
+              "transferSize": 0,
+              "encodedBodySize": 0,
+              "decodedBodySize": 0,
+              "deliveryType": "",
+              "serverTiming": []
+            }
+          ],
+          "marks": [
+            {
+              "name": "office-component:host:requested",
+              "entryType": "mark",
+              "startTime": 1276,
+              "duration": 0
+            },
+            {
+              "name": "office-component:pptx:requested",
+              "entryType": "mark",
+              "startTime": 1277.0000000000002,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:ready",
+              "entryType": "mark",
+              "startTime": 1287,
+              "duration": 0
+            },
+            {
+              "name": "office-component:pptx:ready",
+              "entryType": "mark",
+              "startTime": 1287,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 2087,
+              "duration": 0
+            },
+            {
+              "name": "office-component:pptx:mounted",
+              "entryType": "mark",
+              "startTime": 2091,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 3331,
+              "duration": 0
+            },
+            {
+              "name": "office-component:pptx:mounted",
+              "entryType": "mark",
+              "startTime": 3335,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 3740,
+              "duration": 0
+            },
+            {
+              "name": "office-component:pptx:mounted",
+              "entryType": "mark",
+              "startTime": 3743,
+              "duration": 0
+            },
+            {
+              "name": "office-component:host:mounted",
+              "entryType": "mark",
+              "startTime": 4403.000000000001,
+              "duration": 0
+            },
+            {
+              "name": "office-component:pptx:mounted",
+              "entryType": "mark",
+              "startTime": 4407,
+              "duration": 0
+            }
+          ]
+        },
+        {
+          "document": 1,
+          "url": "tauri://localhost/assets/office-bf327a08b999964f/renderer.html",
+          "entries": [],
+          "marks": []
+        }
+      ]
+    }
+  ],
+  "commits": [],
+  "status": "over_budget",
+  "resources": [
+    {
+      "document": 0,
+      "url": "tauri://localhost/scripts/office-performance/native.html",
+      "entries": [
+        {
+          "name": "http://127.0.0.1:52509/result",
+          "entryType": "resource",
+          "startTime": 3129,
+          "duration": 45,
+          "initiatorType": "fetch",
+          "nextHopProtocol": "",
+          "workerStart": 0,
+          "redirectStart": 0,
+          "redirectEnd": 0,
+          "fetchStart": 3129,
+          "domainLookupStart": 0,
+          "domainLookupEnd": 0,
+          "connectStart": 0,
+          "connectEnd": 0,
+          "secureConnectionStart": 0,
+          "requestStart": 0,
+          "finalResponseHeadersStart": 0,
+          "firstInterimResponseStart": 0,
+          "responseStart": 0,
+          "responseEnd": 3174,
+          "transferSize": 0,
+          "encodedBodySize": 0,
+          "decodedBodySize": 0,
+          "deliveryType": "",
+          "serverTiming": []
+        },
+        {
+          "name": "http://127.0.0.1:52509/result",
+          "entryType": "resource",
+          "startTime": 3565,
+          "duration": 30,
+          "initiatorType": "fetch",
+          "nextHopProtocol": "",
+          "workerStart": 0,
+          "redirectStart": 0,
+          "redirectEnd": 0,
+          "fetchStart": 3565,
+          "domainLookupStart": 0,
+          "domainLookupEnd": 0,
+          "connectStart": 0,
+          "connectEnd": 0,
+          "secureConnectionStart": 0,
+          "requestStart": 0,
+          "finalResponseHeadersStart": 0,
+          "firstInterimResponseStart": 0,
+          "responseStart": 0,
+          "responseEnd": 3595,
+          "transferSize": 0,
+          "encodedBodySize": 0,
+          "decodedBodySize": 0,
+          "deliveryType": "",
+          "serverTiming": []
+        },
+        {
+          "name": "http://127.0.0.1:52509/result",
+          "entryType": "resource",
+          "startTime": 3926,
+          "duration": 28,
+          "initiatorType": "fetch",
+          "nextHopProtocol": "",
+          "workerStart": 0,
+          "redirectStart": 0,
+          "redirectEnd": 0,
+          "fetchStart": 3926,
+          "domainLookupStart": 0,
+          "domainLookupEnd": 0,
+          "connectStart": 0,
+          "connectEnd": 0,
+          "secureConnectionStart": 0,
+          "requestStart": 0,
+          "finalResponseHeadersStart": 0,
+          "firstInterimResponseStart": 0,
+          "responseStart": 0,
+          "responseEnd": 3954,
+          "transferSize": 0,
+          "encodedBodySize": 0,
+          "decodedBodySize": 0,
+          "deliveryType": "",
+          "serverTiming": []
+        },
+        {
+          "name": "http://127.0.0.1:52509/result",
+          "entryType": "resource",
+          "startTime": 4820,
+          "duration": 25,
+          "initiatorType": "fetch",
+          "nextHopProtocol": "",
+          "workerStart": 0,
+          "redirectStart": 0,
+          "redirectEnd": 0,
+          "fetchStart": 4820,
+          "domainLookupStart": 0,
+          "domainLookupEnd": 0,
+          "connectStart": 0,
+          "connectEnd": 0,
+          "secureConnectionStart": 0,
+          "requestStart": 0,
+          "finalResponseHeadersStart": 0,
+          "firstInterimResponseStart": 0,
+          "responseStart": 0,
+          "responseEnd": 4845,
+          "transferSize": 0,
+          "encodedBodySize": 0,
+          "decodedBodySize": 0,
+          "deliveryType": "",
+          "serverTiming": []
+        }
+      ],
+      "marks": [
+        {
+          "name": "office-component:host:requested",
+          "entryType": "mark",
+          "startTime": 1276,
+          "duration": 0
+        },
+        {
+          "name": "office-component:pptx:requested",
+          "entryType": "mark",
+          "startTime": 1277.0000000000002,
+          "duration": 0
+        },
+        {
+          "name": "office-component:host:ready",
+          "entryType": "mark",
+          "startTime": 1287,
+          "duration": 0
+        },
+        {
+          "name": "office-component:pptx:ready",
+          "entryType": "mark",
+          "startTime": 1287,
+          "duration": 0
+        },
+        {
+          "name": "office-component:host:mounted",
+          "entryType": "mark",
+          "startTime": 2087,
+          "duration": 0
+        },
+        {
+          "name": "office-component:pptx:mounted",
+          "entryType": "mark",
+          "startTime": 2091,
+          "duration": 0
+        },
+        {
+          "name": "office-component:host:mounted",
+          "entryType": "mark",
+          "startTime": 3331,
+          "duration": 0
+        },
+        {
+          "name": "office-component:pptx:mounted",
+          "entryType": "mark",
+          "startTime": 3335,
+          "duration": 0
+        },
+        {
+          "name": "office-component:host:mounted",
+          "entryType": "mark",
+          "startTime": 3740,
+          "duration": 0
+        },
+        {
+          "name": "office-component:pptx:mounted",
+          "entryType": "mark",
+          "startTime": 3743,
+          "duration": 0
+        },
+        {
+          "name": "office-component:host:mounted",
+          "entryType": "mark",
+          "startTime": 4403.000000000001,
+          "duration": 0
+        },
+        {
+          "name": "office-component:pptx:mounted",
+          "entryType": "mark",
+          "startTime": 4407,
+          "duration": 0
+        }
+      ]
+    },
+    {
+      "document": 1,
+      "url": "tauri://localhost/assets/office-bf327a08b999964f/renderer.html",
+      "entries": [],
+      "marks": []
+    }
+  ]
+}

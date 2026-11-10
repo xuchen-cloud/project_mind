@@ -420,7 +420,7 @@ mod tests {
     }
     fn fixture() -> (tempfile::TempDir, Store, RequestContext, SourceReadInput) {
         let root = tempfile::tempdir().unwrap();
-        let mut db = Database::open(&root.path().join("native.sqlite"), root.path(), None).unwrap();
+        let db = Database::open(&root.path().join("native.sqlite"), root.path(), None).unwrap();
         let project = db
             .project_create(ProjectCreateInput {
                 name: "原生项目验收".into(),

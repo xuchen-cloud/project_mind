@@ -278,4 +278,74 @@ describe("RecordSaveCoordinator", () => {
     await Promise.resolve();
     expect(persist).toHaveBeenCalledTimes(1);
   });
+  // Adapted from frontend-probes/nonretryable-head.test.mts.
+  it("persists a corrected submission after explicit validation rejection", async () => {
+    const failure = new RecordSaveFailure("Invalid document size", { code: "INVALID_PATCH", retryable: false });
+    const persist = vi.fn<RecordSaveAdapter["persist"]>(async (value) => {
+      if (value.committedContent.text === "rejected") throw failure;
+      return { updatedAt: "saved", headRevision: 5 };
+    });
+    const coordinator = new RecordSaveCoordinator({ adapter: { persist } });
+    coordinator.submit(canonicalSnapshot("rejected"));
+    await expect(coordinator.flush("project:1:7")).rejects.toBe(failure);
+    const rejected = coordinator.getLatestSnapshot("project:1:7");
+    expect(rejected?.canonicalBody?.requestId).toBe("save-rejected");
+    coordinator.submit(canonicalSnapshot("corrected"));
+    await expect(coordinator.flush("project:1:7")).resolves.toBeUndefined();
+    expect(persist.mock.calls.map(([value]) => value.canonicalBody?.requestId)).toEqual(["save-rejected", "save-corrected"]);
+    expect(rejected?.committedContent.text).toBe("rejected");
+    expect(coordinator.getStatus()).toMatchObject({ pendingCount: 0, failedCount: 0 });
+  });
+
+  it.each([undefined, "REVISION_CONFLICT", "IO_FAILED"] as const)("does not replace a failed head with outcome %s", async (code) => {
+    const failure = new RecordSaveFailure("Unresolved save", { retryable: code === "IO_FAILED", code });
+    const persist = vi.fn(async () => { throw failure; });
+    const coordinator = new RecordSaveCoordinator({ adapter: { persist } });
+    coordinator.submit(canonicalSnapshot("first"));
+    await expect(coordinator.flush()).rejects.toBe(failure);
+    coordinator.submit(canonicalSnapshot("corrected"));
+    await expect(coordinator.flush()).rejects.toBe(failure);
+    expect(persist).toHaveBeenCalledTimes(1);
+    expect(coordinator.getStatus().pendingCount).toBe(2);
+  });
+
+  it("replays an unknown outcome with the exact original snapshot before saving a correction", async () => {
+    const failure = new Error("acknowledgement lost");
+    const persist = vi.fn<RecordSaveAdapter["persist"]>()
+      .mockRejectedValueOnce(failure)
+      .mockResolvedValueOnce({ updatedAt: "replayed", headRevision: 5 })
+      .mockResolvedValueOnce({ updatedAt: "corrected", headRevision: 6 });
+    const coordinator = new RecordSaveCoordinator({ adapter: { persist } });
+    coordinator.submit(canonicalSnapshot("first"));
+    await expect(coordinator.flush()).rejects.toBe(failure);
+    coordinator.submit(canonicalSnapshot("corrected"));
+    await expect(coordinator.flush()).rejects.toBe(failure);
+    coordinator.retryFailed();
+    await coordinator.flush();
+    expect(persist.mock.calls[1][0]).toBe(persist.mock.calls[0][0]);
+    expect(persist.mock.calls.map(([value]) => value.canonicalBody?.requestId)).toEqual(["save-first", "save-first", "save-corrected"]);
+    expect(persist.mock.calls[2][0].canonicalBody?.baseRevision).toBe(5);
+  });
+
+  it("continues a correction already queued when validation rejects without affecting another record", async () => {
+    const rejected = deferred<{ updatedAt: string; headRevision: number }>();
+    const failure = new RecordSaveFailure("Invalid block", { code: "INVALID_PATCH", retryable: false });
+    const persist = vi.fn<RecordSaveAdapter["persist"]>(async (value) => {
+      if (value.committedContent.text === "rejected") return rejected.promise;
+      if (value.recordId === 8) throw new Error("other record failed");
+      return { updatedAt: "saved", headRevision: 5 };
+    });
+    const coordinator = new RecordSaveCoordinator({ adapter: { persist } });
+    coordinator.submit(canonicalSnapshot("rejected"));
+    coordinator.submit(canonicalSnapshot("corrected"));
+    coordinator.submit({ ...canonicalSnapshot("other"), recordId: 8 });
+    await expect(coordinator.flush("project:1:8")).rejects.toThrow("other record failed");
+    const other = coordinator.getLatestSnapshot("project:1:8");
+    rejected.reject(failure);
+    await expect(coordinator.flush("project:1:7")).resolves.toBeUndefined();
+    expect(coordinator.getLatestSnapshot("project:1:8")).toBe(other);
+    expect(coordinator.getRecordStatus("project:1:7")).toMatchObject({ pendingCount: 0, failedCount: 0 });
+    expect(persist.mock.calls.filter(([value]) => value.recordId === 7).map(([value]) => value.committedContent.text)).toEqual(["rejected", "corrected"]);
+  });
+
 });

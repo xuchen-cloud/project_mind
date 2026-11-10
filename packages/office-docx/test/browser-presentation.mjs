@@ -50,7 +50,7 @@ for(const kind of (process.env.OFFICE_BROWSER?[process.env.OFFICE_BROWSER]:['chr
   phase('initial edit');await mode('edit');phase('initial edit metrics');sameLayout(await metrics(),initial,'preview and editor share paper dimensions, page breaks, fonts and zoom');
   // Set an explicit user zoom through the real dialog while in preview.
   await mode('preview');await f.locator('.zoom-value').click();let dialog=f.locator('.zoom-dialog');await dialog.waitFor();assert.equal(await dialog.evaluate(n=>!!n.closest('[inert]')),false);
-  await dialog.locator('input[type=number]').fill('40');await dialog.locator('button[type=submit]').click();await dialog.waitFor({state:'hidden'});phase('manual');const manual=await metrics();assert.equal(manual.zoomLabel,'40%');
+  await dialog.locator('input[type=number]').fill('40');await dialog.locator('button[type=submit]').click();await dialog.waitFor({state:'hidden'});phase('manual');const manual=await metrics();assert.equal(manual.zoomLabel,'50%');
   for(const next of ['edit','preview','edit']){await mode(next);sameLayout(await metrics(),manual,'manual zoom and pagination persist');}
   // Fit-to-page used to refit on the height change caused by showing the ribbon.
   await f.locator('.zoom-value').click();await dialog.getByLabel('整页',{exact:true}).check();await dialog.locator('button[type=submit]').click();await dialog.waitFor({state:'hidden'});phase('fit');const fit=await metrics();

@@ -50,7 +50,6 @@ type ProgressVisualState = "completing" | "restoring" | null;
 export function TodoListItem({
   todo,
   pinned = false,
-  isFirst = false,
   compact = false,
   allowInlineEdit = false,
   allowInlineProgress = false,
@@ -152,9 +151,6 @@ export function TodoListItem({
       ? { scope: "project", projectId: todo.projectId }
       : { scope: "workspace", projectId: null };
   const sortedProgresses = mergedProgresses;
-  const unfinishedSubItems = sortedProgresses.filter(
-    (progress) => progress.status !== "finished",
-  );
   const visibleUnfinishedSubItems = sortedProgresses.filter((progress) => {
     const phase = progressTransitions[progress.id]?.phase;
     return progress.status !== "finished" || phase === "completing";

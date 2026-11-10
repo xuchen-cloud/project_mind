@@ -595,7 +595,6 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
     ) -> AgentResult<T> {
         target.key()?;
         self.with_current(request, |binding, db| {
-            request.authorize(binding, &target.scope, operation)?;
             let claimed = ObjectRef {
                 workspace_id: request.binding.workspace_id.clone(),
                 scope: target.scope.clone(),
@@ -605,7 +604,11 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
             let actual = db
                 .agent_resolve_object(&claimed, &binding.workspace_id)?
                 .ok_or_else(|| AgentError::new(ErrorCode::NotFound, "Record is missing"))?;
-            request.authorize_object(binding, &claimed, &actual, operation)?;
+            request.authorize_object(binding, &actual, &actual, operation)?;
+            if operation != "record.read" && claimed != actual {
+                return Err(AgentError::new(ErrorCode::SourceChanged, "Record has moved; reopen its current location")
+                    .with_details(json!({"target": actual})));
+            }
             if matches!(request.caller, Caller::Connection { .. })
                 && matches!(operation, "record.patch" | "record.restore")
             {
@@ -806,7 +809,8 @@ impl<'a, S: BoundRecordStore, W: DocumentUtility> RecordDocumentService<'a, S, W
             .submission_lock(&request.binding, &input.target)
             .await?;
         self.access(request, &input.target, "record.write", |db| {
-            Self::authorize_references(request, db, &commit.projection.document, "record.write")?;
+            let authorization = db.record_save_reference_authorization_document(&input.target, &commit.projection.document)?;
+            Self::authorize_references(request, db, &authorization, "record.write")?;
             db.record_document_commit_intent(
                 &request.caller.key(),
                 &request.request_id,

@@ -10,30 +10,6 @@ use crate::agent::{
 use rusqlite::params;
 
 impl Database {
-    pub(crate) fn agent_session_summary_get(
-        &self,
-        scope: &Scope,
-        session_id: &str,
-        node_id: &str,
-        revision: Option<u64>,
-    ) -> AgentResult<Option<KnowledgeNode>> {
-        let node = self.agent_knowledge_get(scope, node_id, revision)?;
-        Ok(node.and_then(|node| {
-            if node.kind != KnowledgeKind::SourceSummary {
-                return None;
-            }
-            if node
-                .session_summary
-                .as_ref()
-                .is_some_and(|segment| segment.session_id == session_id)
-            {
-                Some(node)
-            } else {
-                None
-            }
-        }))
-    }
-
     pub(crate) fn agent_session_summary_list(
         &self,
         scope: &Scope,

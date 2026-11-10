@@ -1,3 +1,4 @@
+import type { DiagramTheme } from './diagramTheme';
 import DOMPurify from 'dompurify';
 import { renderDiagram, type DiagramLanguage, type DiagramResult } from '../genoffice/editor/diagrams';
 
@@ -27,11 +28,11 @@ export function diagramPreviewError(source: string): string | undefined {
 export function safeDiagramSvg(svg: string): string {
   const fragment = DOMPurify.sanitize(svg, {
     USE_PROFILES: { svg: true, svgFilters: true }, RETURN_DOM_FRAGMENT: true,
-    ADD_TAGS: ['use'], // WaveDrom's waveform shapes; href is restricted below.
+    ADD_TAGS: ['use'], // SVG symbol instances; href is restricted below.
     FORBID_TAGS: ['script', 'foreignObject', 'image', 'feImage', 'a', 'animate', 'animateMotion', 'animateTransform', 'set'],
     FORBID_ATTR: ['xml:base'],
   });
-  // Retain only local fragment references (WaveDrom uses <use href="#…">).
+  // Retain only local fragment references.
   // CSS URLs and SVG paint/filter attributes need the same check as href.
   for (const node of fragment.querySelectorAll('*')) {
     for (const attribute of Array.from(node.attributes)) {
@@ -45,11 +46,11 @@ export function safeDiagramSvg(svg: string): string {
   return root.outerHTML;
 }
 
-export async function renderSafeDiagram(language: DiagramLanguage, source: string): Promise<DiagramResult> {
+export async function renderSafeDiagram(language: DiagramLanguage, source: string, theme: DiagramTheme = 'light'): Promise<DiagramResult> {
   const error = diagramPreviewError(source);
   if (error) return { ok: false, error };
   try {
-    const result = await renderDiagram(language, source);
+    const result = await renderDiagram(language, source, theme);
     return result.ok ? { ok: true, svg: safeDiagramSvg(result.svg) } : result;
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };

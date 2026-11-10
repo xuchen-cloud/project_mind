@@ -122,18 +122,22 @@ fn source_hash(paths:&InstallPaths)->AgentResult<Option<String>> {
 fn in_path(path: &std::ffi::OsStr, directory: &Path) -> bool {
     env::split_paths(path).any(|entry| entry==directory)
 }
+#[cfg(any(windows, test))]
 fn windows_path_key(value:&str)->String {
     value.trim().trim_matches('"').replace('/',"\\").trim_end_matches('\\').to_ascii_lowercase()
 }
+#[cfg(any(windows, test))]
 fn windows_path_contains(value:&str,entry:&str)->bool {
     let expected=windows_path_key(entry);
     value.split(';').any(|part| !part.trim().is_empty() && windows_path_key(part)==expected)
 }
+#[cfg(any(windows, test))]
 fn windows_path_add(value:&str,entry:&str)->String {
     if windows_path_contains(value,entry) { return value.into(); }
     if value.is_empty() { entry.into() }
     else { format!("{value};{entry}") }
 }
+#[cfg(any(windows, test))]
 fn windows_path_remove_one(value:&str,entry:&str)->String {
     let mut parts=value.split(';').collect::<Vec<_>>();
     let expected=windows_path_key(entry);

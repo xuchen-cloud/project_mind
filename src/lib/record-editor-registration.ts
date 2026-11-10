@@ -2,9 +2,10 @@ import { desktopApi } from "../services/desktopApi";
 import type { AgentWorkspaceBinding } from "./agent-types";
 import type { RecordTarget } from "./record-document-types";
 import { recordDocumentApi } from "../services/recordDocumentApi";
+import { prepareContentOwnerMove } from "./project-content-lifecycle";
 
 export type RecordEditorFlushOutcome = "saved" | "review_pending" | "busy";
-interface FlushRequest { binding: AgentWorkspaceBinding; target: RecordTarget; editorId: string; flushId: string }
+interface FlushRequest { binding: AgentWorkspaceBinding; target: RecordTarget; editorId: string; flushId: string; ownerMoveRequestId?: string }
 export async function registerCanonicalRecordEditor(options: {
   binding: AgentWorkspaceBinding; target: RecordTarget; editorId: string;
   flush: () => Promise<RecordEditorFlushOutcome>;
@@ -17,7 +18,13 @@ export async function registerCanonicalRecordEditor(options: {
       || JSON.stringify(payload.target.scope) !== JSON.stringify(options.target.scope)) return;
     void (async () => {
       let outcome: RecordEditorFlushOutcome;
-      try { outcome = await options.flush(); } catch { outcome = "busy"; }
+      try {
+        outcome = payload.ownerMoveRequestId
+          ? await prepareContentOwnerMove(options.binding,
+            { workspaceId: options.binding.workspaceId, scope: options.target.scope, kind: "record", id: String(options.target.recordId) },
+            payload.ownerMoveRequestId, options.flush)
+          : await options.flush();
+      } catch { outcome = "busy"; }
       if (disposed) outcome = "busy";
       await recordDocumentApi.editorFlushReply(options.binding, {
         target: options.target, editorId: options.editorId, flushId: payload.flushId, outcome,

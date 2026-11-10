@@ -18,7 +18,9 @@ use crate::{
     },
 };
 use serde::Serialize;
-use serde_json::{json, Value};
+use serde_json::Value;
+#[cfg(test)]
+use serde_json::json;
 
 /// Only L0 needs the Workspace's human-readable name. Keep it in the same
 /// current-Workspace database phase, rather than inventing it from a UUID or
@@ -291,6 +293,7 @@ pub(crate) fn validate_bounds(method: &str, arguments: &Value) -> AgentResult<()
     Ok(())
 }
 
+#[cfg(test)]
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ReadToolDescription {
@@ -299,27 +302,35 @@ pub(crate) struct ReadToolDescription {
     pub description: &'static str,
     pub parameters: Value,
 }
+#[cfg(test)]
 pub(super) fn object(properties: Value, required: &[&str]) -> Value {
     json!({"type":"object","properties":properties,"required":required,"additionalProperties":false})
 }
+#[cfg(test)]
 pub(super) fn nullable(schema: Value) -> Value {
     json!({"anyOf":[schema,{"type":"null"}]})
 }
+#[cfg(test)]
 pub(super) fn text(max: usize) -> Value {
     json!({"type":"string","maxLength":max})
 }
+#[cfg(test)]
 pub(super) fn integer(max: u64) -> Value {
     json!({"type":"integer","minimum":1,"maximum":max})
 }
+#[cfg(test)]
 pub(super) fn array(items: Value, max: usize) -> Value {
     json!({"type":"array","items":items,"maxItems":max})
 }
+#[cfg(test)]
 pub(super) fn scope_schema() -> Value {
     json!({"oneOf":[object(json!({"kind":{"type":"string","maxLength":9,"const":"workspace"}}), &["kind"]),object(json!({"kind":{"type":"string","maxLength":7,"const":"project"},"projectId":integer(9_007_199_254_740_991)}), &["kind","projectId"])]})
 }
+#[cfg(test)]
 fn source_kinds() -> Value {
     json!({"type":"string","maxLength":32,"enum":["project","quick_note","record","todo","file","transcript","session_summary"]})
 }
+#[cfg(test)]
 pub(super) fn object_ref_schema() -> Value {
     let identity =
         json!({"type":"string","minLength":1,"maxLength":128,"pattern":"^[A-Za-z0-9_-]+$"});
@@ -328,6 +339,7 @@ pub(super) fn object_ref_schema() -> Value {
         &["workspaceId", "scope", "kind", "id"],
     )
 }
+#[cfg(test)]
 pub(super) fn locator_schema() -> Value {
     let paragraph = object(
         json!({"kind":{"type":"string","maxLength":9,"const":"paragraph"},"start":integer(u32::MAX.into()),"end":integer(u32::MAX.into())}),
@@ -345,6 +357,7 @@ pub(super) fn locator_schema() -> Value {
     json!({"oneOf":[paragraph,page,time]})
 }
 
+#[cfg(test)]
 /// Only callable shared read services appear here. Capability readiness and
 /// transport registration remain the Host/adapter's responsibility.
 pub(crate) fn read_tool_descriptions() -> Vec<ReadToolDescription> {

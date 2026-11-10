@@ -1,0 +1,49 @@
+{
+  "sourceRoot": "/Users/xuchen/project_mind",
+  "baseCommit": "fe9fe9c188f05c23bae369074446e38c0859a0c8",
+  "targetBranch": "develop",
+  "groups": {
+    "files": {
+      "patch": "files.patch",
+      "patchSha256": "2fb722659bd1623ebbf9c44a182339e8d60db90b2bce7f9d3323b2e68db757f1",
+      "files": {
+        "src-tauri/src/db.rs": "48b0fd5c6b0169265ac19b2007e60681eaa6ba4dfff59a5e187fb707d5f8ef46",
+        "src-tauri/src/db/file_versions.rs": "2d812914d27897f15720d86d3e2490a47c0d3b17250ce6337cabc1b19916c4e0",
+        "src-tauri/src/lib.rs": "4d3c9785399fd21a901fdf04d35fe6f6651dff0b384681592f9e611287e8aa87",
+        "src-tauri/src/db/project_directory_changes.rs": "2749f48f22ee254fa83625d20096e5abbc34cc2ac5a8c46c860d44fcf6d54c61",
+        "src-tauri/src/project_directory_changes.rs": "da6a849b1a5f9ab55d5e6e2baf5bd43ff8a2a7ef4ccfe08631685c9654676113",
+        "src/components/home/HomeProjectFiles.tsx": "49eaebdd4fbe36b8eea3e078efa15607b7d33de898603ce10ecefa1b9d55de5d",
+        "src/components/home/ProjectDirectoryBrowser.tsx": "38240051474b52b8c8741b0ebcb7638eeda65ff7e94e4aee43e30e2af69692c6",
+        "src/components/home/ProjectDirectoryBrowser.test.tsx": "c79ad51292098942b3d81753649c6255bdcfe455ad454fc72e05d2b03ae72d4e",
+        "src/components/home/useDirectoryActions.tsx": "6e0990dfd7dc1b901f63486cb6c964029f0569072283f6a42b2d8c506f24752e",
+        "src/components/home/useDirectoryActions.test.tsx": "703509092be32433e50b4e62b21bb951cae2b8bd51214b1ef757411a92a410d5",
+        "src/components/home/useFileNavigationRefresh.ts": "a76c9c77e2edf3317f6a9563ad184e6384883df881e0427c64c4743bb85d4d59",
+        "src/components/home/useFileNavigationRefresh.test.tsx": "db2becddf0a2f6909b23affd2985ee6629cf6d9694c0fb28d3b05cecde7d15cc",
+        "src/services/projectDirectoryApi.ts": "ed0de73d9274e174a71e57f064b785cc21035ce58b79c817509965bf09742f25"
+      }
+    },
+    "office": {
+      "patch": "office.patch",
+      "patchSha256": "0108f56f9fedbcd91ebbedd73ae7c0fd0d7548568c72f0f939a7dc1028a301ca",
+      "files": {
+        "packages/office-docx/renderer-build.mjs": "9e6736e414c2ea187ae0e77d4240796c891122bc3284474e64aa40856c6fa899",
+        "packages/office-docx/test/browser-presentation.mjs": "fc8dda81a463f380d5681f02287bd94dc46194477c8ebb7b63c715ffd32e511b",
+        "packages/office-docx/test/windows-renderer-hooks.test.mjs": "19c1bc909156c6a84c6cf03ad862095a8bf7d0f3918b565c56151af5d05bc080",
+        "packages/office-pptx/parity-text-edit-build.mjs": "1e581b80f40f117a44f02be6dd3258fbbeb402acb43db71e533b8d9f5c8a2218",
+        "packages/office-pptx/test/build-portability.test.mjs": "18cd768df85796e05a40b962822d66b62b832b1a69fc3785157639b0ef760bbd",
+        "packages/office-xlsx/scripts/build-renderer.mjs": "860b79054f15f500b0033686d31c900066a3b688979447f6b830c1e225692b4c",
+        "packages/office-xlsx/scripts/patch-univer.mjs": "6ed5297c1bb7c2c8d212bf6335836d20de47767921817cd783b18e7c8ca61804"
+      }
+    },
+    "assistant": {
+      "patch": "assistant.patch",
+      "patchSha256": "ab119f900f9afe1af8b7025a8e9e46c40cf56254d09f1c3ec7eb305d79b5b38b",
+      "files": {
+        "packages/dsh-assistant/scripts/mind-cli.mjs": "650e4b8f3def5092bdc0af8b5d4263e75420324ec1b53575660cbf838ee64b8f",
+        "packages/dsh-assistant/test/mind-cli.test.mjs": "2f0c4f9c645daecb4da35c373bf9d4d8137a5afeb2b1e7199efe570e4f328eb4",
+        "packages/dsh-ui/provenance.json": "0757abd6bf7eece8cf989a0445a7d7aefb51e44860a14140176321e65d8c63f3",
+        "packages/dsh-ui/upstream/client/ui-input-trigger/src/client/MenuView.module.css": "36d83fec8694e3e2e7ac37e66ff0e781969a6261dbac30d9011b8e3869f65eee"
+      }
+    }
+  }
+}

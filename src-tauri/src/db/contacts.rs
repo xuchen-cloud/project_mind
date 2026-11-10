@@ -480,7 +480,6 @@ impl Database {
         for sql in additions {
             tx.execute_batch(&sql)?;
         }
-        tx.pragma_update(None, "user_version", super::CURRENT_SCHEMA_VERSION)?;
         tx.commit()?;
         Ok(())
     }

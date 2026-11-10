@@ -1,0 +1,66 @@
+[
+  {
+    "log": "baseline-record-blocks-red.log",
+    "command": [
+      "cargo",
+      "test",
+      "--lib",
+      "--offline",
+      "--manifest-path",
+      "src-tauri/Cargo.toml",
+      "--",
+      "--exact",
+      "agent::record_blocks::tests::record_blocks_authorizes_policy_scope_withdrawal_and_keeps_legacy_uninitialized",
+      "--test-threads=1"
+    ],
+    "exit_code": 101,
+    "seconds": 47.02
+  },
+  {
+    "log": "production-final.log",
+    "command": [
+      "cargo",
+      "check",
+      "--lib",
+      "--offline",
+      "--manifest-path",
+      "src-tauri/Cargo.toml"
+    ],
+    "exit_code": 0,
+    "seconds": 14.16
+  },
+  {
+    "log": "imports-tests-final.log",
+    "command": [
+      "cargo",
+      "test",
+      "--lib",
+      "--offline",
+      "--manifest-path",
+      "src-tauri/Cargo.toml",
+      "--",
+      "--test-threads=1",
+      "db::agent_run_provenance::",
+      "db::agent_session_model_search::"
+    ],
+    "exit_code": 0,
+    "seconds": 50.39
+  },
+  {
+    "log": "record-runtime-tests.log",
+    "command": [
+      "cargo",
+      "test",
+      "--lib",
+      "--offline",
+      "--manifest-path",
+      "src-tauri/Cargo.toml",
+      "--",
+      "--ignored",
+      "--test-threads=1",
+      "agent::bridge::write_tests::"
+    ],
+    "exit_code": 0,
+    "seconds": 2.29
+  }
+]

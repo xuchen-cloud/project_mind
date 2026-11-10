@@ -1,4 +1,5 @@
 import { Extension } from "@tiptap/core";
+import { skipTrailingNodeMeta } from "@tiptap/extensions";
 import { Plugin, PluginKey, type Transaction } from "@tiptap/pm/state";
 import { Mapping } from "@tiptap/pm/transform";
 import { Fragment, Slice, type Node as ProseMirrorNode } from "@tiptap/pm/model";
@@ -59,7 +60,7 @@ export const StableRecordBlocks = Extension.create({
     // mounted document immediately. Allocate initial identities before mount
     // returns, using the same transaction owner as subsequent edits.
     this.editor.on("mount", ({ editor }) => {
-      editor.view.dispatch(editor.state.tr.setMeta(STABLE_RECORD_BLOCKS_KEY, true).setMeta("addToHistory", false));
+      editor.view.dispatch(editor.state.tr.setMeta(STABLE_RECORD_BLOCKS_KEY, true).setMeta(skipTrailingNodeMeta, true).setMeta("addToHistory", false));
     });
   },
   addProseMirrorPlugins() {
@@ -180,6 +181,12 @@ export const StableRecordBlocks = Extension.create({
           positions.includes(owners.get(id) ?? -1) ? owners.get(id)! : positions[0]]));
         const used = new Set(candidates.keys());
         const tr = state.tr;
+        // Mount assigns identities without editing the authored document.
+        // Carry the caller's trailing-node suppression through ID repair so
+        // appendTransaction does not add a visible/persisted empty paragraph.
+        if (transactions.some((transaction) => transaction.getMeta(skipTrailingNodeMeta))) {
+          tr.setMeta(skipTrailingNodeMeta, true);
+        }
         state.doc.descendants((node, pos) => {
           if (!blockTypes.has(node.type.name)) return;
           if (validId(node.attrs.blockId) && winners.get(node.attrs.blockId) === pos) return;

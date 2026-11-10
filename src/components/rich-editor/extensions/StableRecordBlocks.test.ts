@@ -197,3 +197,72 @@ it("recognizes native HTML-only cut metadata and keeps the captured paste target
     expect(source.getText()).not.toContain("Replace this");
   } finally { source.destroy(); }
 });
+
+describe("stable block mount preserves document spacing", () => {
+  it.each([
+    "<ul><li><p>List</p></li></ul>",
+    "<blockquote><p>Quote</p></blockquote>",
+    "<table><tr><td><p>Cell</p></td></tr></table>",
+    "<pre><code>Code</code></pre>",
+    "<blockquote><p>Quote</p></blockquote><p></p>",
+    "<table><tr><td><p>Cell</p></td></tr></table><p></p>",
+    "<pre><code>Code</code></pre><p></p>",
+  ])("does not append an empty paragraph while assigning IDs: %s", (content) => {
+    for (const editable of [true, false]) {
+      const legacy = new Editor({ element: document.createElement("div"), editable,
+        extensions: buildRichEditorExtensions(""), content });
+      const stable = new Editor({ element: document.createElement("div"), editable,
+        extensions: buildRichEditorExtensions("", { stableBlocks: true }), content });
+      try {
+        expect(stable.getHTML().replace(/ data-block-id="[0-9a-f]{32}"/g, "")).toBe(legacy.getHTML());
+        stable.unmount();
+        stable.mount(document.createElement("div"));
+        expect(stable.getHTML().replace(/ data-block-id="[0-9a-f]{32}"/g, "")).toBe(legacy.getHTML());
+      } finally { legacy.destroy(); stable.destroy(); }
+    }
+  });
+
+  it.each([
+    "<blockquote><p>Quote</p></blockquote>",
+    "<table><tr><td><p>Cell</p></td></tr></table>",
+    "<pre><code>Code</code></pre>",
+  ])("still adds an editable trailing paragraph after an ordinary edit and keeps it on remount: %s", (content) => {
+    const editor = new Editor({ element: document.createElement("div"),
+      extensions: buildRichEditorExtensions("", { stableBlocks: true }),
+      content });
+    try {
+      expect(editor.getJSON().content).toHaveLength(1);
+      let textPosition = 0;
+      editor.state.doc.descendants((node, position) => { if (node.isText && !textPosition) textPosition = position; });
+      editor.view.dispatch(editor.state.tr.insertText("!", textPosition + 1));
+      const nodes = editor.getJSON().content!;
+      expect(nodes).toHaveLength(2);
+      expect(nodes[1]).toMatchObject({ type: "paragraph" });
+      expect(nodes[1].attrs!.blockId).toMatch(/^[0-9a-f]{32}$/);
+      editor.commands.setTextSelection(editor.state.doc.content.size - 1);
+      editor.commands.insertContent("Continued after block");
+      expect(editor.getJSON().content![1].content).toEqual([{ type: "text", text: "Continued after block" }]);
+      const beforeRemount = editor.getJSON();
+      editor.unmount();
+      editor.mount(document.createElement("div"));
+      expect(editor.getJSON()).toEqual(beforeRemount);
+    } finally { editor.destroy(); }
+  });
+});
+
+it.each([
+  ["codeBlock", "<pre><code>New code</code></pre>"],
+  ["table", "<table><tr><td><p>New cell</p></td></tr></table>"],
+])("repairs new IDs in a user insertion without suppressing the editable tail: %s", (type, html) => {
+  const editor = editorWithParagraph("Before");
+  try {
+    editor.commands.insertContentAt(editor.state.doc.content.size, html);
+    const nodes = editor.getJSON().content!;
+    expect(nodes.map((node) => node.type)).toEqual(["paragraph", type, "paragraph"]);
+    expect(nodes[1].attrs!.blockId).toMatch(/^[0-9a-f]{32}$/);
+    expect(nodes[2].attrs!.blockId).toMatch(/^[0-9a-f]{32}$/);
+    editor.commands.setTextSelection(editor.state.doc.content.size - 1);
+    editor.commands.insertContent("Continue");
+    expect(editor.getJSON().content![2].content).toEqual([{ type: "text", text: "Continue" }]);
+  } finally { editor.destroy(); }
+});

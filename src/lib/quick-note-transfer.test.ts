@@ -178,3 +178,17 @@ describe("QuickNoteTransferSession", () => {
     expect(persisted).toBe("");
   });
 });
+
+it("does not acknowledge a failed save through flush and clears the error after a successful retry", async () => {
+  let failing = true;
+  const session = new QuickNoteTransferSession({
+    readCommitted: () => "draft", isEmpty: () => false,
+    persist: async (value: string) => { if (failing) throw new Error("disk full"); return value; },
+    commit: async () => 1, clearLocal: () => undefined, setBusy: () => undefined,
+  });
+  await expect(session.save("draft")).rejects.toThrow("disk full");
+  await expect(session.flush()).rejects.toThrow("disk full");
+  failing = false;
+  await session.save("draft");
+  await expect(session.flush()).resolves.toBeUndefined();
+});

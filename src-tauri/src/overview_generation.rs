@@ -265,6 +265,7 @@ pub(crate) fn build_published_prompt(allowed:&AllowedAffectedIds,relevant:&[Over
     Ok(prompt)
 }
 
+#[cfg(test)]
 pub(crate) fn parse_session_delta(
     text: &str,
     allowed: &AllowedAffectedIds,
@@ -498,9 +499,11 @@ pub(crate) struct PromptInput<'a> {
     pub source_pages: &'a [SourceReadPage],
     pub prior_source_summary: Option<&'a KnowledgeNode>,
     pub prior_memory: &'a [KnowledgeNode],
+    #[cfg(test)]
     pub conversation: Option<&'a ConversationEvidence>,
 }
 
+#[cfg(test)]
 pub(crate) fn build_prompt(input: &PromptInput<'_>) -> AgentResult<String> {
     build_prompt_batch(input, &input.conversation.into_iter().cloned().collect::<Vec<_>>())
 }

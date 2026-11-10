@@ -1,0 +1,14 @@
+✔ worker notices cover emitted packages and packaging detects altered code or notices (9.343292ms)
+✔ actual utility build retains package notices and verifies its complete chunk set (40.796334ms)
+✔ standalone worker produces one canonical tree and matching compatibility projections (219.090542ms)
+✔ creating a distinct Record regenerates every block identity without changing content (202.827791ms)
+✔ Rust schema fixture stays in sync with the actual editor/worker schema (132.832917ms)
+✔ standalone worker previews block patches and rejects the whole malformed batch (204.554916ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 818.867292

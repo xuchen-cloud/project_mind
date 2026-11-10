@@ -21,7 +21,6 @@ const OUTPUT_CHARACTERS: usize = 24_000;
 pub(crate) struct GeneratedOverview {
     pub text: String,
     pub model_profile_id: String,
-    pub usage: Value,
 }
 
 #[derive(Debug, Clone)]
@@ -187,11 +186,10 @@ impl OverviewModel for AppOverviewModel {
             "capacity":{"contextWindow":budget.context_window,"maxTokens":budget.max_tokens,"source":budget.source}
         }), deadline, None).await;
         self.require_current(&root, &fingerprint)?;
-        let (text, usage) = generation_output(result?)?;
+        let text = generation_output(result?)?;
         Ok(GeneratedOverview {
             text,
             model_profile_id: fingerprint,
-            usage,
         })
     }
 }
@@ -229,7 +227,7 @@ fn capacity_budget(data: Value, fingerprint: String) -> AgentResult<OverviewBudg
         source,
     })
 }
-fn generation_output(data: Value) -> AgentResult<(String, Value)> {
+fn generation_output(data: Value) -> AgentResult<String> {
     let text = data["text"]
         .as_str()
         .filter(|text| !text.trim().is_empty())
@@ -240,12 +238,10 @@ fn generation_output(data: Value) -> AgentResult<(String, Value)> {
             "Overview output exceeds its budget",
         ));
     }
-    let usage = data
-        .get("usage")
+    data.get("usage")
         .filter(|value| value.is_object())
-        .cloned()
         .ok_or_else(incompatible)?;
-    Ok((text.to_owned(), usage))
+    Ok(text.to_owned())
 }
 
 fn validate_input(batch_id: &str, prompt: &str, budget: &OverviewBudget) -> AgentResult<()> {
@@ -351,7 +347,7 @@ mod tests {
             invalid[field] = json!(value);
             assert!(capacity_budget(invalid, "profile".into()).is_err());
         }
-        assert!(generation_output(json!({"text":"{}","usage":{}})).is_ok());
+        assert_eq!(generation_output(json!({"text":"{}","usage":{}})).unwrap(), "{}");
         assert!(generation_output(json!({"text":" ","usage":{}})).is_err());
         assert!(generation_output(json!({"text":"{}","usage":null})).is_err());
         assert_eq!(

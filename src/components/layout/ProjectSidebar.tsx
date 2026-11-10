@@ -3,41 +3,43 @@ import { projectFilePathMatches } from "../../lib/project-file-navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../../lib/queryKeys";
 import { FileContextMenuPanel } from "../document/FileContextMenuPanel";
+import { useFileDefaultOpen } from "../document/useFileDefaultOpen";
+import { fileSelectionData, useFileSelection, type FileSelectionItem } from "../home/useFileSelection";
+import { useNavigationTrash, type NavigationTrashResult } from "../home/useNavigationTrash";
+import type { AgentWorkspaceBinding } from "../../lib/agent-types";
 import { RecordIcon } from "../icons/ContentTypeIcon";
 import "../tags/entity-tags.css";
 import { HomeSidebarList } from "../home/HomeSidebarList";
+import { useContentOwnerMoveDialog } from "../shared/ContentOwnerMoveDialog";
 import {
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
-  type DragEvent,
   type KeyboardEvent,
   type MouseEvent,
   type ReactNode,
 } from "react";
 import {
   ChevronLeft,
-  ChevronRight,
+  ExternalLink,
   FilePlus2,
-  Files,
   FolderKanban,
   FolderOpen,
+  FolderInput,
   Mic,
   Pencil,
   Pin,
   PinOff,
   Plus,
   Trash2,
-  Upload,
 } from "lucide-react";
 
 import type { DocumentRecord, DocumentTagRecord, TagColorKey, WorkspaceStatusSnapshot } from "../../lib/types";
-import { extractDroppedFilePaths } from "../../lib/document-drop";
 import { useDocumentMutations } from "../../hooks/useDocumentMutations";
 import { useDocumentImportFlow } from "../../hooks/useDocumentImportFlow";
-import { useWindowFileDrop } from "../../hooks/useWindowFileDrop";
+import { FileDropSurface } from "../document/FileDropSurface";
 import { desktopApi } from "../../services/desktopApi";
 import { useFeedbackStore } from "../../state/feedback-store";
 import {
@@ -47,7 +49,6 @@ import {
 } from "../../state/ui-store";
 import {
   ActionContextMenu,
-  Button,
   IconButton,
   ListPinIndicator,
   ResizeHandle,
@@ -105,9 +106,12 @@ export interface ProjectSidebarDocumentItem {
 export interface ProjectFileMenuControls {
   openContextMenu: (document: ProjectSidebarDocumentItem, x: number, y: number) => void;
   renderRenameInput: (relativePath: string) => ReactNode;
+  busy?: boolean;
+  renaming?: boolean;
 }
 
 interface ProjectSidebarBaseProps {
+  fileBinding?: AgentWorkspaceBinding;
   filesOnly?: boolean;
   fileHeaderActions?: ReactNode;
   fileContent?: ReactNode | ((controls: ProjectFileMenuControls) => ReactNode);
@@ -144,6 +148,9 @@ interface ContextMenuState {
   documentId: number;
   document: ProjectSidebarDocumentItem;
   listed: boolean;
+  openDefault: () => Promise<void>;
+  items: FileSelectionItem[];
+  trash: () => Promise<NavigationTrashResult | undefined>;
   x: number;
   y: number;
 }
@@ -154,13 +161,13 @@ interface RecordContextMenuState {
   y: number;
 }
 
-const DRAG_DEACTIVATE_DELAY_MS = 80;
 const PROJECT_SIDEBAR_TABS = [
   { value: "records", label: "记录" },
   { value: "files", label: "文件" },
 ] as const;
 
 export function ProjectSidebar({
+  fileBinding,
   filesOnly = false,
   fileHeaderActions,
   fileContent,
@@ -204,7 +211,10 @@ export function ProjectSidebar({
   const activeTab = filesOnly ? "files" : storedActiveTab;
   const { pushToast } = useFeedbackStore();
   const queryClient = useQueryClient();
-  const workspaceRoot = fileScope?.workspaceRoot ?? queryClient.getQueryData<WorkspaceStatusSnapshot>(queryKeys.workspaceStatus)?.currentWorkspace?.rootPath ?? owner.rootPath;
+  const moveWorkspaceRoot = fileScope?.workspaceRoot ?? queryClient.getQueryData<WorkspaceStatusSnapshot>(queryKeys.workspaceStatus)?.currentWorkspace?.rootPath;
+  const workspaceRoot = moveWorkspaceRoot ?? owner.rootPath;
+  const { canMove, openMove, moveDialog } = useContentOwnerMoveDialog(moveWorkspaceRoot, ownerId);
+  const captureDefaultOpen = useFileDefaultOpen(workspaceRoot, ownerId);
   const { pinnedIds, isPinned, togglePin } = useListPins(workspaceRoot, recordPinScope(ownerId));
   const refreshDirectory = () => queryClient.invalidateQueries({
     queryKey: queryKeys.projectDirectory(owner.rootPath, ownerId, "", 0).slice(0, 3),
@@ -212,7 +222,6 @@ export function ProjectSidebar({
   const {
     documentMetaMutation,
     documentAddVersionMutation,
-    documentDeleteMutation,
   } = useDocumentMutations();
   const {
     projectTags,
@@ -241,7 +250,6 @@ export function ProjectSidebar({
   const documentTagId = fileFilter ? fileFilter.tagId : (ownerId === null ? workspaceFileTagId : projectFileFilters[ownerId]?.tagId) ?? null;
   const setFileQuery = (query: string) => ownerId === null ? setWorkspaceFileQuery(query) : setProjectFileQuery(ownerId, query);
   const setDocumentTagId = (tagId: number | null) => ownerId === null ? setWorkspaceFileTagId(tagId) : setProjectDocumentTagId(ownerId, tagId);
-  const [dragActive, setDragActive] = useState(false);
 
   // Document editing state
   const [editingDocument, setEditingDocument] = useState<ProjectSidebarDocumentItem | null>(null);
@@ -260,10 +268,17 @@ export function ProjectSidebar({
     onActiveRecordTagIdChange ?? setLocalActiveRecordTagId;
 
   const openTimerRef = useRef<number | null>(null);
-  const dragDeactivateTimerRef = useRef<number | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const fileSelection = useFileSelection(JSON.stringify([workspaceRoot, ownerId, owner.rootPath,
+    !!fileContent, fileBinding?.workspaceId, fileBinding?.generation]), rootRef);
+  const navigationTrash = useNavigationTrash({ workspaceRoot, projectId: ownerId, rootPath: owner.rootPath, binding: fileBinding });
+  const selectionItem = (document: ProjectSidebarDocumentItem): FileSelectionItem => {
+    const prefix = owner.rootPath.replaceAll("\\", "/").replace(/\/$/, "") + "/";
+    const path = document.managedPath.replaceAll("\\", "/");
+    return { key: JSON.stringify([document.id, path]), kind: "file", fileId: document.id,
+      relativePath: path.startsWith(prefix) ? path.slice(prefix.length) : "" };
+  };
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
-  const dragActiveRef = useRef(false);
 
   const projectTagLookup = useMemo(
     () =>
@@ -379,9 +394,6 @@ export function ProjectSidebar({
       if (openTimerRef.current !== null) {
         window.clearTimeout(openTimerRef.current);
       }
-      if (dragDeactivateTimerRef.current !== null) {
-        window.clearTimeout(dragDeactivateTimerRef.current);
-      }
     },
     [],
   );
@@ -444,6 +456,12 @@ export function ProjectSidebar({
     }
   }, [contextMenu, sortedDocuments]);
 
+  useEffect(() => {
+    if (!fileContent && contextMenu && contextMenu.items.some(item => !fileSelection.selected.has(item.key))) setContextMenu(null);
+  }, [contextMenu, fileSelection.selected, fileContent]);
+
+  useEffect(() => { setContextMenu(null); }, [workspaceRoot, ownerId, owner.rootPath, !!fileContent, fileBinding?.workspaceId, fileBinding?.generation]);
+
   // Document operation handlers
   const runDesktopAction = async (action: Promise<unknown>, title: string, detail?: string) => {
     try {
@@ -464,98 +482,9 @@ export function ProjectSidebar({
     }
   };
 
-  const setDragActiveStable = useCallback((nextActive: boolean) => {
-    if (dragActiveRef.current === nextActive) {
-      return;
-    }
-
-    dragActiveRef.current = nextActive;
-    setDragActive(nextActive);
-  }, []);
-
-  const clearPendingDragDeactivate = useCallback(() => {
-    if (dragDeactivateTimerRef.current !== null) {
-      window.clearTimeout(dragDeactivateTimerRef.current);
-      dragDeactivateTimerRef.current = null;
-    }
-  }, []);
-
-  const activateFileDropTarget = useCallback(() => {
-    clearPendingDragDeactivate();
-    setActiveTab("files");
-    setDragActiveStable(true);
-  }, [clearPendingDragDeactivate, setDragActiveStable]);
-
-  const deactivateFileDropTarget = useCallback(() => {
-    if (dragDeactivateTimerRef.current !== null) {
-      return;
-    }
-
-    dragDeactivateTimerRef.current = window.setTimeout(() => {
-      dragDeactivateTimerRef.current = null;
-      setDragActiveStable(false);
-    }, DRAG_DEACTIVATE_DELAY_MS);
-  }, [setDragActiveStable]);
-
   const handleImportPaths = useCallback(async (paths: string[]) => {
     await requestImportPaths(paths);
   }, [requestImportPaths]);
-
-  const handleDroppedPaths = useCallback(
-    async (paths: string[]) => {
-      clearPendingDragDeactivate();
-      setDragActiveStable(false);
-
-      if (paths.length === 0) {
-        pushToast({
-          tone: "error",
-          title: "无法读取拖拽文件",
-          detail: "请确保拖拽的是本地文件。",
-        });
-        return;
-      }
-
-      await handleImportPaths(paths);
-    },
-    [clearPendingDragDeactivate, handleImportPaths, pushToast, setDragActiveStable],
-  );
-
-  const isSidebarPointWithin = useCallback((x: number, y: number) => {
-    const rect = rootRef.current?.getBoundingClientRect();
-    if (!rect) {
-      return false;
-    }
-
-    return x >= rect.left && x < rect.right && y >= rect.top && y < rect.bottom;
-  }, []);
-
-  const { nativeWindowFileDrop } = useWindowFileDrop({
-    enabled: true,
-    isPositionActive: ({ x, y }) => isSidebarPointWithin(x, y),
-    onHoverChange: (active) => {
-      if (active) {
-        activateFileDropTarget();
-        return;
-      }
-
-      deactivateFileDropTarget();
-    },
-    onDrop: handleDroppedPaths,
-  });
-
-  const acceptsDraggedFiles = (dataTransfer: DataTransfer) =>
-    Array.from(dataTransfer.types).some((type) => type === "Files" || type === "text/uri-list") ||
-    dataTransfer.files.length > 0;
-
-  const handleDrop = (event: DragEvent<HTMLElement>) => {
-    if (nativeWindowFileDrop) {
-      return;
-    }
-
-    event.preventDefault();
-    event.stopPropagation();
-    void handleDroppedPaths(extractDroppedFilePaths(event.dataTransfer));
-  };
 
   const openDocument = (document: ProjectSidebarDocumentItem) => {
     if (openPreview(document)) return;
@@ -614,8 +543,11 @@ export function ProjectSidebar({
     }
   };
 
-  const deleteDocument = (document: ProjectSidebarDocumentItem) => {
-    documentDeleteMutation.mutate({ documentId: document.id }, { onSuccess: refreshDirectory });
+  const deleteSelection = (menu: ContextMenuState) => {
+    setContextMenu(null);
+    void menu.trash().then(result => {
+      if (result) fileSelection.remove(result.succeeded.map(item => item.relativePath));
+    });
   };
 
   const beginRenameRecord = (record: ProjectSidebarRecordItem) => {
@@ -686,6 +618,7 @@ export function ProjectSidebar({
     }
 
     clearPendingOpen();
+    if (fileSelection.onClick(selectionItem(document), event)) { event.preventDefault(); return; }
     openTimerRef.current = window.setTimeout(() => {
       openTimerRef.current = null;
       if (onOpenDocument) {
@@ -697,6 +630,7 @@ export function ProjectSidebar({
   };
 
   const handleDocumentMouseDownCapture = (document: ProjectSidebarDocumentItem, event: MouseEvent<HTMLElement>) => {
+    if (!isInteractiveTarget(event.target)) fileSelection.onMouseDown(selectionItem(document), event);
     if (editingDocumentId === document.id || event.button !== 2 || isInteractiveTarget(event.target)) {
       return;
     }
@@ -705,9 +639,13 @@ export function ProjectSidebar({
     event.preventDefault();
   };
 
-  const openContextMenu = (document: ProjectSidebarDocumentItem, x: number, y: number) => {
+  const openContextMenu = (document: ProjectSidebarDocumentItem, x: number, y: number, event?: MouseEvent<HTMLElement>) => {
     clearPendingOpen();
-    setContextMenu({ documentId: document.id, document, listed: sortedDocuments.some(item => item.id === document.id), x, y });
+    const item = selectionItem(document);
+    const items = fileContent ? [item] : fileSelection.onContextMenu(item, event);
+    if (!items) return;
+    setContextMenu({ documentId: document.id, document, listed: sortedDocuments.some(item => item.id === document.id),
+      openDefault: captureDefaultOpen(document.id), items, trash: navigationTrash.capture(items), x, y });
   };
 
   const handleDocumentKeyDown = (document: ProjectSidebarDocumentItem, event: KeyboardEvent<HTMLElement>) => {
@@ -785,46 +723,18 @@ export function ProjectSidebar({
   return (
     <aside
       ref={rootRef}
+      data-file-drop-sidebar
       data-files-only={filesOnly || undefined}
       className={cn(
         "relative flex h-full shrink-0 flex-col border-r border-border bg-[color-mix(in_srgb,var(--color-bg-subtle)_88%,var(--color-bg))]",
-        dragActive && "bg-[color-mix(in_srgb,var(--color-accent)_6%,var(--color-bg-subtle))]",
       )}
       style={{
         width: filesOnly ? "100%" : `${projectSidebarWidthPx}px`,
       }}
       aria-label={filesOnly ? (ownerId === null ? "工作区文件" : "项目文件") : "项目导航侧边栏"}
-      onDragOver={(event) => {
-        if (nativeWindowFileDrop || !acceptsDraggedFiles(event.dataTransfer)) {
-          return;
-        }
-
-        event.preventDefault();
-        event.stopPropagation();
-        activateFileDropTarget();
-      }}
-      onDragEnter={(event) => {
-        if (nativeWindowFileDrop || !acceptsDraggedFiles(event.dataTransfer)) {
-          return;
-        }
-
-        event.preventDefault();
-        event.stopPropagation();
-        activateFileDropTarget();
-      }}
-      onDragLeave={(event) => {
-        if (nativeWindowFileDrop) {
-          return;
-        }
-
-        event.preventDefault();
-        event.stopPropagation();
-        if (!isSidebarPointWithin(event.clientX, event.clientY)) {
-          deactivateFileDropTarget();
-        }
-      }}
-      onDrop={handleDrop}
     >
+      <FileDropSurface workspaceRoot={moveWorkspaceRoot} fileRootPath={owner.rootPath} projectId={ownerId} elementRef={rootRef}
+        onActiveChange={active => { if (active && !filesOnly) setActiveTab("files"); }} />
       {!filesOnly ? <>
       <ResizeHandle
         label="调整项目侧边栏宽度"
@@ -952,6 +862,8 @@ export function ProjectSidebar({
             </div> : null}
 
             {(typeof fileContent === "function" ? fileContent({
+              busy: navigationTrash.busy,
+              renaming: editingDocument !== null,
               openContextMenu,
               renderRenameInput: relativePath => editingDocument && projectFilePathMatches(editingDocument.managedPath, owner.rootPath, relativePath) ? (
                 <input autoFocus aria-label={`重命名 ${editingDocument.name}`} data-document-interactive="true"
@@ -1049,17 +961,11 @@ export function ProjectSidebar({
               <div
                 className={cn(
                   "project-sidebar__file-list grid gap-1.5 rounded-[var(--radius-8)] transition-colors",
-                  dragActive && "bg-[color-mix(in_srgb,var(--color-accent)_8%,var(--color-bg))]",
                 )}
               >
-                {dragActive ? (
-                  <div className="flex items-center gap-2 rounded-[var(--radius-8)] border border-[color-mix(in_srgb,var(--color-accent)_20%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-accent)_10%,var(--color-bg))] px-3 py-2 text-ui text-text shadow-[var(--shadow-sm)]">
-                    <Upload size={13} />
-                    <span>松手即可导入文件</span>
-                  </div>
-                ) : null}
                 {filteredDocuments.length > 0 ? (
                   filteredDocuments.map((document) => {
+                    const item = selectionItem(document);
                     const isEditing = editingDocumentId === document.id;
                     const isContextOpen = contextMenu?.documentId === document.id;
                     const tags = effectiveDocumentTagsById.get(document.id) ?? document.tags;
@@ -1067,18 +973,25 @@ export function ProjectSidebar({
                     return (
                       <div
                         key={document.id}
+                        {...fileSelectionData(item)}
                         role="button"
+                        aria-pressed={fileSelection.selected.has(item.key)}
                         className={cn(
                           "project-sidebar__file-row group flex w-full min-w-0 items-center gap-x-2 gap-y-0 rounded-[var(--radius-8)] border px-3 py-2.5 text-left transition-colors",
                           document.id === activeFileId && "is-active",
+                          fileSelection.selected.has(item.key) && "is-selected",
                           isEditing ? "" : "context-menu-no-select",
-                          document.health === "missing"
+                          fileSelection.selected.has(item.key)
+                            ? "border-border-strong bg-[var(--color-accent-ring)]"
+                            : document.health === "missing"
                             ? "border-[color-mix(in_srgb,var(--color-danger)_22%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-danger)_4%,var(--color-bg))]"
                             : isContextOpen
                               ? "border-border-strong bg-[color-mix(in_srgb,var(--color-bg-subtle)_88%,var(--color-bg))] shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-text)_4%,transparent)]"
                               : "border-transparent hover:border-border hover:bg-bg",
                         )}
                         aria-current={document.id === activeFileId ? "true" : undefined}
+                        data-file-drop-target={JSON.stringify({ id: document.id, name: document.name, documentId: document.id,
+                          projectId: document.projectId, managedPath: document.managedPath, expectedVersionNumber: document.currentVersionNumber })}
                         data-health={document.health}
                         data-context-open={isContextOpen || undefined}
                         tabIndex={0}
@@ -1087,7 +1000,7 @@ export function ProjectSidebar({
                         onMouseDownCapture={(event) => handleDocumentMouseDownCapture(document, event)}
                         onContextMenu={(event) => {
                           event.preventDefault();
-                          openContextMenu(document, event.clientX, event.clientY);
+                          openContextMenu(document, event.clientX, event.clientY, event);
                         }}
                         onKeyDown={(event) => handleDocumentKeyDown(document, event)}
                       >
@@ -1175,6 +1088,12 @@ export function ProjectSidebar({
               onSelect: () => beginRenameRecord(contextMenuRecord),
             },
             {
+              label: "移动到…",
+              icon: FolderInput,
+              disabled: !canMove,
+              onSelect: () => { setRecordContextMenu(null); openMove({ kind: "record", id: contextMenuRecord.id }); },
+            },
+            {
               label: "删除",
               icon: Trash2,
               tone: "danger",
@@ -1192,6 +1111,18 @@ export function ProjectSidebar({
       {contextMenuDocument && contextMenu ? (
         <FileContextMenuPanel x={contextMenu.x} y={contextMenu.y} menuRef={contextMenuRef}>
           <div className="grid gap-0.5">
+            {contextMenu.items.length > 1 ? <DocumentContextMenuAction icon={<Trash2 size={14} />}
+              label={`删除所选 ${contextMenu.items.length} 项`} danger disabled={navigationTrash.busy || editingDocument !== null}
+              onClick={() => deleteSelection(contextMenu)} /> : <>
+            <DocumentContextMenuAction
+              icon={<ExternalLink size={14} />}
+              label="使用系统默认应用打开"
+              disabled={contextMenuDocument.health === "missing"}
+              onClick={() => {
+                setContextMenu(null);
+                void runDesktopAction(contextMenu.openDefault(), "使用系统默认应用打开失败");
+              }}
+            />
             <DocumentContextMenuAction
               icon={<FolderOpen size={14} />}
               label="打开文件所在位置"
@@ -1208,6 +1139,15 @@ export function ProjectSidebar({
               onClick={() => {
                 setContextMenu(null);
                 beginRename(contextMenuDocument);
+              }}
+            />
+            <DocumentContextMenuAction
+              icon={<FolderInput size={14} />}
+              label="移动到…"
+              disabled={!canMove}
+              onClick={() => {
+                setContextMenu(null);
+                openMove({ kind: "file", id: contextMenuDocument.id });
               }}
             />
             <DocumentContextMenuAction
@@ -1231,24 +1171,23 @@ export function ProjectSidebar({
               icon={<Trash2 size={14} />}
               label="删除"
               danger
-              disabled={documentDeleteMutation.isPending}
-              onClick={() => {
-                setContextMenu(null);
-                deleteDocument(contextMenuDocument);
-              }}
+              disabled={navigationTrash.busy || editingDocument !== null}
+              onClick={() => deleteSelection(contextMenu)}
             />
+            </>}
           </div>
 
-          <DocumentContextTags
+          {contextMenu.items.length === 1 ? <DocumentContextTags
             projectId={ownerId}
             availableTags={projectTags}
             tags={effectiveDocumentTagsById.get(contextMenuDocument.id) ?? contextMenuDocument.tags}
             loading={projectTagSettingsQuery.isLoading}
             onChange={(tagIds) => updateDocumentTags(contextMenuDocument, tagIds)}
-          />
+          /> : null}
         </FileContextMenuPanel>
       ) : null}
 
+      {moveDialog}
       {/* Import Dialog */}
       {pendingImportPaths ? (
         <DocumentImportTagDialog
