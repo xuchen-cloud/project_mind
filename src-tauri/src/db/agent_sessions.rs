@@ -1008,6 +1008,7 @@ mod tests {
             workspace_root: PathBuf::new(),
             secret_password: None,
             native_workspace_id: Some("workspace-a".into()),
+            file_commit_fence: None,
         };
         let binding = WorkspaceBinding {
             workspace_id: "workspace-a".into(),
@@ -1418,6 +1419,7 @@ mod tests {
             workspace_root: root.path().to_owned(),
             secret_password: None,
             native_workspace_id: Some("workspace-a".into()),
+            file_commit_fence: None,
         };
         b.generation = "reopened-generation".into();
         r.binding = b.clone();

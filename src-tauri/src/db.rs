@@ -73,6 +73,8 @@ pub(crate) mod project_directory_files;
 pub(crate) mod dsh_source_evidence;
 #[cfg(test)]
 mod startup_tests;
+#[cfg(test)]
+mod voice_session_contention_tests;
 mod voice_recovery;
 mod voice_diarization;
 pub(crate) use voice_recovery::{CloudGap, RecoveryBackend};
@@ -307,6 +309,7 @@ pub struct Database {
     workspace_root: PathBuf,
     secret_password: Option<String>,
     native_workspace_id: Option<String>,
+    file_commit_fence: Option<std::sync::Arc<crate::workspace_commit_fence::WorkspaceCommitFence>>,
 }
 
 pub struct VoiceMinutesLine {
@@ -379,6 +382,7 @@ impl Database {
             workspace_root: workspace_root.to_path_buf(),
             secret_password,
             native_workspace_id: None,
+            file_commit_fence: None,
         };
         if crate::workspace::workspace_paths(workspace_root).metadata_path.exists() {
             db.bind_native_workspace(&crate::workspace::load_metadata(workspace_root)?.0.workspace_id)?;
@@ -413,6 +417,7 @@ impl Database {
             workspace_root: workspace_root.to_path_buf(),
             secret_password,
             native_workspace_id: None,
+            file_commit_fence: None,
         };
         if db.schema_version()? != CURRENT_SCHEMA_VERSION {
             anyhow::bail!("Workspace Host database schema is not current");
@@ -1073,15 +1078,33 @@ impl Database {
         if request_id.trim().is_empty() {
             return Err(anyhow!("request_id is required"));
         }
-        if let Some(existing) = self.voice_session_by_request(request_id)? {
+        // The voice runtime has an independent connection. Reserve the writer
+        // before any reads: a DEFERRED Project read cannot safely upgrade while
+        // an ordinary connection owns the write reservation. Admission checks
+        // belong to this same transaction so concurrent starts cannot both pass.
+        let transaction = self
+            .conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let existing = transaction
+            .query_row(
+                &format!("{} WHERE s.request_id = ?1", voice_session_select_sql()),
+                [request_id],
+                persisted_voice_session_from_row,
+            )
+            .optional()?;
+        if let Some(existing) = existing {
             return Ok(existing);
         }
-        if self.voice_current_session()?.is_some() {
+        let unfinished: bool = transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM recording_sessions WHERE lifecycle <> 'ended')",
+            [],
+            |row| row.get(0),
+        )?;
+        if unfinished {
             return Err(anyhow!("an unfinished recording session already exists"));
         }
 
         let timestamp = now_iso();
-        let transaction = self.conn.transaction()?;
         let (project_note_id, workspace_note_id) = match target {
             RecordTarget::Workspace => {
                 transaction.execute(

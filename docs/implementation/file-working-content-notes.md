@@ -36,3 +36,36 @@ An explicit current-File `SourceService.read_file_verified` request checkpoints 
 ## Validation evidence
 
 No Tauri application or window was started. Targeted verification is recorded in the implementation-agent handoff; temporary raw logs use the `mind-working-*` and `mind-rust-*` prefixes in the session's temporary directory. Tests cover repeated saves without versions, immutable bases/history, exact replay and stale CAS, no-op, native ownership/generation, external changes and recovery bytes, close/restart/deadline catch-up, new activity, managed-copy migration, schema 39 upgrade, read-only Agent source handoff and actual SIGKILL at all four working-replacement phases. A separate opt-in test uses the packaged real DOCX/XLSX/PPTX workers through working open, two saves, independent reopen, one archive and fixed historical reads.
+
+## Native safety contract (G03 / #306)
+
+Host-backed working operations acquire leases before lifecycle admission:
+recovery scan → Project/owner lease → File lease → Workspace commit fence →
+SQLite transaction. Recovery scans enter admission separately for each File;
+no caller may retain a fence permit while waiting for leases or starting a
+workspace-wide recovery scan. The independent Host connection carries its
+Workspace fence, so session creation, activity, close, journal recovery, save
+and archive all check admission at their own mutation boundary. An invalidated
+Workspace rejects operations waiting for a File lease before they mutate it.
+Source checkpoints on the selected Host remain serialized by its existing
+selection/database boundary.
+
+An external conflict in a working replacement is local to that File. Startup
+and global scans preserve its journal, owned artifacts and recovery BLOB and
+continue to unrelated Files. Target open/save/archive still return a conflict;
+`file_working_recovery_read` remains the non-destructive way to retrieve the
+latest successful content. Invalid journal structure, ownership, database and
+I/O failures remain errors. A committed state/receipt is authoritative even if
+an external editor changes the live path before cleanup; cleanup only removes
+artifacts whose owned path, identity and hash match the journal.
+
+After directory registration accepts a same-content physical replacement,
+a non-pending, journal-free working state adopts that verified identity,
+advances its revision and expires previous editing sessions. This creates no
+File Version. Pending content and unregistered/different-content replacements
+continue to fail identity/hash CAS.
+
+The focused native safety tests use actual filesystem leases, production
+runtime connections and persisted journal fault fixtures on macOS. Windows
+acceptance remains in #192: run these cases on Windows with the application
+build/OS and results recorded, including file sharing and process interruption.

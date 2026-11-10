@@ -74,6 +74,7 @@ impl FileCommitHost {
         .map_err(file_io)?;
         db.bind_native_workspace(&self.binding.workspace_id)
             .map_err(file_io)?;
+        db.bind_file_commit_fence(self.fence.clone());
         Ok(db)
     }
     pub(crate) fn binding(&self) -> &WorkspaceBinding {

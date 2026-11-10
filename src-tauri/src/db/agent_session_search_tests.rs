@@ -24,6 +24,7 @@ fn fixture() -> (Database, RequestContext, WorkspaceBinding) {
         workspace_root: PathBuf::new(),
         secret_password: None,
         native_workspace_id: Some("workspace-a".into()),
+        file_commit_fence: None,
     };
     for (id, scope) in [(SESSION, "workspace"), (OTHER, "project:2")] {
         db.conn.execute("INSERT INTO agent_sessions(id,scope_key,title,runtime_id,state,session_path,created_at,updated_at) VALUES (?1,?2,'Search title','builtin-pi','active',?3,'now','now')",params![id,scope,format!(".project-mind/agent/sessions/{id}/session.jsonl")]).unwrap();
