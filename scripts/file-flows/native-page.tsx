@@ -1,5 +1,4 @@
 /** #304: one-window real components + IPC; loaded only by the measurement entry. */
-import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import { MemoryRouter } from 'react-router-dom';

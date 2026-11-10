@@ -150,6 +150,7 @@ export default defineConfig({
       "scripts/office-renderer-resources.test.mjs",
       "scripts/office-performance/**",
       "scripts/office-selection/**",
+      "scripts/file-flows/**",
       "packages/dsh-ui/vendor-integrity.test.mjs",
       "packages/dsh-ui/preview/assets-integrity.test.mjs",
     ],

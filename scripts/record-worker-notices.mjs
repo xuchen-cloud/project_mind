@@ -45,6 +45,13 @@ export async function packageNoticeAssets(roots, utility) {
       if (!info.isFile() || info.isSymbolicLink()) throw new Error(`Invalid license file for ${manifest.name}: ${name}`);
       texts.push({ name, text: await readFile(path.join(root, name), 'utf8') });
     }
+    // khroma@2.1.0 ships the complete MIT license but omits the package.json
+    // field. Accept only that exact published notice, never infer a license.
+    if (!manifest.license && manifest.name === 'khroma' && manifest.version === '2.1.0'
+      && texts.some(({ name, text }) => name === 'license'
+        && checksum(text) === '66b333b0f66759a0b710459e03f7029abe17f4358114a128d2c972e642961b49')) {
+      manifest.license = 'MIT';
+    }
     // boolbase@1.0.0's npm archive declares ISC but omits the license file.
     // Retain the upstream author's complete notice at a fixed source revision.
     if (!texts.length && manifest.name === 'boolbase' && manifest.version === '1.0.0' && manifest.license === 'ISC') {
