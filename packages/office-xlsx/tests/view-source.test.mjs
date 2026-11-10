@@ -14,6 +14,8 @@ const inputStyles={}
 runInNewContext(ts.transpileModule(readFileSync(new URL('../input-style-journal.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:inputStyles,require:()=>cellComparison})
 const closureEdits={}
 runInNewContext(ts.transpileModule(readFileSync(new URL('../formula-closure-edits.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:closureEdits,Map,WeakMap,clearTimeout})
+const streamedWrites={}
+runInNewContext(ts.transpileModule(readFileSync(new URL('../streamed-cell-writes.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:streamedWrites})
 const area={startRow:3,endRow:3,startColumn:2,endColumn:3}
 test('immutable complete snapshot is indexed once; subsequent viewports never walk source cells/rows',()=>{
   const range={area,cells:Array.from({length:20000},(_,row)=>({row,column:2,value:row})),rows:Array.from({length:20000},(_,row)=>({row,hidden:false})),merges:[],indexingComplete:true}
@@ -144,4 +146,39 @@ test('content input journals style changes independently while keeping explicit 
   assert.equal(content.s.ff,'Calibri')
   const plain=inputStyles.withoutUnchangedInputStyles({2:{1:{f:'=A1+1',s:old}}},()=>old,style=>style)
   assert.deepEqual(JSON.parse(JSON.stringify(plain)),{2:{1:{f:'=A1+1'}}})
+})
+
+test('sparse viewport writes omit pinned formulas even when banding adds a style, but retain real clears',async()=>{
+  const {ObjectMatrix,covertCellValues}=await import('@univerjs/core')
+  const writes=streamedWrites.streamedCellWrites([[{}, {s:{bl:1}}, {v:null,f:null,si:null}]],6,1,new Set(['6:2']))
+  const mutation=covertCellValues(writes,{startRow:6,endRow:6,startColumn:1,endColumn:3})
+  const visited=[]
+  new ObjectMatrix(mutation).forValue((row,column,cell)=>visited.push([row,column,cell]))
+  assert.deepEqual(JSON.parse(JSON.stringify(visited)),[[6,3,{v:null,f:null,si:null}]])
+  // Run the shipped formula observer against the exact facade conversion:
+  // the omitted formula is retained while an intentional clear still wins.
+  const engine=readFileSync(new URL('../node_modules/@univerjs/engine-formula/lib/es/index.js',import.meta.url),'utf8')
+  const start=engine.indexOf('function updateFormulaDataByCellValue('),end=engine.indexOf('\nfunction clearArrayFormulaCellDataByCell',start)
+  assert(start>=0&&end>start)
+  const api={}
+  runInNewContext(engine.slice(start,end)+'\nexports.update=updateFormulaDataByCellValue',{exports:api,isFormulaString:value=>typeof value==='string'&&value.startsWith('='),isFormulaId:value=>typeof value==='string'&&value.length>0})
+  const formulas=new ObjectMatrix({6:{2:{f:'=B5000+1'},3:{f:'=A1+1'}}})
+  new ObjectMatrix(mutation).forValue((row,column,cell)=>api.update(formulas,new ObjectMatrix(),{},new Map(),row,column,cell))
+  assert.equal(formulas.getValue(6,2).f,'=B5000+1')
+  assert.equal(formulas.getValue(6,3),undefined)
+})
+
+test('journal formatting replay preserves formula identity through style reset and protection flags',()=>{
+  const source=adaptProgressiveSync(readFileSync(new URL('../vendor/apps/sheets/src/renderer/univer-sync.ts',import.meta.url),'utf8'))
+  const start=source.indexOf('export function applyJournalOverlay('),end=source.indexOf('\n/// Formulas that use defined names',start)
+  const api={}
+  const cell={f:'=B5000+1',v:8,s:{bl:0}}
+  const worksheet={getSheetId:()=> 'sheet',getSheet:()=>({getCellRaw:()=>cell}),getRange:()=>({setValues(matrix){const next=matrix[0][0];if(!next.f)delete cell.f;Object.assign(cell,next)}})}
+  const code=ts.transpileModule(source.slice(start,end),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText
+  runInNewContext(code,{exports:api,journalEntriesInRange:()=>[{row:6,column:2,hasValue:false,styleReset:true,style:{bold:true,protectionLocked:true}}],fromNeutralStyle:()=>({bl:1}),CELL_LOCKED_KEY:'locked',CELL_HIDDEN_KEY:'hidden'})
+  api.applyJournalOverlay(worksheet,{bulkConstantFills:new Map()},{startRow:6,endRow:6,startColumn:2,endColumn:2})
+  assert.equal(cell.f,'=B5000+1')
+  assert.equal(cell.v,8)
+  assert.equal(cell.s.bl,1)
+  assert.equal(cell.custom.locked,true)
 })

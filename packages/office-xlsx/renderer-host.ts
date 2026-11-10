@@ -19,6 +19,7 @@ import {parseViewResult} from './view-protocol'
 import {formulaClosureRevision, invalidateFormulaClosure, formulasWithEdits, formulaSheetExtent} from './formula-closure-edits'
 import {withoutUnchangedInputStyles} from './input-style-journal'
 import {canonicalCellData} from './cell-comparison'
+import {streamedCellWrites} from './streamed-cell-writes'
 
 // Only data and explicit replies cross this frame boundary. No native/path relay is installed.
 type Options = { model: Model; edits: Edit[]; readOnly: boolean; presentationMode: 'preview' | 'edit'; appearance: Record<string,string> }
@@ -187,6 +188,10 @@ export async function initialize(){options=await new Promise<Options>(resolve=>{
   invalidateFormulaClosure,
   formulasWithEdits,
   formulaSheetExtent,
+  writeStreamedCells(worksheet:any, range:{startRow:number;startColumn:number;endRow:number;endColumn:number}, matrix:Record<string,unknown>[][], pinned?:ReadonlySet<string>){
+   const writes=streamedCellWrites(matrix,range.startRow,range.startColumn,pinned)
+   if(Object.keys(writes).length)worksheet.getRange(range.startRow,range.startColumn,range.endRow-range.startRow+1,range.endColumn-range.startColumn+1).setValues(writes)
+  },
   captureInputStyles(sheetId:string,values:unknown){
    if(!values||typeof values!=='object')return
    const sheet=context?.univerRef.current?.univerAPI.getActiveWorkbook()?.getSheetBySheetId(sheetId)

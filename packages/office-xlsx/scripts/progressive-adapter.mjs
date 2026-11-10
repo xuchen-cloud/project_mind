@@ -21,6 +21,25 @@ export function adaptProgressiveApp(source) {
         }`)
 }
 export function adaptProgressiveSync(source) {
+  const wipe = 'worksheet.getRange(clearStartRow, clearStartColumn, clearRows, clearColumns).setValues(wipe)'
+  if (source.split(wipe).length !== 3) throw Error('Streamed eviction write points changed')
+  source = source.replaceAll(wipe, `window.__projectMindSheetsHost.writeStreamedCells(worksheet,
+          {startRow: clearStartRow, startColumn: clearStartColumn,
+           endRow: clearStartRow + clearRows - 1, endColumn: clearStartColumn + clearColumns - 1}, wipe, pinnedKeys)`)
+  source = replace(source,
+    'worksheet.getRange(range.startRow, range.startColumn, rows, columns).setValues(matrix)',
+    'window.__projectMindSheetsHost.writeStreamedCells(worksheet, range, matrix, pinnedKeys)')
+  source = replace(source, '    const cellRange = worksheet.getRange(entry.row, entry.column, 1, 1)',
+    `    const cellRange = worksheet.getRange(entry.row, entry.column, 1, 1)
+    // Formatting replay must carry the current formula through SetRangeValues.
+    const replayStyle = (patch: ICellData) => cellRange.setValues([[{
+      ...worksheet.getSheet().getCellRaw(entry.row, entry.column), ...patch,
+    }]])`)
+  source = replace(source, 'cellRange.setValues([[{ s: null } as unknown as ICellData]])', 'replayStyle({ s: null })')
+  source = replace(source, 'cellRange.setValues([[{ s: fromNeutralStyle(entry.style) as IStyleData }]])',
+    'replayStyle({ s: fromNeutralStyle(entry.style) as IStyleData })')
+  source = replace(source, 'cellRange.setValues([[{ custom: { ...existing, ...flags } }]])',
+    'replayStyle({ custom: { ...existing, ...flags } })')
   source = source.replaceAll('if (result.indexingComplete) captureSheetFileState(state, sheetId, result)',
     'if (result.indexingComplete || result.metadataReady) captureSheetFileState(state, sheetId, result)')
   source = replace(source, '      if (result.indexingComplete) {\n        applySheetFilter(',
