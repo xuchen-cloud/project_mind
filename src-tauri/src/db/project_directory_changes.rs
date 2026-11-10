@@ -25,6 +25,15 @@ enum DirectoryPhase {
     Committed,
 }
 fn crash_point(phase: DirectoryPhase) {
+    #[cfg(all(test, unix))]
+    if matches!(phase, DirectoryPhase::HistoryRetained) {
+        if let Some(parent) = std::env::var_os("MIND_DIRECTORY_SWAP_PARENT") {
+            let parent = PathBuf::from(parent);
+            let retained = parent.with_file_name("fault-retained-owner");
+            fs::rename(&parent, &retained).unwrap();
+            std::os::unix::fs::symlink(&retained, &parent).unwrap();
+        }
+    }
     #[cfg(test)]
     if std::env::var("MIND_DIRECTORY_CRASH_STAGE")
         .ok()

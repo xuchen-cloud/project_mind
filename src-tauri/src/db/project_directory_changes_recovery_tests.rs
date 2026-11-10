@@ -69,10 +69,19 @@ fn directory_change_crash_fixture() {
         confirmed: Some(true),
         request_id: "crash-request".into(),
     };
-    db.project_directory_change_with(&input, |source| {
+    let result = db.project_directory_change_with(&input, |source| {
         files::move_exclusive(source, &root.join("fixture-trash"))
-    })
-    .unwrap();
+    });
+    if std::env::var_os("MIND_DIRECTORY_SWAP_PARENT").is_some() {
+        let error = result.unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<FileServiceError>().unwrap().code,
+            "revision_conflict"
+        );
+        assert!(!root.join("fixture-trash").exists());
+        return;
+    }
+    result.unwrap();
     panic!("crash hook did not execute");
 }
 #[test]
@@ -475,4 +484,36 @@ fn directory_trash_retained_history_parent_swap_preserves_original_and_intent() 
         .workspace_root
         .join(".project-mind/directory-history")
         .is_dir());
+}
+
+#[cfg(unix)]
+#[test]
+fn directory_live_trash_rejects_parent_swap_after_retaining_history() {
+    let (_temp, db, _binding, _owner, source) = setup();
+    let root = db.workspace_root.clone();
+    drop(db);
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "db::project_directory_changes::recovery_tests::directory_change_crash_fixture",
+            "--ignored",
+        ])
+        .env("MIND_DIRECTORY_CRASH_ROOT", &root)
+        .env("MIND_DIRECTORY_CRASH_OPERATION", "trash")
+        .env_remove("MIND_DIRECTORY_CRASH_STAGE")
+        .env("MIND_DIRECTORY_SWAP_PARENT", source.parent().unwrap())
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        fs::read(root.join("fault-retained-owner/source/known.md")).unwrap(),
+        b"retained history"
+    );
+    assert_eq!(fs::read_dir(root.join(JOURNALS)).unwrap().count(), 1);
+    assert!(!root.join("fixture-trash").exists());
 }
