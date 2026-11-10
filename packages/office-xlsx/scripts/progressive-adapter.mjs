@@ -39,19 +39,27 @@ export function adaptProgressiveSync(source) {
     '            ...window.__projectMindSheetsHost.formulaSheetExtent(state, sheet),')
   closure = replace(closure, '    const pinned = new Map<string, PinnedClosureCell>()', `    const pinned = new Map<string, PinnedClosureCell>()
     // Each installed range must survive eviction while later reads are pending.
-    state.closure.pinned.set(sheetId, pinned)`)
+    state.closure.pinned.set(sheetId, pinned)
+    const closureKeysByRow = new Map<number, number[]>()
+    for (const key of cells) {
+      const row = keyRow(key)
+      const keys = closureKeysByRow.get(row) ?? []
+      keys.push(key)
+      closureKeysByRow.set(row, keys)
+    }`)
   closure = replace(closure, `      }
     }
     state.closure.pinned.set(sheetId, pinned)`, `      }
-      for (const key of cells) {
-        const row = keyRow(key), column = keyColumn(key), address = row + ':' + column
-        if (row < range.startRow || row > range.endRow ||
-            column < range.startColumn || column > range.endColumn) continue
-        const content = journalCellContentAt(state.editJournal, sheetId, row, column)
-        if (content.found) {
-          pinned.set(address, content.formula ? {f: content.formula, v: null} : {v: content.value ?? null})
-        } else if (!pinned.has(address)) {
-          pinned.set(address, {v: null})
+      for (let row = range.startRow; row <= range.endRow; row += 1) {
+        for (const key of closureKeysByRow.get(row) ?? []) {
+          const column = keyColumn(key), address = row + ':' + column
+          if (column < range.startColumn || column > range.endColumn) continue
+          const content = journalCellContentAt(state.editJournal, sheetId, row, column)
+          if (content.found) {
+            pinned.set(address, content.formula ? {f: content.formula, v: null} : {v: content.value ?? null})
+          } else if (!pinned.has(address)) {
+            pinned.set(address, {v: null})
+          }
         }
       }
     }`)
