@@ -1121,17 +1121,32 @@ impl Database {
                 "File Workspace binding changed",
             ));
         }
-        let actual = self
-            .agent_resolve_object(object, &binding.workspace_id)?
-            .ok_or_else(|| AgentError::new(ErrorCode::NotFound, "File no longer exists"))?;
-        let operation = if operation == "file.restore"
-            && super::agent_file_undo::file_undo_authorize_target(
+        // Validate the request before any target or recovery-receipt lookup.
+        // Undo authority is provisional until the original receipt is verified.
+        match request.authorize(binding, &object.scope, operation) {
+            Err(error) if operation == "file.restore" && error.code == ErrorCode::ScopeDenied => {
+                request.authorize(binding, &object.scope, "operation.undo")?;
+            }
+            result => result?,
+        }
+        // Writes require claimed == actual; unlike read aliases, a claimed
+        // object's Workspace and allowlist can therefore be checked up front.
+        if object.workspace_id != binding.workspace_id {
+            return Err(AgentError::new(ErrorCode::ScopeDenied, "Object is outside the granted scope"));
+        }
+        request.require_object_allowed(object)?;
+        let operation = if operation == "file.restore" {
+            let permission = if super::agent_file_undo::file_undo_authorize_target(
                 &self.conn, request, binding, object,
-            )? {
-            "operation.undo"
+            )? { "operation.undo" } else { operation };
+            request.authorize(binding, &object.scope, permission)?;
+            permission
         } else {
             operation
         };
+        let actual = self
+            .agent_resolve_object(object, &binding.workspace_id)?
+            .ok_or_else(|| AgentError::new(ErrorCode::NotFound, "File no longer exists"))?;
         request.authorize_object(binding, object, &actual, operation)?;
         self.agent_connection_require_live(request, binding, &actual.scope, operation)?;
         self.source_live_scope(&actual.scope)?;
@@ -2252,6 +2267,51 @@ mod tests {
             document,
             staged,
         }
+    }
+
+    #[test]
+    fn file_version_target_authorizes_claimed_object_before_missing_diagnostics() {
+        use crate::agent::{access::Caller, errors::ErrorCode};
+        let fixture = registered_fixture(b"unused candidate");
+        let existing = fixture.update.object.clone();
+        let missing = crate::agent::models::ObjectRef {
+            id: "999999999".into(), ..existing.clone()
+        };
+        // Exercise the DB boundary with a trusted, object-limited native request.
+        let mut request = fixture.request.clone();
+        request.caller = Caller::Gui;
+        request.scope_grant.object_keys = Some(vec![existing.key().unwrap()]);
+        assert_eq!(fixture.db.file_version_registered_target(&request, &fixture.binding, &existing).unwrap().id, fixture.document.id);
+        request.scope_grant.object_keys = Some(vec![missing.key().unwrap()]);
+        assert_eq!(fixture.db.file_version_registered_target(&request, &fixture.binding, &missing).unwrap_err().code, ErrorCode::NotFound);
+
+        let error = |request: &crate::agent::access::RequestContext, object: &crate::agent::models::ObjectRef| {
+            fixture.db.file_version_registered_target(request, &fixture.binding, object).unwrap_err().code
+        };
+        request.scope_grant.object_keys = Some(vec![]);
+        let mut results = vec![
+            ("unlisted-existing", error(&request, &existing)),
+            ("unlisted-missing", error(&request, &missing)),
+        ];
+        request.binding.generation = "stale".into();
+        results.push(("stale-request", error(&request, &missing)));
+        request.binding = fixture.binding.clone();
+        request.request_id.clear();
+        results.push(("invalid-request", error(&request, &missing)));
+        request.request_id = "target-validation".into();
+        request.scope_grant.object_keys = None;
+        for (label, mut foreign) in [("workspace-existing", existing), ("workspace-missing", missing)] {
+            foreign.workspace_id = "another-workspace".into();
+            results.push((label, error(&request, &foreign)));
+        }
+        assert_eq!(results, vec![
+            ("unlisted-existing", ErrorCode::ScopeDenied),
+            ("unlisted-missing", ErrorCode::ScopeDenied),
+            ("stale-request", ErrorCode::WorkspaceChanged),
+            ("invalid-request", ErrorCode::InvalidArgument),
+            ("workspace-existing", ErrorCode::ScopeDenied),
+            ("workspace-missing", ErrorCode::ScopeDenied),
+        ]);
     }
 
     #[test]

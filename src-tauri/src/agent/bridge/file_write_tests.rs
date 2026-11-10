@@ -242,6 +242,65 @@ async fn revocation_or_disable_during_file_capture_prevents_commit() {
 }
 
 #[tokio::test]
+async fn file_patch_authorizes_before_missing_target_diagnostics() {
+    const FOREIGN: &str = "44444444444444444444444444444444";
+    let f = Fixture::new();
+    let foreign_project = {
+        let db = f.store.db.lock().unwrap();
+        let project = db.project_create(ProjectCreateInput {
+            name: "Foreign patch target".into(), summary: None, status: None,
+        }).unwrap();
+        db.agent_connection_create(&f.binding, &ConnectionCreateInput {
+            all_projects: false, client_label: "Foreign writer".into(),
+            workspace_content: false, project_ids: vec![project.id],
+            write_operations: vec!["content.create".into()],
+        }, FOREIGN, TOKEN).unwrap();
+        project.id
+    };
+    let created = f.call(FOREIGN, "foreign-create", "file.create", mutation("foreign-create", json!({
+        "projectId":foreign_project,"safeName":"private.txt","utf8Content":"private bytes",
+    }))).await.unwrap();
+    let foreign = object(&created);
+    let missing = ObjectRef { id: "999999999".into(), ..foreign.clone() };
+    let authorized_missing = ObjectRef {
+        scope: Scope::Project { project_id: f.project_id }, ..missing.clone()
+    };
+    let forged_owner = ObjectRef {
+        scope: authorized_missing.scope.clone(), ..foreign.clone()
+    };
+    // A probe needs only a syntactically valid baseline, never the target's real hash.
+    let patch = |id: &str, target: &ObjectRef| mutation(id, json!({
+        "object":target,"expectedVersionNumber":1,
+        "expectedContentHash":format!("sha256:{}", "0".repeat(64)),"appendText":"probe",
+    }));
+    let mut results = Vec::new();
+    for (id, grant, target) in [
+        ("foreign-existing", GRANT, &foreign),
+        ("foreign-missing", GRANT, &missing),
+        ("forged-owner", GRANT, &forged_owner),
+        ("authorized-missing", GRANT, &authorized_missing),
+        ("readonly-missing", READ_ONLY, &authorized_missing),
+    ] {
+        results.push((id, f.call(grant, id, "file.patch", patch(id, target)).await.unwrap_err().code));
+    }
+    f.store.binding.lock().unwrap().generation = "reopened".into();
+    results.push(("stale-binding", f.call(GRANT, "stale-binding", "file.patch", patch("stale-binding", &missing)).await.unwrap_err().code));
+    *f.store.binding.lock().unwrap() = f.binding.clone();
+    results.push(("invalid-request", f.call(GRANT, "", "file.patch", patch("", &missing)).await.unwrap_err().code));
+    assert_eq!(results, vec![
+        ("foreign-existing", ErrorCode::ScopeDenied),
+        ("foreign-missing", ErrorCode::ScopeDenied),
+        ("forged-owner", ErrorCode::ScopeDenied),
+        ("authorized-missing", ErrorCode::NotFound),
+        ("readonly-missing", ErrorCode::ScopeDenied),
+        ("stale-binding", ErrorCode::WorkspaceChanged),
+        ("invalid-request", ErrorCode::InvalidArgument),
+    ]);
+    let versions = f.call(FOREIGN, "foreign-versions", "file.versions.list", json!({"object":foreign})).await.unwrap();
+    assert_eq!(versions["currentVersionNumber"], 1);
+}
+
+#[tokio::test]
 async fn cross_project_and_excluded_file_cannot_be_mutated() {
     let f = Fixture::new();
     let second = f.store.db.lock().unwrap().project_create(ProjectCreateInput {

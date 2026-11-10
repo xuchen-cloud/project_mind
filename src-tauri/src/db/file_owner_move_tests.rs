@@ -353,12 +353,12 @@ fn old_reference_reads_current_owner_and_canonical_allowlist() {
         ErrorCode::ScopeDenied
     );
     reader.scope_grant.object_keys = Some(vec![canonical.key().unwrap()]);
-    assert_eq!(
-        f.db.source_file_plan(&reader, &f.binding, &target)
-            .unwrap()
-            .object,
-        canonical
-    );
+    // A denied claimed key must not block a real alias to the allowed canonical key,
+    // whether or not its old owner scope is also granted.
+    for old_scope_allowed in [false, true] {
+        reader.scope_grant.workspace_content = old_scope_allowed;
+        assert_eq!(f.db.source_file_plan(&reader, &f.binding, &target).unwrap().object, canonical);
+    }
 }
 #[test]
 fn owner_lease_waits_before_fence_and_rechecks_invalidation() {

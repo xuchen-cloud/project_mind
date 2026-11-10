@@ -29,10 +29,18 @@ impl Database {
     ) -> AgentResult<ObjectRef> {
         object.key()?;
         // Validate the request before looking up a locator. A prior owner may
-        // be outside the current grant, so defer only scope denial until we
+        // be outside the current grant, so defer scope/claimed-object denial until we
         // can authorize the persisted current owner. Unknown locators must not
         // turn stale/unauthorized requests into existence diagnostics.
-        let locator_denial = match request.authorize(binding, &object.scope, operation) {
+        let locator_denial = match request.authorize(binding, &object.scope, operation).and_then(|_| {
+            if matches!(object.kind, ObjectKind::Record | ObjectKind::Transcript)
+                || (object.kind == ObjectKind::File && operation == "source.read")
+            {
+                request.require_object_allowed(object)
+            } else {
+                Ok(())
+            }
+        }) {
             Ok(()) => None,
             Err(error) if error.code == ErrorCode::ScopeDenied => Some(error),
             Err(error) => return Err(error),

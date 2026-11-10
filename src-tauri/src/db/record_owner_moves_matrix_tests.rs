@@ -277,6 +277,11 @@ fn g13_move_old_reads_actual_owner_and_stale_editor_writes_reject() {
     assert_eq!(actual.scope, b.target.scope);
     r.scope_grant.object_keys = Some(vec![old_object.key().unwrap()]);
     assert!(db.source_read_object(&r, &r.binding, &old_object).is_err());
+    r.scope_grant.object_keys = Some(vec![actual.key().unwrap()]);
+    for old_scope_allowed in [false, true] {
+        r.scope_grant.workspace_content = old_scope_allowed;
+        assert_eq!(db.source_read_object(&r, &r.binding, &old_object).unwrap(), actual);
+    }
     r.scope_grant.object_keys = None;
     assert_eq!(
         db.record_editor_state(&old)

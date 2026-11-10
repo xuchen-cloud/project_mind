@@ -200,6 +200,11 @@ fn g13_review_old_transcript_time_navigation_authorizes_actual_owner() {
             .code,
         ErrorCode::ScopeDenied
     );
+    r.scope_grant.object_keys = Some(vec![nav.object.key().unwrap()]);
+    for projects in [vec![2], vec![1, 2]] {
+        r.scope_grant.project_ids = projects;
+        assert_eq!(db.agent_source_resolve(&r, &r.binding, &source).unwrap().object, nav.object);
+    }
     r.scope_grant.object_keys = None;
     let forged = SourceRef {
         object: ObjectRef {
