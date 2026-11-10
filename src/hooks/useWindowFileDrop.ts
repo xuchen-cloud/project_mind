@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 interface DragDropPosition {
@@ -8,8 +8,10 @@ interface DragDropPosition {
 
 interface UseWindowFileDropOptions {
   enabled?: boolean;
-  onDrop: (paths: string[]) => void | Promise<unknown>;
+  /** Position is in CSS pixels. Consume any ready target before the first await. */
+  onDrop: (paths: string[], position?: DragDropPosition) => void | Promise<unknown>;
   onHoverChange?: (active: boolean) => void;
+  onHoverPosition?: (position: DragDropPosition | null) => void;
   isPositionActive?: (position: DragDropPosition) => boolean;
 }
 
@@ -21,9 +23,15 @@ export function useWindowFileDrop({
   enabled = true,
   onDrop,
   onHoverChange,
+  onHoverPosition,
   isPositionActive,
 }: UseWindowFileDropOptions) {
   const nativeWindowFileDrop = isTauriRuntime();
+  // Commit callback updates without restarting an active native drag subscription.
+  const handlers = useRef({ onDrop, onHoverChange, onHoverPosition, isPositionActive });
+  useLayoutEffect(() => {
+    handlers.current = { onDrop, onHoverChange, onHoverPosition, isPositionActive };
+  });
 
   useEffect(() => {
     if (!enabled || !nativeWindowFileDrop) {
@@ -32,29 +40,47 @@ export function useWindowFileDrop({
 
     let disposed = false;
     let unlisten: (() => void) | null = null;
+    const clearHover = () => {
+      const { onHoverPosition, onHoverChange } = handlers.current;
+      onHoverPosition?.(null);
+      onHoverChange?.(false);
+    };
 
     void getCurrentWindow()
       .onDragDropEvent(async ({ payload }) => {
         if (disposed) {
           return;
         }
+        const { onDrop, onHoverPosition, onHoverChange, isPositionActive } = handlers.current;
 
-        const isActiveAtPosition =
-          "position" in payload ? (isPositionActive?.(payload.position) ?? true) : false;
+        // Tauri reports physical pixels; DOM hit tests and hover UI use CSS pixels.
+        const position = "position" in payload
+          ? { x: payload.position.x / window.devicePixelRatio, y: payload.position.y / window.devicePixelRatio }
+          : undefined;
+        const isActiveAtPosition = position ? (isPositionActive?.(position) ?? true) : false;
 
         switch (payload.type) {
           case "enter":
           case "over":
+            onHoverPosition?.(isActiveAtPosition ? position! : null);
             onHoverChange?.(isActiveAtPosition);
             return;
           case "leave":
-            onHoverChange?.(false);
+            clearHover();
             return;
-          case "drop":
-            onHoverChange?.(false);
-            if (payload.paths.length > 0 && isActiveAtPosition) {
-              await onDrop(payload.paths);
+          case "drop": {
+            let result: void | Promise<unknown> = undefined;
+            try {
+              if (payload.paths.length > 0 && isActiveAtPosition) {
+                result = onDrop(payload.paths, position);
+              }
+            } finally {
+              // The handler consumes its target synchronously before this reset.
+              // Clear before awaiting I/O so completion cannot reset a newer drag.
+              clearHover();
             }
+            await result;
+          }
         }
       })
       .then((nextUnlisten) => {
@@ -66,15 +92,15 @@ export function useWindowFileDrop({
         unlisten = nextUnlisten;
       })
       .catch(() => {
-        onHoverChange?.(false);
+        if (!disposed) clearHover();
       });
 
     return () => {
       disposed = true;
-      onHoverChange?.(false);
+      clearHover();
       unlisten?.();
     };
-  }, [enabled, isPositionActive, nativeWindowFileDrop, onDrop, onHoverChange]);
+  }, [enabled, nativeWindowFileDrop]);
 
   return {
     nativeWindowFileDrop,
