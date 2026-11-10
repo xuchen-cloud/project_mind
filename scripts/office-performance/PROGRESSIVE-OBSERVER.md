@@ -123,3 +123,49 @@ real native acceptance, timings, release/p95 or platform results. Main must
 review/integrate this local commit and arrange Office native reruns. The ongoing
 combined File flow window acceptance was not repeated. No push, merge or Issue
 closure is performed by this work package.
+
+## Follow-up review package (base 214a378)
+
+Issue #307/G12; dependency and verification scope remain the same. Deliver the
+Rust `FileOfficeSaved` full-shape regression (including `commit.receipt`) and
+support the legal Workspace File scope alongside Project scope. Non-goals:
+changing the native save contract or product implementation, adding a TS-only
+fallback, GUI/cargo or duplicating main's acceptance. Acceptance: first reproduce
+Workspace scope rejection, then pass the focused cases, all 102 prior checks
+plus additions, and the existing entry/application typecheck under the same lock.
+
+Contract correction: Rust `FileOfficeSaved` (`src-tauri/src/file_office.rs:116`)
+contains `object`, `versionNumber`, `contentHash`, `model`, and `commit`. Its
+constructor copies the top-level version/hash from `commit.receipt`; the receipt
+also contains `documentId` and `noChange` (`db/file_versions.rs:309`). The TS
+`OfficeSaveResult<Model>` describes a narrower shape, not the absence of these
+native fields. The legacy tests now use that complete Rust shape and assert the
+original returned response/model/receipt identities. Top-level source extraction
+is retained; this review does not establish a native save implementation bug or
+introduce a receipt-only fallback/extra commit gate.
+
+Workspace File is an existing legal scope in both `AgentScope` and native
+`file_office::gui_request` (the `Scope::Workspace` grant). The observer accepts it
+alongside Project File; its existing full object key already separates their
+scope kinds. New boundary cases exercise fixed-version reads, working-session
+reads, and native saves without conflating identical numeric IDs across scopes.
+The native measurement UI itself remains the existing ProjectFileContent shell;
+these tests are scope-boundary coverage, not a new Workspace GUI acceptance run.
+
+Follow-up verification (same cwd, Node 24.21.0 and lock paths as above):
+
+```sh
+python3 "$LOCK" "$NODE" --test --test-name-pattern='legacy|Workspace' scripts/office-performance/native-working-observer.test.mjs scripts/office-performance/native-progressive-observer.test.mjs
+python3 "$LOCK" "$NODE" --test scripts/office-performance/native-*.test.mjs
+python3 "$LOCK" "$NODE" node_modules/typescript/bin/tsc --project scripts/office-performance/tsconfig.json --noEmit
+git diff --check
+```
+
+The focused command first returned **2 passed, 2 failed**: both complete-shape
+legacy tests passed unchanged, while both new Workspace cases failed to admit
+their native model. After the single scope-predicate change, the same command
+passed **4/4**. Complete suite: **104 passed, 0 failed, 0 skipped** (1219.785417 ms);
+entry/application tsc passed without diagnostics; diff check passed. Existing
+dependencies/artifacts were reused. No product changes, GUI, cargo or extra native
+IO. Standards/Spec self-review: **0 remaining findings** in this narrow delta;
+main still owns integration and real native acceptance.

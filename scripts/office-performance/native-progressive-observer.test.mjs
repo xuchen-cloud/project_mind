@@ -167,15 +167,58 @@ test('non-visual progressive reads do not select models or invent visual witness
   }
 });
 
-test('legacy inspect/save retain their returned model with exact native source metadata', async () => {
+test('legacy inspect/save retain their returned model with the full native source metadata', async () => {
   const f = deferred();
   for (const name of ['file_office_inspect', 'file_office_save']) {
     const native = {format: 'docx', nodes: [{text: name}]};
-    const data = {object, versionNumber: name.endsWith('_save') ? 2 : 1,
-      contentHash: name.endsWith('_save') ? 'saved' : fixed.expectedContentHash, model: native};
+    const receipt = {documentId: 7, versionNumber: 2, contentHash: 'saved', noChange: false};
+    const data = name === 'file_office_save'
+      ? {object, versionNumber: receipt.versionNumber, contentHash: receipt.contentHash,
+          model: native, commit: {receipt, versionPath: null}}
+      : {object, versionNumber: 1, contentHash: fixed.expectedContentHash, format: 'docx', model: native};
     await observe(f, name, fixed, envelope(data));
-    assert.equal(f.models.get(object), native);
+    assert.equal(f.models.get(object, {object, fileVersion: data.versionNumber, revision: data.contentHash}), native);
+    if (name === 'file_office_save') assert.equal(f.commits.at(-1).receipt, receipt);
     await observe(f, name, fixed, envelope({...data, object: {...object, id: 'foreign'}}));
     assert.equal(f.models.get(object), undefined);
   }
+});
+
+test('Workspace and Project files with the same ID keep separate models and view evidence', async () => {
+  for (const protocol of ['version', 'working']) {
+    const f = deferred(), workspace = {...object, scope: {kind: 'workspace'}};
+    const workspaceModel = model(), projectModel = model();
+    for (const [owner, native] of [[workspace, workspaceModel], [object, projectModel]]) {
+      await observe(f, protocol === 'working' ? 'file_working_open' : 'file_office_view',
+        protocol === 'working' ? {object: owner} : {...fixed, object: owner, read: null},
+        envelope(protocol === 'working' ? {...opened, object: owner, contentHash: fixed.expectedContentHash, model: native} : {model: native}));
+      assert.equal(f.models.get(owner), native);
+    }
+    const read = async (owner, result) => observe(f, protocol === 'working' ? 'file_working_read_view' : 'file_office_view',
+      {...(protocol === 'working' ? {sessionId: opened.sessionId} : fixed), object: owner, read: mediaRead},
+      envelope(protocol === 'working' ? result : {result}));
+    await read(workspace, media);
+    assert.equal(f.models.view(workspaceModel).media['image-1'], media);
+    assert.equal(f.models.view(projectModel).media['image-1'], undefined);
+    const otherMedia = {mediaType: 'image/png', base64: 'PROJECT'};
+    await read(object, otherMedia);
+    assert.equal(f.models.view(projectModel).media['image-1'], otherMedia);
+    assert.equal(f.models.view(workspaceModel).media['image-1'], media);
+    assert.equal(f.models.get(workspace, {object, fileVersion: 1, revision: fixed.expectedContentHash}), undefined);
+    assert.equal(f.models.view(workspaceModel).source.object.scope.kind, 'workspace');
+  }
+});
+
+test('Workspace native save keeps scoped identity and the real commit receipt', async () => {
+  const f = deferred(), owner = {...object, scope: {kind: 'workspace'}}, native = model();
+  native.coverage.sourceHash = 'saved';
+  const receipt = {documentId: 7, versionNumber: 2, contentHash: 'sha256:saved', noChange: false};
+  const data = {object: owner, versionNumber: receipt.versionNumber, contentHash: receipt.contentHash,
+    model: native, commit: {receipt, versionPath: null}};
+  await observe(f, 'file_office_save', {...fixed, object: owner}, envelope(data));
+  assert.equal(f.models.get(owner), native);
+  assert.equal(f.models.view(native).source.protocol, 'version');
+  assert.equal(f.models.view(native).source.contentHash, receipt.contentHash);
+  assert.equal(f.models.get(object), undefined);
+  assert.equal(f.commits[0].receipt, receipt);
 });

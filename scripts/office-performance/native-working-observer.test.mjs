@@ -78,9 +78,13 @@ test('native rejection is rethrown unchanged and recorded, with no success evide
   assert.match(f.commands[0].error, /native fixture rejection/); assert.equal(f.commits.length, 0);
 });
 
-test('legacy immutable version receipts keep their distinct protocol', async () => {
-  const receipt = {versionNumber: 2, contentHash: 'archived-hash', noChange: false}, f = fixture(envelope({commit: {receipt}, model: opened.model}));
-  await f.desktopApi.fileCommand('file_office_save', payload({}));
+test('legacy immutable version receipts keep the full native save shape and distinct protocol', async () => {
+  const receipt = {documentId: 7, versionNumber: 2, contentHash: 'archived-hash', noChange: false};
+  // Rust FileOfficeSaved echoes receipt version/hash beside object/model/commit.
+  const response = envelope({object, versionNumber: receipt.versionNumber, contentHash: receipt.contentHash,
+    model: opened.model, commit: {receipt, versionPath: null}}), f = fixture(response);
+  assert.equal(await f.desktopApi.fileCommand('file_office_save', payload({versionNumber: 1, expectedContentHash: 'original-hash'})), response);
+  assert.equal(f.models.get(object, {object, fileVersion: 2, revision: 'archived-hash'}), opened.model);
   assert.equal(f.commits[0].protocol, 'version'); assert.equal(f.commits[0].receipt, receipt);
   assert.equal(f.workingStates.size, 0);
 });
