@@ -140,6 +140,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
             workspace_root: std::path::PathBuf::new(),
             secret_password: None,
             native_workspace_id: None,
+            file_commit_fence: None,
         };
         db.set_schema_version(28).unwrap();
         db.ensure_agent_runtime_schema().unwrap();

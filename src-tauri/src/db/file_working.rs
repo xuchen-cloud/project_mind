@@ -88,6 +88,22 @@ struct Journal {
     new: State,
 }
 impl Database {
+    pub(crate) fn bind_file_commit_fence(
+        &mut self,
+        fence: std::sync::Arc<crate::workspace_commit_fence::WorkspaceCommitFence>,
+    ) {
+        self.file_commit_fence = Some(fence);
+    }
+    // Call only after acquiring every required lease. Never retain this permit
+    // across a global recovery scan or another operation that may wait for File.
+    pub(super) fn file_commit_permit(
+        &self,
+    ) -> AgentResult<Option<std::sync::RwLockReadGuard<'_, bool>>> {
+        self.file_commit_fence
+            .as_deref()
+            .map(|fence| fence.enter())
+            .transpose()
+    }
     pub(super) fn ensure_file_working_schema(&self) -> anyhow::Result<()> {
         self.conn.execute_batch("CREATE TABLE IF NOT EXISTS file_working_contents(document_id INTEGER PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,state TEXT NOT NULL CHECK(json_valid(state)),bytes BLOB NOT NULL,journal TEXT CHECK(journal IS NULL OR json_valid(journal))); CREATE TABLE IF NOT EXISTS file_working_sessions(session_id TEXT PRIMARY KEY,document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,generation TEXT NOT NULL,object TEXT NOT NULL,base_hash TEXT NOT NULL,name TEXT NOT NULL,bytes BLOB NOT NULL);")?;
         Ok(())
@@ -157,7 +173,16 @@ impl Database {
         files::relative(&self.workspace_root, path).map_err(io)?;
         if let Some(state) = self.working_state(document.id)? {
             let archived:Option<String>=self.conn.query_row("SELECT h.content_hash FROM document_versions v JOIN source_file_version_hashes h ON h.document_version_id=v.id WHERE v.document_id=?1 AND v.version_number=?2",params![document.id,document.current_version_number],|r|r.get(0)).optional().map_err(io)?;
-            if !state.pending && archived.as_deref() != Some(&state.hash) {
+            let live_identity = files::path_identity(path).map_err(io)?;
+            let accepted_identity: bool = self.conn.query_row(
+                "SELECT EXISTS(SELECT 1 FROM project_directory_files WHERE document_id=?1 AND state='ready' AND physical_identity=?2)",
+                params![document.id, serde_json::to_string(&live_identity).map_err(io)?],
+                |row| row.get(0),
+            ).map_err(io)?;
+            if !state.pending
+                && (archived.as_deref() != Some(&state.hash)
+                    || (state.identity != live_identity && accepted_identity))
+            {
                 let next = State {
                     revision: state.revision.checked_add(1).ok_or_else(|| {
                         error(ErrorCode::BudgetExceeded, "Working revision exhausted")
@@ -165,7 +190,7 @@ impl Database {
                     hash: archived.ok_or_else(|| {
                         error(ErrorCode::SourceNotReady, "Current history is unregistered")
                     })?,
-                    identity: files::path_identity(path).map_err(io)?,
+                    identity: live_identity,
                     activity: None,
                     pending: false,
                 };
@@ -185,6 +210,7 @@ impl Database {
                     [document.id],
                 )
                 .map_err(io)?;
+                self.working_check_disk(path, &next)?;
                 tx.commit().map_err(io)?;
                 return Ok(next);
             }
@@ -251,6 +277,7 @@ impl Database {
         let _durable = Durable::new(&self.conn)?;
         let document = self.working_authorize(request, binding, object)?;
         let _locks = self.file_recovery_write_locks(document.id).map_err(io)?;
+        let _permit = self.file_commit_permit()?;
         self.working_recover_locked(object)?;
         let state = self.working_initialize_locked(object)?;
         self.working_status(object, &state)
@@ -264,6 +291,7 @@ impl Database {
         let _durable = Durable::new(&self.conn)?;
         let document = self.working_authorize(request, binding, object)?;
         let _locks = self.file_recovery_write_locks(document.id).map_err(io)?;
+        let _permit = self.file_commit_permit()?;
         self.working_recover_locked(object)?;
         let state = self.working_initialize_locked(object)?;
         let metadata = fs::metadata(&document.managed_path).map_err(io)?;
@@ -352,6 +380,7 @@ impl Database {
         binding: &WorkspaceBinding,
         input: &crate::file_working::WorkingSession,
     ) -> AgentResult<()> {
+        let _permit = self.file_commit_permit()?;
         self.file_working_session_name(request, binding, input)?;
         self.conn
             .execute(
@@ -360,6 +389,22 @@ impl Database {
             )
             .map_err(io)?;
         Ok(())
+    }
+    fn working_recovery_check_disk(&self, path: &Path, state: &State) -> AgentResult<()> {
+        match fs::symlink_metadata(path) {
+            Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {
+                self.working_check_disk(path, state)
+            }
+            Ok(_) => Err(error(
+                ErrorCode::FileChangedUnregistered,
+                "Working recovery artifact changed; journal retained",
+            )),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(error(
+                ErrorCode::FileChangedUnregistered,
+                "Working recovery artifact missing; journal retained",
+            )),
+            Err(e) => Err(io(e)),
+        }
     }
     pub(super) fn working_recover_locked(&self, object: &ObjectRef) -> AgentResult<()> {
         let _durable = Durable::new(&self.conn)?;
@@ -389,7 +434,7 @@ impl Database {
             || staged == backup
         {
             return Err(error(
-                ErrorCode::FileChangedUnregistered,
+                ErrorCode::IoFailed,
                 "Working replacement journal ownership changed",
             ));
         }
@@ -412,16 +457,27 @@ impl Database {
             .ok_or_else(|| error(ErrorCode::IoFailed, "Working replacement state missing"))?;
         let committed =
             current.revision == journal.new.revision && current.hash == journal.new.hash;
-        if committed {
-            self.working_check_disk(&target, &journal.new)?;
-        } else {
+        // State, BLOB and receipt committed atomically. A later external edit
+        // does not undo that outcome; cleanup only touches our owned artifacts.
+        if !committed {
             if current.revision != journal.old.revision || current.hash != journal.old.hash {
                 return Err(error(
                     ErrorCode::RevisionConflict,
                     "Interrupted working revision changed",
                 ));
             }
-            if target.exists() {
+            let target_exists = match fs::symlink_metadata(&target) {
+                Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => true,
+                Ok(_) => {
+                    return Err(error(
+                        ErrorCode::FileChangedUnregistered,
+                        "Working target is no longer a regular File; journal retained",
+                    ))
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
+                Err(e) => return Err(io(e)),
+            };
+            if target_exists {
                 let identity = files::path_identity(&target).map_err(io)?;
                 if identity == journal.new.identity {
                     self.working_check_disk(&target, &journal.new)?;
@@ -437,14 +493,14 @@ impl Database {
                 }
             }
             if !target.exists() {
-                self.working_check_disk(&backup, &journal.old)?;
+                self.working_recovery_check_disk(&backup, &journal.old)?;
                 files::move_exclusive(&backup, &target).map_err(io)?;
             }
         }
         for (path, state) in [(&backup, &journal.old), (&staged, &journal.new)] {
             match fs::symlink_metadata(path) {
                 Ok(_) => {
-                    self.working_check_disk(path, state)?;
+                    self.working_recovery_check_disk(path, state)?;
                     fs::remove_file(path).map_err(io)?;
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
@@ -490,6 +546,7 @@ impl Database {
         let object = &session.object;
         let document = self.working_authorize(request, binding, object)?;
         let _locks = self.file_recovery_write_locks(document.id).map_err(io)?;
+        let _permit = self.file_commit_permit()?;
         self.working_recover_locked(object)?;
         // A replay remains available after close, but never bypasses ownership.
         if let Some(saved) = self.agent_operation_replay(
@@ -627,6 +684,7 @@ impl Database {
             .file_project_lock(document.project_id, false)
             .map_err(io)?;
         let _file = self.file_version_lock(document.id).map_err(io)?;
+        let _permit = self.file_commit_permit()?;
         self.working_recover_locked(&input.object)?;
         self.file_working_session_name(request, binding, input)?;
         let mut state = self
@@ -701,6 +759,7 @@ impl Database {
         let document =
             self.working_archive_authorize(request, binding, object, source_checkpoint)?;
         let _locks = self.file_recovery_write_locks(document.id).map_err(io)?;
+        let _permit = self.file_commit_permit()?;
         self.working_recover_locked(object)?;
         let mut state = self.working_initialize_locked(object)?;
         if !state.pending
@@ -804,16 +863,74 @@ impl Database {
         for (id, journal) in rows {
             let journal: Journal = serde_json::from_str(&journal)?;
             let project = self.document_record(id)?.project_id;
+            if journal.object.id != id.to_string()
+                || journal.object.scope != super::file_scope::scope(project)
+                || journal.object.kind != crate::agent::models::ObjectKind::File
+                || self
+                    .native_workspace_id
+                    .as_ref()
+                    .is_some_and(|workspace| workspace != &journal.object.workspace_id)
+            {
+                anyhow::bail!("Working replacement journal object ownership changed");
+            }
             let _project = self.file_project_lock(project, false)?;
             let _file = self.file_version_lock(id)?;
-            self.working_recover_locked(&journal.object)
+            let _permit = self
+                .file_commit_permit()
                 .map_err(|e| anyhow::anyhow!(e.message))?;
+            match self.working_recover_locked(&journal.object) {
+                Ok(()) => (),
+                Err(e)
+                    if matches!(
+                        e.code,
+                        ErrorCode::FileChangedUnregistered | ErrorCode::RevisionConflict
+                    ) =>
+                {
+                    // Retain evidence and let the target operation surface the
+                    // conflict; unrelated Files and Workspace startup can proceed.
+                    eprintln!(
+                        "Working File {id} recovery conflict; journal retained: {}",
+                        e.message
+                    );
+                }
+                Err(e) => return Err(anyhow::anyhow!(e.message)),
+            }
+        }
+        Ok(())
+    }
+    /// Call under the exclusive owner lease before moving/removing its root.
+    pub(super) fn file_working_require_owner_recovered(
+        &self,
+        project: Option<i64>,
+    ) -> AgentResult<()> {
+        let unresolved: bool = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM file_working_contents w JOIN documents d ON d.id=w.document_id WHERE d.project_id IS ?1 AND w.journal IS NOT NULL)",
+            [project], |row| row.get(0),
+        ).map_err(io)?;
+        if unresolved {
+            return Err(error(ErrorCode::FileChangedUnregistered, "Resolve File working replacement conflicts before moving or removing their owner root"));
+        }
+        Ok(())
+    }
+    /// A global scan may retain another File's external conflict. Target writers
+    /// must still reject a retained journal while holding that File's lease.
+    pub(super) fn file_working_require_recovered(&self, id: i64) -> AgentResult<()> {
+        let unresolved: bool = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM file_working_contents WHERE document_id=?1 AND journal IS NOT NULL)",
+            [id], |row| row.get(0),
+        ).map_err(io)?;
+        if unresolved {
+            return Err(error(
+                ErrorCode::FileChangedUnregistered,
+                "Resolve this File's working replacement conflict before another write",
+            ));
         }
         Ok(())
     }
     /// Legacy writers must hand off pending GUI content explicitly, before
     /// obtaining a fixed Version CAS. Historical source reads remain unchanged.
     pub(crate) fn file_working_require_archived(&self, id: i64) -> AgentResult<()> {
+        self.file_working_require_recovered(id)?;
         if self.working_state(id)?.is_some_and(|s| s.pending) {
             return Err(error(ErrorCode::RevisionConflict,"Unarchived working content exists; archive the File explicitly and reacquire its fixed source before AI edits or restoration"));
         }
@@ -844,7 +961,17 @@ impl Database {
         Ok(false)
     }
 }
+#[cfg(test)]
+thread_local! {
+    static WORKING_STAGE_HOOK: std::cell::RefCell<Option<Box<dyn Fn(u8)>>> = const { std::cell::RefCell::new(None) };
+}
 fn working_crash(stage: u8) {
+    #[cfg(test)]
+    WORKING_STAGE_HOOK.with(|hook| {
+        if let Some(callback) = hook.borrow().as_ref() {
+            callback(stage);
+        }
+    });
     #[cfg(test)]
     if std::env::var("MIND_WORKING_CRASH_STAGE")
         .ok()
@@ -879,6 +1006,7 @@ impl Database {
     ) -> AgentResult<Option<WorkingStatus>> {
         let document = self.working_authorize(request, binding, object)?;
         let _locks = self.file_recovery_write_locks(document.id).map_err(io)?;
+        let _permit = self.file_commit_permit()?;
         self.working_recover_locked(object)?;
         self.agent_operation_replay(
             &request.caller.key(),

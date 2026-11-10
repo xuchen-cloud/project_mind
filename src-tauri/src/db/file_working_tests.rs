@@ -604,3 +604,512 @@ async fn agent_current_file_read_obtains_a_fixed_checkpoint_without_write_permis
         2
     );
 }
+
+#[test]
+fn native_same_bytes_replacement_reopens_with_new_revision_and_rejects_old_session() {
+    let mut f = fixture();
+    let (old_session, old) = session(&f);
+    let replacement = f.path.with_extension("replacement");
+    fs::write(&replacement, b"original").unwrap();
+    fs::rename(&replacement, &f.path).unwrap();
+    assert_eq!(f.db.project_file_resolve(&f.object).unwrap().state, "ready");
+    let (_, current) = session(&f);
+    assert!(current.revision > old.revision);
+    assert_eq!(current.content_hash, old.content_hash);
+    assert_eq!(history(&mut f).len(), 1);
+    assert_eq!(
+        save(&f, &old_session, &old, "stale", "old-save", 0)
+            .unwrap_err()
+            .code,
+        ErrorCode::RevisionConflict
+    );
+    let (new_session, current) = session(&f);
+    fs::write(&f.path, b"different external content").unwrap();
+    assert_eq!(
+        save(
+            &f,
+            &new_session,
+            &current,
+            "overwrite",
+            "stale-different",
+            0
+        )
+        .unwrap_err()
+        .code,
+        ErrorCode::FileChangedUnregistered
+    );
+    assert_eq!(fs::read(&f.path).unwrap(), b"different external content");
+}
+
+// Build the durable post-journal/pre-rename boundary using the actual journal,
+// state and owned files. Recovery executes the production filesystem code.
+fn inject_working_journal(f: &Fixture) -> Journal {
+    let old =
+        f.db.working_state(f.object.id.parse().unwrap())
+            .unwrap()
+            .unwrap();
+    let doc = f.db.document_record(f.object.id.parse().unwrap()).unwrap();
+    let nonce = files::token();
+    let staged = Path::new(&doc.history_dir_path).join(format!("working-new-{nonce}"));
+    let backup = Path::new(&doc.history_dir_path).join(format!("working-old-{nonce}"));
+    fs::write(&staged, b"prepared replacement").unwrap();
+    let new = State {
+        revision: old.revision + 1,
+        hash: files::checksum(&staged).unwrap(),
+        identity: files::path_identity(&staged).unwrap(),
+        activity: Some(1000),
+        pending: true,
+    };
+    let journal = Journal {
+        object: f.object.clone(),
+        target: f.db.encode_path_ref(&f.path),
+        staged: f.db.encode_path_ref(&staged),
+        backup: f.db.encode_path_ref(&backup),
+        old,
+        new,
+    };
+    f.db.conn
+        .execute(
+            "UPDATE file_working_contents SET journal=?1 WHERE document_id=?2",
+            params![
+                serde_json::to_string(&journal).unwrap(),
+                f.object.id.parse::<i64>().unwrap()
+            ],
+        )
+        .unwrap();
+    journal
+}
+
+#[test]
+fn native_conflicting_working_journal_isolates_file_and_preserves_recovery() {
+    let mut f = fixture();
+    let (a_session, initial) = session(&f);
+    save(
+        &f,
+        &a_session,
+        &initial,
+        "last durable save",
+        "durable",
+        1000,
+    )
+    .unwrap();
+    let journal = inject_working_journal(&f);
+    fs::write(&f.path, b"external changed A").unwrap();
+    let project = match f.object.scope {
+        Scope::Project { project_id } => project_id,
+        _ => unreachable!(),
+    };
+    let b_path = f.path.with_file_name("other.md");
+    fs::write(&b_path, b"B initial").unwrap();
+    let b =
+        f.db.project_file_register(&f.binding.workspace_id, project, "other.md")
+            .unwrap()
+            .object;
+    f.db.file_version_recover_pending().unwrap();
+    drop(f.db);
+    f.db = Database::open(&f.db_path, &f.root, None).unwrap();
+    let b_open =
+        f.db.file_working_begin_session(&f.request, &f.binding, &b)
+            .unwrap();
+    let b_session = WorkingSession {
+        object: b.clone(),
+        session_id: b_open.session_id,
+    };
+    let mut request = f.request.clone();
+    request.request_id = "B save".into();
+    f.db.file_working_save(
+        &request,
+        &f.binding,
+        &b_session,
+        b_open.status.revision,
+        &b_open.status.content_hash,
+        &"B save",
+        b"B saved",
+        2000,
+    )
+    .unwrap();
+    assert_eq!(fs::read(&b_path).unwrap(), b"B saved");
+    assert_eq!(
+        f.db.file_working_begin_session(&f.request, &f.binding, &f.object)
+            .unwrap_err()
+            .code,
+        ErrorCode::FileChangedUnregistered
+    );
+    let recovery =
+        f.db.file_working_recovery_read(&f.request, &f.binding, &f.object)
+            .unwrap();
+    use base64::Engine;
+    assert_eq!(
+        base64::engine::general_purpose::STANDARD
+            .decode(recovery.base64)
+            .unwrap(),
+        b"last durable save"
+    );
+    assert_eq!(fs::read(&f.path).unwrap(), b"external changed A");
+    assert!(f.db.decode_path_ref(&journal.staged).exists());
+    let pending: bool =
+        f.db.conn
+            .query_row(
+                "SELECT journal IS NOT NULL FROM file_working_contents WHERE document_id=?1",
+                [f.object.id.parse::<i64>().unwrap()],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert!(pending);
+    assert!(f
+        .db
+        .file_native_write_locks(f.object.id.parse().unwrap())
+        .is_err());
+    assert!(f.db.file_native_write_locks(b.id.parse().unwrap()).is_ok());
+}
+
+#[test]
+fn native_committed_journal_cleanup_replays_receipt_after_external_change() {
+    let f = fixture();
+    let (s, initial) = session(&f);
+    let target = f.path.clone();
+    WORKING_STAGE_HOOK.with(|hook| {
+        *hook.borrow_mut() = Some(Box::new(move |stage| {
+            if stage == 4 {
+                fs::write(&target, b"later external content").unwrap();
+            }
+        }))
+    });
+    let result = save(&f, &s, &initial, "committed", "saved-receipt", 1000);
+    WORKING_STAGE_HOOK.with(|hook| *hook.borrow_mut() = None);
+    let saved = result.unwrap();
+    f.db.file_working_recover_pending().unwrap();
+    assert_eq!(
+        save(&f, &s, &initial, "committed", "saved-receipt", 1000)
+            .unwrap()
+            .revision,
+        saved.revision
+    );
+    assert_eq!(fs::read(&f.path).unwrap(), b"later external content");
+    let pending: bool =
+        f.db.conn
+            .query_row(
+                "SELECT journal IS NOT NULL FROM file_working_contents WHERE document_id=?1",
+                [f.object.id.parse::<i64>().unwrap()],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert!(!pending);
+    let recovery =
+        f.db.file_working_recovery_read(&f.request, &f.binding, &f.object)
+            .unwrap();
+    use base64::Engine;
+    assert_eq!(
+        base64::engine::general_purpose::STANDARD
+            .decode(recovery.base64)
+            .unwrap(),
+        b"committed"
+    );
+}
+
+#[test]
+fn native_working_waiting_on_real_file_lease_does_not_block_workspace_close() {
+    use crate::{
+        committed_changes::{CommittedChangePublisher, CommittedChanges},
+        file_version_service::{BoundFileCommitStore, FileCommitHost},
+        source_service::BoundSourceStore,
+        workspace_commit_fence::WorkspaceCommitFence,
+    };
+    use std::sync::{mpsc, Arc};
+    use std::time::Duration;
+    struct Store {
+        root: PathBuf,
+        db_path: PathBuf,
+        binding: WorkspaceBinding,
+        fence: Arc<WorkspaceCommitFence>,
+    }
+    impl CommittedChangePublisher for Store {
+        fn publish_committed(&self, _: CommittedChanges) {}
+    }
+    impl BoundSourceStore for Store {
+        fn with_current<T>(
+            &self,
+            action: impl FnOnce(&WorkspaceBinding, &Database) -> AgentResult<T>,
+        ) -> AgentResult<T> {
+            let db = Database::open_runtime_connection(&self.db_path, &self.root, None).unwrap();
+            action(&self.binding, &db)
+        }
+    }
+    impl BoundFileCommitStore for Store {
+        fn gui_commit_host(&self, _: &WorkspaceBinding) -> AgentResult<FileCommitHost> {
+            Ok(FileCommitHost::for_test(
+                self.binding.clone(),
+                crate::workspace::workspace_paths(&self.root),
+                None,
+                self.fence.clone(),
+            ))
+        }
+    }
+    let f = fixture();
+    let _ = session(&f);
+    let fence = Arc::new(WorkspaceCommitFence::new());
+    // Version preparation owns the actual Project/File lease before admission.
+    let project =
+        f.db.file_project_lock(
+            match f.object.scope {
+                Scope::Project { project_id } => Some(project_id),
+                _ => None,
+            },
+            false,
+        )
+        .unwrap();
+    let file =
+        f.db.file_version_lock(f.object.id.parse().unwrap())
+            .unwrap();
+    let store = Store {
+        root: f.root.clone(),
+        db_path: f.db_path.clone(),
+        binding: f.binding.clone(),
+        fence: fence.clone(),
+    };
+    let request = f.request.clone();
+    let object = f.object.clone();
+    let (attempt_tx, attempt_rx) = mpsc::channel();
+    let working = std::thread::spawn(move || {
+        files::FILE_LEASE_ATTEMPT.with(|hook| *hook.borrow_mut() = Some(attempt_tx));
+        crate::file_working::with_db(&store, &request, |db| {
+            db.file_working_open_status(&request, &request.binding, &object)
+        })
+    });
+    attempt_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+    let (close_tx, close_rx) = mpsc::channel();
+    let closing_fence = fence.clone();
+    let closing = std::thread::spawn(move || {
+        closing_fence.invalidate();
+        close_tx.send(()).unwrap();
+    });
+    let closed_without_file = close_rx.recv_timeout(Duration::from_secs(1)).is_ok();
+    // On regression release the real lease before failing, so no orphan thread
+    // can hang the runner. In the fixed order version admission rejects at once.
+    if closed_without_file {
+        assert_eq!(fence.enter().unwrap_err().code, ErrorCode::WorkspaceChanged);
+    }
+    drop(file);
+    drop(project);
+    let working_result = working.join().unwrap();
+    closing.join().unwrap();
+    assert!(
+        closed_without_file,
+        "working held the fence while waiting for a real File lease"
+    );
+    assert_eq!(
+        working_result.unwrap_err().code,
+        ErrorCode::WorkspaceChanged
+    );
+}
+
+#[test]
+fn native_global_working_recovery_does_not_hide_invalid_journal() {
+    let f = fixture();
+    let _ = session(&f);
+    f.db.conn
+        .execute(
+            "UPDATE file_working_contents SET journal='{}' WHERE document_id=?1",
+            [f.object.id.parse::<i64>().unwrap()],
+        )
+        .unwrap();
+    assert!(f.db.file_working_recover_pending().is_err());
+}
+
+#[test]
+fn native_external_write_after_durable_journal_keeps_actual_save_uncommitted() {
+    let f = fixture();
+    let (s, initial) = session(&f);
+    let target = f.path.clone();
+    WORKING_STAGE_HOOK.with(|hook| {
+        *hook.borrow_mut() = Some(Box::new(move |stage| {
+            if stage == 1 {
+                fs::write(&target, b"external during save").unwrap();
+            }
+        }))
+    });
+    let result = save(
+        &f,
+        &s,
+        &initial,
+        "must not overwrite external",
+        "interrupted",
+        1000,
+    );
+    WORKING_STAGE_HOOK.with(|hook| *hook.borrow_mut() = None);
+    assert_eq!(result.unwrap_err().code, ErrorCode::FileChangedUnregistered);
+    assert_eq!(fs::read(&f.path).unwrap(), b"external during save");
+    let bytes: Vec<u8> =
+        f.db.conn
+            .query_row(
+                "SELECT bytes FROM file_working_contents WHERE document_id=?1",
+                [f.object.id.parse::<i64>().unwrap()],
+                |r| r.get(0),
+            )
+            .unwrap();
+    assert_eq!(bytes, b"original");
+    let receipt: Option<WorkingStatus> =
+        f.db.agent_operation_replay(
+            "gui",
+            "interrupted",
+            "file.working.save",
+            &WorkingSaveText {
+                object: f.object.clone(),
+                session_id: s.session_id,
+                expected_revision: initial.revision,
+                expected_content_hash: initial.content_hash,
+                text: "must not overwrite external".into(),
+            },
+        )
+        .unwrap();
+    assert!(receipt.is_none());
+    f.db.file_working_recover_pending().unwrap();
+    assert_eq!(
+        f.db.file_working_require_archived(f.object.id.parse().unwrap())
+            .unwrap_err()
+            .code,
+        ErrorCode::FileChangedUnregistered
+    );
+}
+
+#[test]
+fn native_close_waits_for_actual_working_save_already_in_commit() {
+    use std::sync::{mpsc, Arc};
+    use std::time::Duration;
+    let f = fixture();
+    let (s, initial) = session(&f);
+    let fence = Arc::new(crate::workspace_commit_fence::WorkspaceCommitFence::new());
+    let paths = crate::workspace::workspace_paths(&f.root);
+    let host = crate::file_version_service::FileCommitHost::for_test(
+        f.binding.clone(),
+        paths,
+        None,
+        fence.clone(),
+    );
+    let request = f.request.clone();
+    let binding = f.binding.clone();
+    let (prepared_tx, prepared_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let worker = std::thread::spawn(move || {
+        let db = host.database().unwrap();
+        WORKING_STAGE_HOOK.with(|hook| {
+            *hook.borrow_mut() = Some(Box::new(move |stage| {
+                if stage == 1 {
+                    prepared_tx.send(()).unwrap();
+                    release_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+                }
+            }))
+        });
+        db.file_working_save(
+            &request,
+            &binding,
+            &s,
+            initial.revision,
+            &initial.content_hash,
+            &"entered-save",
+            b"entered commit",
+            1000,
+        )
+    });
+    prepared_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+    let (attempt_tx, attempt_rx) = mpsc::channel();
+    let (closed_tx, closed_rx) = mpsc::channel();
+    let closing_fence = fence.clone();
+    let closer = std::thread::spawn(move || {
+        attempt_tx.send(()).unwrap();
+        closing_fence.invalidate();
+        closed_tx.send(()).unwrap();
+    });
+    attempt_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+    assert!(closed_rx.recv_timeout(Duration::from_millis(50)).is_err());
+    release_tx.send(()).unwrap();
+    let saved = worker.join().unwrap().unwrap();
+    closed_rx.recv_timeout(Duration::from_secs(3)).unwrap();
+    closer.join().unwrap();
+    assert_eq!(saved.revision, 1);
+    assert_eq!(fs::read(&f.path).unwrap(), b"entered commit");
+    let replay: Option<WorkingStatus> =
+        f.db.agent_operation_replay("gui", "open", "file.working.save", &"entered-save")
+            .unwrap();
+    assert_eq!(replay.unwrap().revision, saved.revision);
+    assert_eq!(fence.enter().unwrap_err().code, ErrorCode::WorkspaceChanged);
+}
+
+#[test]
+fn native_global_recovery_cannot_clean_other_journals_after_workspace_close() {
+    // Incomplete preparation directories are enough to drive real cleanup in
+    // every filesystem journal scanner, without inventing a foreign descriptor.
+    for directory in [
+        "file-version-journal",
+        "file-import-journal",
+        "file-metadata-journal",
+        "file-delete-journal",
+        "file-relocate-journal",
+    ] {
+        let mut f = fixture();
+        let name = if directory == "file-import-journal" {
+            match f.object.scope {
+                Scope::Project { project_id } => project_id,
+                _ => unreachable!(),
+            }
+            .to_string()
+        } else {
+            f.object.id.clone()
+        };
+        let pending = f
+            .root
+            .join(".project-mind")
+            .join(directory)
+            .join(format!("{name}-{}", files::token()));
+        fs::create_dir_all(&pending).unwrap();
+        let fence = std::sync::Arc::new(crate::workspace_commit_fence::WorkspaceCommitFence::new());
+        f.db.bind_file_commit_fence(fence.clone());
+        fence.invalidate();
+        assert!(
+            f.db.file_version_recover_pending().is_err(),
+            "{directory} must check lifecycle admission"
+        );
+        assert!(pending.exists(), "{directory} mutated after invalidation");
+    }
+}
+
+#[test]
+fn native_project_root_changes_cannot_orphan_an_isolated_working_journal() {
+    let mut f = fixture();
+    let _ = session(&f);
+    let _ = inject_working_journal(&f);
+    fs::write(&f.path, b"external content").unwrap();
+    let project_id = match f.object.scope {
+        Scope::Project { project_id } => project_id,
+        _ => unreachable!(),
+    };
+    let original_root = f.db.project_record(project_id).unwrap().root_path;
+    let update = |name| crate::models::ProjectUpdateInput {
+        project_id,
+        name,
+        summary: "kept QuickNote".into(),
+        summary_markdown: None,
+        summary_html: None,
+        summary_code_language: None,
+        status: None,
+    };
+    assert!(f.db.project_update(update(Some("Renamed".into()))).is_err());
+    assert_eq!(
+        f.db.project_record(project_id).unwrap().root_path,
+        original_root
+    );
+    assert!(Path::new(&original_root).exists());
+    assert!(f
+        .db
+        .project_delete(crate::models::ProjectDeleteInput { project_id })
+        .is_err());
+    // A retained File conflict does not disable ordinary Project use.
+    f.db.project_update(update(None)).unwrap();
+    drop(f.db);
+    f.db = Database::open(&f.db_path, &f.root, None).unwrap();
+    assert_eq!(
+        f.db.project_record(project_id).unwrap().root_path,
+        original_root
+    );
+    assert_eq!(fs::read(&f.path).unwrap(), b"external content");
+}

@@ -578,6 +578,7 @@ impl Database {
             let _project_lock = self.file_project_lock(project_id, false)?;
             let _import_lock =
                 self.file_scope_storage_lock("file-import-locks", project_id, true)?;
+            let _permit = self.file_commit_permit().map_err(|error| anyhow!(error.message))?;
             if !directory.exists() {
                 continue;
             }

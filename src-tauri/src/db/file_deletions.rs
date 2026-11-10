@@ -328,6 +328,7 @@ impl Database {
                 .map(|id| self.file_project_lock(id, false))
                 .transpose()?;
             let _file = self.file_storage_lock("file-version-locks", document_id, true)?;
+            let _permit = self.file_commit_permit().map_err(|error| anyhow!(error.message))?;
             if !directory.exists() {
                 continue;
             }
