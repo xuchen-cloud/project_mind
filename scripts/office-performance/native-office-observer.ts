@@ -30,7 +30,8 @@ function objectKey(object: AgentObjectRef): string {
 }
 function fileObject(object: AgentObjectRef | undefined): object is AgentObjectRef {
   return !!object && object.kind === 'file' && typeof object.id === 'string' &&
-    typeof object.workspaceId === 'string' && object.scope?.kind === 'project' && typeof object.scope.projectId === 'number';
+    typeof object.workspaceId === 'string' && (object.scope?.kind === 'workspace' ||
+      (object.scope?.kind === 'project' && typeof object.scope.projectId === 'number'));
 }
 function fixedSource(input: Input): Source | undefined {
   const {object, versionNumber, expectedContentHash} = input.data;
