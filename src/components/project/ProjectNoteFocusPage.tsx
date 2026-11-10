@@ -1,7 +1,8 @@
 import { HomeSaveIndicator } from "../home/HomeSaveIndicator";
 import { HomeRecordHeader } from "../home/HomeRecordHeader";
 import "../home/home.css";
-import { useCallback,useEffect,useLayoutEffect,useMemo,useRef,useState,type KeyboardEvent } from "react";
+import { useCallback,useContext,useEffect,useLayoutEffect,useMemo,useRef,useState,type KeyboardEvent } from "react";
+import { ProjectContentMoveContext } from "../../lib/project-content-move-context";
 import { useQuery,useQueryClient } from "@tanstack/react-query";
 import { useNavigate,useParams,useSearchParams } from "react-router-dom";
 
@@ -392,8 +393,10 @@ export function ProjectNoteFocusPage({
     [saveCoordinator, submitCurrentRecord],
   );
 
+  const contentMove = useContext(ProjectContentMoveContext);
   const leaveEditorRef = useRef<() => void>(() => undefined);
   leaveEditorRef.current = () => {
+    if (contentMove?.committed) return;
     if (!editingReady || !submitCurrentRecord()) return;
     void canonical.checkpoint("leave_editor").catch(() => setPersistState("error"));
   };

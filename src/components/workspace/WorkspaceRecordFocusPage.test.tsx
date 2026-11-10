@@ -1,4 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ProjectContentMoveContext } from "../../lib/project-content-move-context";
+import { recordDocumentApi } from "../../services/recordDocumentApi";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useEffect, useRef, useState, type ReactElement } from "react";
@@ -389,6 +391,20 @@ describe("WorkspaceRecordFocusPage record switching", () => {
       ] };
       return { metadata: { title: record.title,tagIds: record.tags.map((tag) => tag.id),revision: "metadata-ai",updatedAt: "now" },tags: record.tags };
     });
+  });
+
+  it("does not checkpoint the old Workspace target when unmounted after a confirmed move", async () => {
+    const moved = { committed: false };
+    const persist = vi.fn(async () => ({ updatedAt: "saved", headRevision: 2 }));
+    const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: { persist } });
+    const view = renderPage(<ProjectContentMoveContext.Provider value={moved}><RecordSaveCoordinatorProvider coordinator={coordinator}><WorkspaceRecordFocusPage /></RecordSaveCoordinatorProvider></ProjectContentMoveContext.Provider>);
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
+    vi.mocked(recordDocumentApi.checkpoint).mockClear(); persist.mockClear();
+    moved.committed = true;
+    view.unmount();
+    await act(async () => { await Promise.resolve(); });
+    expect(recordDocumentApi.checkpoint).not.toHaveBeenCalled(); expect(persist).not.toHaveBeenCalled();
+    expect(coordinator.getStatus().pendingCount).toBe(0);
   });
 
   it("refreshes a committed voice title and its canonical metadata without saving it again", async () => {

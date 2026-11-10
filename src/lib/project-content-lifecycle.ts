@@ -1,4 +1,12 @@
-type ProjectCloseGuard = { workspaceRoot: string; projectId: number | null; prepare: () => Promise<void> };
+export type MovingContentObject = { kind: "record" | "file"; id: number };
+type ProjectCloseGuard = {
+  workspaceRoot: string;
+  projectId: number | null;
+  prepare: (object?: MovingContentObject) => Promise<void>;
+  lockObject?: (object: MovingContentObject) => () => void;
+  moved?: (object: MovingContentObject, nativeSessionsClosed: boolean) => void;
+  closeMoved?: (object: MovingContentObject) => Promise<void>;
+};
 type WorkspaceRecordCloseGuard = { workspaceRoot: string; recordId: number; prepare: () => Promise<void> };
 const workspaceRecords = new Map<string, WorkspaceRecordCloseGuard>();
 const projects = new Map<string, ProjectCloseGuard>();
@@ -12,6 +20,19 @@ export function registerProjectContentCloseGuard(guard: ProjectCloseGuard) {
 }
 export async function prepareProjectContentClose(workspaceRoot: string, projectId: number | null) {
   await projects.get(key(workspaceRoot, projectId))?.prepare();
+}
+
+/** The move callback reads its native CAS baseline after this object's editor saves. */
+export async function withProjectContentMove<T>(workspaceRoot: string, projectId: number | null, object: MovingContentObject, move: () => Promise<T>, options: { nativeSessionsClosed?: boolean } = {}): Promise<T> {
+  const guard = projects.get(key(workspaceRoot, projectId));
+  const unlock = guard?.lockObject?.(object);
+  try {
+    await guard?.prepare(object);
+    const result = await move();
+    guard?.moved?.(object, options.nativeSessionsClosed === true);
+    await guard?.closeMoved?.(object);
+    return result;
+  } finally { unlock?.(); }
 }
 export function registerWorkspaceRecordCloseGuard(guard: WorkspaceRecordCloseGuard) {
   const id = key(guard.workspaceRoot, guard.recordId);

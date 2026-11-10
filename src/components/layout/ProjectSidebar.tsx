@@ -6,6 +6,7 @@ import { FileContextMenuPanel } from "../document/FileContextMenuPanel";
 import { RecordIcon } from "../icons/ContentTypeIcon";
 import "../tags/entity-tags.css";
 import { HomeSidebarList } from "../home/HomeSidebarList";
+import { useContentOwnerMoveDialog } from "../shared/ContentOwnerMoveDialog";
 import {
   useCallback,
   useEffect,
@@ -24,6 +25,7 @@ import {
   Files,
   FolderKanban,
   FolderOpen,
+  FolderInput,
   Mic,
   Pencil,
   Pin,
@@ -204,7 +206,9 @@ export function ProjectSidebar({
   const activeTab = filesOnly ? "files" : storedActiveTab;
   const { pushToast } = useFeedbackStore();
   const queryClient = useQueryClient();
-  const workspaceRoot = fileScope?.workspaceRoot ?? queryClient.getQueryData<WorkspaceStatusSnapshot>(queryKeys.workspaceStatus)?.currentWorkspace?.rootPath ?? owner.rootPath;
+  const moveWorkspaceRoot = fileScope?.workspaceRoot ?? queryClient.getQueryData<WorkspaceStatusSnapshot>(queryKeys.workspaceStatus)?.currentWorkspace?.rootPath;
+  const workspaceRoot = moveWorkspaceRoot ?? owner.rootPath;
+  const { canMove, openMove, moveDialog } = useContentOwnerMoveDialog(moveWorkspaceRoot, ownerId);
   const { pinnedIds, isPinned, togglePin } = useListPins(workspaceRoot, recordPinScope(ownerId));
   const refreshDirectory = () => queryClient.invalidateQueries({
     queryKey: queryKeys.projectDirectory(owner.rootPath, ownerId, "", 0).slice(0, 3),
@@ -1175,6 +1179,12 @@ export function ProjectSidebar({
               onSelect: () => beginRenameRecord(contextMenuRecord),
             },
             {
+              label: "移动到…",
+              icon: FolderInput,
+              disabled: !canMove,
+              onSelect: () => { setRecordContextMenu(null); openMove({ kind: "record", id: contextMenuRecord.id }); },
+            },
+            {
               label: "删除",
               icon: Trash2,
               tone: "danger",
@@ -1208,6 +1218,15 @@ export function ProjectSidebar({
               onClick={() => {
                 setContextMenu(null);
                 beginRename(contextMenuDocument);
+              }}
+            />
+            <DocumentContextMenuAction
+              icon={<FolderInput size={14} />}
+              label="移动到…"
+              disabled={!canMove}
+              onClick={() => {
+                setContextMenu(null);
+                openMove({ kind: "file", id: contextMenuDocument.id });
               }}
             />
             <DocumentContextMenuAction
@@ -1249,6 +1268,7 @@ export function ProjectSidebar({
         </FileContextMenuPanel>
       ) : null}
 
+      {moveDialog}
       {/* Import Dialog */}
       {pendingImportPaths ? (
         <DocumentImportTagDialog

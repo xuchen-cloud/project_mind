@@ -1,8 +1,33 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { HomeNoteSidebar } from "./HomeNoteSidebar";
 import { createUiStoreState, useUiStore } from "../../state/ui-store";
 import { useListPinsStore } from "../../state/list-pins-store";
+
+const moves = vi.hoisted(() => ({ binding: vi.fn(), projects: vi.fn(), move: vi.fn() }));
+vi.mock("../../services/recordDocumentApi", () => ({ recordDocumentApi: { bindingGet: moves.binding } }));
+vi.mock("../../services/projectMindApi", () => ({ projectMindApi: { projectsList: moves.projects } }));
+vi.mock("../../services/contentOwnerMoveApi", () => ({ moveContentOwner: moves.move }));
+
+it.each([undefined, 7])("moves a note through the real destination dialog from owner %s", async projectId => {
+  moves.binding.mockResolvedValue({ workspaceId: "w1", generation: "g1" });
+  moves.projects.mockResolvedValue([{ id: 8, name: "目标项目", isArchived: false }]);
+  moves.move.mockResolvedValue(undefined);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const onOpenRecord = vi.fn();
+  render(<QueryClientProvider client={client}><HomeNoteSidebar workspaceRoot="/workspace" projectId={projectId}
+    records={records} activeRecordId={2} onOpenRecord={onOpenRecord} onOpenWorkspace={vi.fn()} onCreateRecord={vi.fn()} /></QueryClientProvider>);
+  fireEvent.contextMenu(screen.getByTitle("旧记录"));
+  fireEvent.click(screen.getByRole("menuitem", { name: "移动到…" }));
+  fireEvent.click(await screen.findByRole("radio", { name: /目标项目/ }));
+  fireEvent.click(screen.getByRole("button", { name: "移动" }));
+  await waitFor(() => expect(moves.move).toHaveBeenCalledWith({ workspaceRoot: "/workspace", binding: { workspaceId: "w1", generation: "g1" },
+    sourceProjectId: projectId ?? null, destinationProjectId: 8, object: { kind: "record", id: 1 } }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  expect(moves.projects).toHaveBeenCalledWith({ includeArchived: true });
+  expect(onOpenRecord).not.toHaveBeenCalled();
+});
 
 beforeEach(() => { localStorage.clear(); useListPinsStore.setState({ pins: {} }); useUiStore.setState(createUiStoreState()); });
 const records = [{ id: 1, title: "旧记录", contentMarkdown: "正文", updatedAt: "2026-10-01" }, { id: 2, title: "新记录", contentMarkdown: "正文", updatedAt: "2026-10-02" }];

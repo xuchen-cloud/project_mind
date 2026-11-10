@@ -9,6 +9,7 @@ import { projectFileApi } from "../../services/projectFileApi";
 import { htmlPreviewApi } from "../../services/htmlPreviewApi";
 import { ProjectFileContent } from "./ProjectFileContent";
 import { ProjectFileIdentityActions } from "./ProjectFileIdentityActions";
+import { ProjectContentMoveContext } from "../../lib/project-content-move-context";
 import { officeFileApi } from "../../services/officeFileApi";
 import {fileWorkingApi} from "../../services/fileWorkingApi";
 import { officePreviewCache } from "../../lib/office-preview-cache";
@@ -46,9 +47,9 @@ async function chooseVersion(version: number) {
   fireEvent.click(screen.getByRole("button", { name: "文件查看版本" }));
   fireEvent.click(await screen.findByRole("menuitemradio", { name: `v${version}`, exact: true }));
 }
-function view(props = input) {
+function view(props = input, moveState?: { committed: boolean; nativeSessionsClosed?: boolean }) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const wrap = (next: typeof input) => <QueryClientProvider client={client}><ProjectFileContent {...next} /></QueryClientProvider>;
+  const wrap = (next: typeof input) => <QueryClientProvider client={client}><ProjectContentMoveContext.Provider value={moveState ?? null}><ProjectFileContent {...next} /></ProjectContentMoveContext.Provider></QueryClientProvider>;
   return { ...render(wrap(props)), wrap, client };
 }
 beforeEach(() => {
@@ -103,7 +104,7 @@ it.each([true, false])('opens a legacy File after explicit recovery with a regis
 });
 // Use the registered content-tab guard with the real Office component/session:
 // Project/window leave also invokes this same guard through the layout registrar.
-async function editedOffice(format: 'docx' | 'xlsx' = 'docx') {
+async function editedOffice(format: 'docx' | 'xlsx' = 'docx', moveState?: { committed: boolean; nativeSessionsClosed?: boolean }) {
   vi.mocked(projectFileApi.resolve).mockResolvedValue({object,name:`sample.${format}`,relativePath:`sample.${format}`,versionNumber:2,contentHash:'hash2',state:'ready',reason:null});
   vi.mocked(fileWorkingApi.open).mockResolvedValue({...workingStatus(),sessionId:'session',name:`sample.${format}`,base64:'UEs=',format,model:{format,nodes:[{id:'p0',text:'原文'}]}} as never);
   const versions = [2, 1].map(n => ({ ...version(n), name: `sample.${format}` }));
@@ -111,7 +112,7 @@ async function editedOffice(format: 'docx' | 'xlsx' = 'docx') {
   vi.mocked(officeFileApi.inspect).mockResolvedValue({ model: { format, nodes: [{ id: "p0", text: "原文" }] } } as never);
   let guard!: () => Promise<void>;
   const registerCloseGuard = (next: () => Promise<void>) => { guard = next; return () => {}; };
-  const rendered = view({ ...input, registerCloseGuard } as typeof input);
+  const rendered = view({ ...input, registerCloseGuard } as typeof input, moveState);
   const edit = await screen.findByRole("button", { name: "编辑", exact: true });
   await waitFor(() => expect(edit).not.toBeDisabled());
   fireEvent.click(edit);
@@ -120,6 +121,17 @@ async function editedOffice(format: 'docx' | 'xlsx' = 'docx') {
   fireEvent.change(editor, { target: { value: "未保存草稿" } });
   return { ...rendered, editor, close: () => guard(), hide: () => rendered.rerender(rendered.wrap({ ...input, visible: false, registerCloseGuard } as typeof input)) };
 }
+it.each([true, false])('releases the old File session only when the confirmed move has not ended it natively (%s)', async nativeSessionsClosed => {
+  const moved = { committed: false, nativeSessionsClosed: false };
+  const rendered = await editedOffice('docx', moved);
+  vi.mocked(fileWorkingApi.close).mockClear(); vi.mocked(fileWorkingApi.saveOffice).mockClear();
+  moved.committed = true; moved.nativeSessionsClosed = nativeSessionsClosed;
+  rendered.unmount();
+  await act(async () => { await Promise.resolve(); });
+  if (nativeSessionsClosed) expect(fileWorkingApi.close).not.toHaveBeenCalled();
+  else expect(fileWorkingApi.close).toHaveBeenCalledWith(binding, { object, sessionId: "session" });
+  expect(fileWorkingApi.saveOffice).not.toHaveBeenCalled();
+});
 it('allows the real hidden Office close guard after confirming a deleted managed File', async () => {
   const failure = new AgentApiError({ code: 'NOT_FOUND', message: 'File is no longer present', retryable: false });
   vi.mocked(fileWorkingApi.saveOffice).mockRejectedValue(failure);

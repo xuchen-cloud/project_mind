@@ -1,6 +1,7 @@
 import { RecordIcon } from "../icons/ContentTypeIcon";
 import { useMemo, useState, type ReactNode } from "react";
-import { PanelLeft, Pencil, Pin, PinOff, Plus, Trash2 } from "lucide-react";
+import { FolderInput, PanelLeft, Pencil, Pin, PinOff, Plus, Trash2 } from "lucide-react";
+import { useContentOwnerMoveDialog } from "../shared/ContentOwnerMoveDialog";
 import { HomeSidebarFooter, HomeWorkspaceIdentity } from "./HomeWorkspaceIdentity";
 import { HomeSidebarList } from "./HomeSidebarList";
 import { HomeSidebarSplit } from "./HomeSidebarSplit";
@@ -20,6 +21,7 @@ export function HomeNoteSidebar({ workspaceRoot, projectId, records, filePanel, 
   const { projectSidebarCollapsed, projectSidebarWidthPx, toggleProjectSidebarCollapsed, setProjectSidebarWidthPx } = useUiStore();
   const { pinnedIds, isPinned, togglePin } = useListPins(workspaceRoot, recordPinScope(projectId));
   const pushToast = useFeedbackStore(state => state.pushToast);
+  const { canMove, openMove, moveDialog } = useContentOwnerMoveDialog(workspaceRoot, projectId ?? null);
   const [menu, setMenu] = useState<{ id: number; x: number; y: number } | null>(null);
   const [editing, setEditing] = useState<{ id: number; title: string } | null>(null);
   const [query, setQuery] = useState("");
@@ -37,7 +39,9 @@ export function HomeNoteSidebar({ workspaceRoot, projectId, records, filePanel, 
     {menu && <ActionContextMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)} actions={[
       { label: isPinned(menu.id) ? "取消置顶" : "置顶", icon: isPinned(menu.id) ? PinOff : Pin, onSelect: () => togglePin(menu.id) },
       { label: "重命名", icon: Pencil, disabled: !onRenameRecord, onSelect: () => setEditing({ id: menu.id, title: records.find(record => record.id === menu.id)?.title ?? "" }) },
+      { label: "移动到…", icon: FolderInput, disabled: !canMove, onSelect: () => openMove({ kind: "record", id: menu.id }) },
       { label: "删除记录", icon: Trash2, tone: "danger", disabled: !onDeleteRecord, onSelect: () => { void onDeleteRecord?.(menu.id).catch(error => pushToast({ tone: "error", title: "删除记录失败", detail: String(error) })); } },
     ]} />}
+    {moveDialog}
   </aside>;
 }

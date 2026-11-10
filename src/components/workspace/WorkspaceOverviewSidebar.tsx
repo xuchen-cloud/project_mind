@@ -7,6 +7,7 @@ import { useFocusedProjectContent } from "../home/useFocusedProjectContent";
 import { RecordIcon } from "../icons/ContentTypeIcon";
 import { SidebarTagItem } from "../home/SidebarTagItem";
 import { HomeSidebarList } from "../home/HomeSidebarList";
+import { useContentOwnerMoveDialog } from "../shared/ContentOwnerMoveDialog";
 import { HomeSidebarSplit } from "../home/HomeSidebarSplit";
 import { HomeSidebarFooter, HomeWorkspaceIdentity } from "../home/HomeWorkspaceIdentity";
 import { ArchivedProjectsDialog } from "./ArchivedProjectsDialog";
@@ -16,6 +17,7 @@ Archive,
 PanelLeft, ChevronLeft,
 ExternalLink,
 FolderKanban,
+FolderInput,
 Pencil, Pin, PinOff,
 Plus,
 Trash2
@@ -119,6 +121,7 @@ export function WorkspaceOverviewSidebar({
 }: WorkspaceOverviewSidebarProps) {
   const projectPins = useListPins(workspaceRootPath, "projects");
   const recordPins = useListPins(workspaceRootPath, "workspace-records");
+  const { canMove, openMove, moveDialog } = useContentOwnerMoveDialog(workspaceRootPath, null);
   const [recordContextMenu, setRecordContextMenu] = useState<{ recordId: number; x: number; y: number } | null>(null);
   const [editingRecordId, setEditingRecordId] = useState<number | null>(null);
   const [recordTitleDraft, setRecordTitleDraft] = useState("");
@@ -147,6 +150,9 @@ export function WorkspaceOverviewSidebar({
       recordRenamePending.current = recordContextRecord.id;
       setEditingRecordId(recordContextRecord.id); setRecordTitleDraft(recordContextRecord.title ?? ""); setRecordContextMenu(null);
     } }] : []),
+    { label: "移动到…", icon: FolderInput, disabled: !canMove, onSelect: () => {
+      setRecordContextMenu(null); openMove({ kind: "record", id: recordContextRecord.id });
+    } },
     ...(onDeleteRecord ? [{ label: "删除", icon: Trash2, tone: "danger" as const, onSelect: () => {
       setRecordContextMenu(null); void runRecordAction(() => onDeleteRecord(recordContextRecord), "删除记录失败");
     } }] : []),
@@ -414,6 +420,7 @@ export function WorkspaceOverviewSidebar({
             documents={documents} activeFileId={focused.activeFileId} activeRelativePath={focused.activeRelativePath} /></Suspense>} />} />
 
       <HomeSidebarFooter onOpenArchivedProjects={() => setArchiveDialogOpen(true)} />
+      {moveDialog}
       {recordContextMenu ? <ActionContextMenu x={recordContextMenu.x} y={recordContextMenu.y} actions={recordContextMenuActions} ariaLabel="记录操作" onClose={() => setRecordContextMenu(null)} /> : null}
       {projectContextMenu ? (
         <ActionContextMenu

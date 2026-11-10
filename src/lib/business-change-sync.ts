@@ -2,6 +2,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import type { AgentChangeEntry, AgentChangePage, AgentObjectRef, AgentScope, AgentWorkspaceBinding } from "./agent-types";
 import { agentQueryKeys, agentScopeKey } from "./agent-query-keys";
 import { queryKeys } from "./queryKeys";
+import { invalidateInternalReferenceSearch } from "./internal-reference-events";
 
 export interface BusinessChangeHint {
   binding: AgentWorkspaceBinding;
@@ -49,6 +50,9 @@ export function createBusinessChangeSync({ binding, queryClient, readChanges, in
   }
   function objectChanged(object: AgentObjectRef) {
     scopeChanged(object.scope);
+    if (["record", "file", "todo", "quick_note", "project"].includes(object.kind)) {
+      invalidateInternalReferenceSearch(object.scope);
+    }
     if (object.scope.kind === "project") invalidate(queryKeys.projects.all);
     if (object.kind === "file") {
       const id = Number(object.id);
@@ -78,7 +82,10 @@ export function createBusinessChangeSync({ binding, queryClient, readChanges, in
         if (!Number.isSafeInteger(page.cursor) || page.cursor < cursor || (page.hasMore && page.cursor === cursor)) {
           throw new Error("Business change cursor did not advance");
         }
-        if (page.resetRequired) reset();
+        if (page.resetRequired) {
+          reset();
+          invalidateInternalReferenceSearch(null);
+        }
         const keys = new Set<string>();
         for (const entry of page.entries) {
           if (keys.has(entry.objectKey)) continue;
