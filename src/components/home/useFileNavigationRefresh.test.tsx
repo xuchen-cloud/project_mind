@@ -1,9 +1,10 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, QueryObserver } from "@tanstack/react-query";
 import { beforeEach, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import type { ProjectSidebarDocumentItem } from "../layout/ProjectSidebar";
 import { useFileNavigationRefresh } from "./useFileNavigationRefresh";
+import { projectDirectoryQueryKey } from "../../lib/project-directory-query";
 
 const native = vi.hoisted(() => ({ list: vi.fn(), binding: vi.fn(), listen: vi.fn() }));
 vi.mock("../../services/projectDirectoryApi", () => ({ projectDirectoryApi: { list: native.list } }));
@@ -213,4 +214,126 @@ it("does not let delayed listener setup roll a refreshed binding back to an old 
     act(() => dirty({ binding: { workspaceId: "w", generation: "new" }, projectId: 7 }));
     await waitFor(() => expect(native.list).toHaveBeenCalledOnce());
   } finally { hook.unmount(); Reflect.deleteProperty(window, "__TAURI_INTERNALS__"); }
+});
+
+it.each([7, null])("manual refresh skips ENOENT expanded descendants after their parent confirms deletion and updates both views (owner=%s)", async owner => {
+  const retained = item(2, "live/current.txt");
+  const hook = setup(owner, [item(1, "removed/deep/gone.txt"), retained]);
+  const key = (path: string) => projectDirectoryQueryKey("/root", owner, path, "/workspace", { workspaceId: "w", generation: "g" });
+  const removedRead = vi.fn().mockRejectedValue(new Error("ENOENT: removed"));
+  const cached = [
+    { path: "", data: [directory("removed"), directory("live")] },
+    { path: "removed", data: [directory("removed/deep")] },
+    { path: "removed/deep", data: [file("removed/deep/gone.txt")] },
+    { path: "live", data: [file("live/old.txt")] },
+  ];
+  const observers = cached.map(({ path, data }) => new QueryObserver(hook.client, { queryKey: key(path), staleTime: Infinity,
+    initialData: data, queryFn: path.startsWith("removed") ? removedRead : async () => native.list(owner, path) }));
+  const unsubscribe = observers.map(observer => observer.subscribe(() => {}));
+  const foreignKey = projectDirectoryQueryKey("/root", owner, "removed", "/other-workspace", { workspaceId: "other", generation: "g" });
+  hook.client.setQueryData(foreignKey, [file("foreign.txt")]);
+  native.list.mockImplementation(async (_owner, path) => {
+    if (path === "") return [directory("live")];
+    if (path === "live") return [file("live/current.txt")];
+    throw new Error(`ENOENT: ${path}`);
+  });
+  try {
+    await act(async () => { await hook.result.current.refresh(); });
+    expect(hook.result.current.error).toBe("");
+    expect(hook.result.current.visibleDocuments).toEqual([retained]);
+    expect(native.list.mock.calls).toEqual([[owner, ""], [owner, "live"]]);
+    expect(removedRead).not.toHaveBeenCalled();
+    expect(hook.client.getQueryData(key(""))).toEqual([directory("live")]);
+    expect(hook.client.getQueryData(key("removed"))).toEqual([]);
+    expect(hook.client.getQueryData(key("removed/deep"))).toEqual([]);
+    expect(hook.client.getQueryData(key("live"))).toEqual([file("live/current.txt")]);
+    expect(hook.client.getQueryData(foreignKey)).toEqual([file("foreign.txt")]);
+    expect(hook.client.getQueryState(foreignKey)?.isInvalidated).toBe(false);
+  } finally { for (const stop of unsubscribe) stop(); }
+});
+
+it.each(["EACCES: private", "ENOENT after parent enumeration"])("manual refresh reports %s when the parent still lists that expanded directory", async message => {
+  const retained = item(1, "private/file.txt");
+  const hook = setup(7, [retained]);
+  const key = projectDirectoryQueryKey("/root", 7, "private", "/workspace", { workspaceId: "w", generation: "g" });
+  const observer = new QueryObserver(hook.client, { queryKey: key, staleTime: Infinity,
+    initialData: [file("private/file.txt")], queryFn: async () => native.list(7, "private") });
+  const unsubscribe = observer.subscribe(() => {});
+  native.list.mockImplementation(async (_owner, path) => {
+    if (path === "") return [directory("private")];
+    throw new Error(message);
+  });
+  try {
+    await act(async () => { await hook.result.current.refresh(); });
+    expect(hook.result.current.error).toBe(message);
+    expect(hook.result.current.visibleDocuments).toEqual([retained]);
+    expect(hook.client.getQueryData(key)).toEqual([file("private/file.txt")]);
+  } finally { unsubscribe(); }
+});
+
+it("manual refresh reconciles expanded unregistered directories even with no managed Files", async () => {
+  const hook = setup(7, []);
+  const key = projectDirectoryQueryKey("/root", 7, "outer/inner", "/workspace", { workspaceId: "w", generation: "g" });
+  const observer = new QueryObserver(hook.client, { queryKey: key, staleTime: Infinity,
+    initialData: [file("outer/inner/old.txt")], queryFn: async () => native.list(7, "outer/inner") });
+  const unsubscribe = observer.subscribe(() => {});
+  native.list.mockImplementation(async (_owner, path) => path === "" ? [directory("outer")]
+    : path === "outer" ? [directory("outer/inner")] : [file("outer/inner/new.txt")]);
+  try {
+    await act(async () => { await hook.result.current.refresh(); });
+    expect(hook.result.current.error).toBe("");
+    expect(native.list.mock.calls).toEqual([[7, ""], [7, "outer"], [7, "outer/inner"]]);
+    expect(hook.client.getQueryData(key)).toEqual([file("outer/inner/new.txt")]);
+  } finally { unsubscribe(); }
+});
+
+it("waits for an old expanded read before publishing a new manual snapshot", async () => {
+  const hook = setup(7, [item(1, "removed/gone.txt")]);
+  const key = projectDirectoryQueryKey("/root", 7, "", "/workspace", { workspaceId: "w", generation: "g" });
+  let finish!: (entries: ReturnType<typeof directory>[]) => void;
+  const read = vi.fn().mockReturnValueOnce(new Promise(done => { finish = done; }));
+  const observer = new QueryObserver(hook.client, { queryKey: key, staleTime: Infinity,
+    initialData: [directory("removed")], queryFn: read });
+  const unsubscribe = observer.subscribe(() => {});
+  try {
+    let oldRead!: ReturnType<typeof observer.refetch>;
+    act(() => { oldRead = observer.refetch(); });
+    await waitFor(() => expect(read).toHaveBeenCalledOnce());
+    let refresh!: Promise<void>;
+    act(() => { refresh = hook.result.current.refresh(); });
+    await act(async () => {});
+    expect(native.list).not.toHaveBeenCalled();
+    await act(async () => { finish([directory("removed")]); await oldRead; await refresh; });
+    expect(native.list.mock.calls).toEqual([[7, ""]]);
+    expect(hook.result.current.visibleDocuments).toEqual([]);
+    expect(hook.result.current.error).toBe("");
+    expect(hook.client.getQueryData(key)).toEqual([]);
+  } finally { unsubscribe(); }
+});
+
+it("settles an expanded read mounted by page refresh before publishing the manual snapshot", async () => {
+  const hook = setup(7, []);
+  const key = projectDirectoryQueryKey("/root", 7, "", "/workspace", { workspaceId: "w", generation: "g" });
+  let finish!: (entries: ReturnType<typeof directory>[]) => void;
+  const read = vi.fn().mockReturnValueOnce(new Promise(done => { finish = done; }));
+  let stopExpanded = () => {};
+  const page = new QueryObserver(hook.client, { queryKey: ["project-page", 7], staleTime: Infinity, initialData: "old page",
+    queryFn: async () => {
+      const expanded = new QueryObserver(hook.client, { queryKey: key, staleTime: Infinity,
+        initialData: [directory("removed")], queryFn: read });
+      stopExpanded = expanded.subscribe(() => {});
+      void expanded.refetch();
+      return "new page";
+    } });
+  const stopPage = page.subscribe(() => {});
+  try {
+    let refresh!: Promise<void>;
+    act(() => { refresh = hook.result.current.refresh(); });
+    await waitFor(() => expect(read).toHaveBeenCalledOnce());
+    expect(native.list).not.toHaveBeenCalled();
+    await act(async () => { finish([directory("removed")]); await refresh; });
+    expect(hook.result.current.error).toBe("");
+    expect(hook.client.getQueryData(key)).toEqual([]);
+    expect(native.list.mock.calls).toEqual([[7, ""]]);
+  } finally { stopExpanded(); stopPage(); }
 });

@@ -12,3 +12,7 @@ export function matchesDirectoryQueryBinding(key: readonly unknown[], workspaceR
   return key[5] === workspaceRoot
     && (!binding || (key[6] === binding.workspaceId && key[7] === binding.generation));
 }
+
+export function directoryQueryRelativePath(key: readonly unknown[]) {
+  return String(key[3]);
+}

@@ -1,4 +1,4 @@
-import { matchesDirectoryQueryBinding } from "../../lib/project-directory-query";
+import { directoryQueryRelativePath, matchesDirectoryQueryBinding } from "../../lib/project-directory-query";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { ProjectSidebarDocumentItem } from "../layout/ProjectSidebar";
@@ -72,8 +72,8 @@ export function useFileNavigationRefresh({ projectId, rootPath, workspaceRoot, e
           const prefix = ["project-directory", rootPath, projectId];
           const pageKey = projectId === null ? queryKeys.workspacePage : queryKeys.projectPage(projectId);
           const matchesBinding = (key: readonly unknown[]) => matchesDirectoryQueryBinding(key, workspaceRoot, binding);
-          // Tree dirty hints already use ProjectDirectoryBrowser's shared queue.
-          // Only an explicit refresh needs to reconcile every expanded branch.
+          // Retain dirty handling in the tree's queue. Manual refresh reconciles
+          // expanded queries below, after their ancestors establish membership.
           await Promise.allSettled([
             ...(dirty === null ? client.getQueryCache().findAll({ queryKey: prefix,
               predicate: query => matchesBinding(query.queryKey) }) : []),
@@ -82,9 +82,15 @@ export function useFileNavigationRefresh({ projectId, rootPath, workspaceRoot, e
           if (!current()) return;
           await Promise.all([
             dirty === null ? client.invalidateQueries({ queryKey: prefix,
-              predicate: query => matchesBinding(query.queryKey) }, { cancelRefetch: false, throwOnError: true }) : Promise.resolve(),
+              predicate: query => matchesBinding(query.queryKey), refetchType: "none" }) : Promise.resolve(),
             client.invalidateQueries({ queryKey: pageKey }, { cancelRefetch: false, throwOnError: true }),
           ]);
+          if (!current()) return;
+          // Page/binding updates can mount another expanded observer during
+          // the await above. Settle its older read before publishing our data.
+          const expanded = dirty === null ? client.getQueryCache().findAll({ queryKey: prefix,
+            predicate: query => matchesBinding(query.queryKey) && query.isActive() }) : [];
+          await Promise.allSettled(expanded.filter(query => query.state.fetchStatus !== "idle").map(query => query.promise));
           if (!current()) return;
           const root = rootPath.replaceAll("\\", "/").replace(/\/$/, "") + "/";
           const checked = documentsRef.current.flatMap(item => {
@@ -100,11 +106,12 @@ export function useFileNavigationRefresh({ projectId, rootPath, workspaceRoot, e
           // error, never evidence that its descendants have been deleted.
           const listings = new Map<string, Awaited<ReturnType<typeof projectDirectoryApi.list>>>();
           const directories = new Set([""]);
-          for (const path of paths) {
-            const parts = path.split("/");
-            parts.pop();
+          const addDirectory = (path: string) => {
+            const parts = path ? path.split("/") : [];
             while (parts.length) { directories.add(parts.join("/")); parts.pop(); }
-          }
+          };
+          for (const path of paths) addDirectory(path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
+          for (const query of expanded) addDirectory(directoryQueryRelativePath(query.queryKey));
           for (const directory of [...directories].sort((a, b) => a.split("/").length - b.split("/").length || a.localeCompare(b))) {
             if (!current()) return;
             if (directory) {
@@ -120,6 +127,16 @@ export function useFileNavigationRefresh({ projectId, rootPath, workspaceRoot, e
             if (binding.workspaceId !== after.workspaceId || binding.generation !== after.generation) throw new Error("工作区已切换，请重试刷新。");
           }
           if (!current()) return;
+          if (dirty === null) {
+            // Publish the same verified snapshot to flat presence and tree.
+            // A skipped directory is absent by its parent's successful read;
+            // its old query must not refetch ENOENT before React unmounts it.
+            for (const query of client.getQueryCache().findAll({ queryKey: prefix,
+              predicate: query => matchesBinding(query.queryKey) })) {
+              const path = directoryQueryRelativePath(query.queryKey);
+              if (directories.has(path)) client.setQueryData(query.queryKey, listings.get(path) ?? []);
+            }
+          }
           setPresence(previous => {
             const next = new Map(previous.scope === scope && previous.binding === bindingKey ? previous.paths : []);
             for (const { id, relative, health } of checked) {

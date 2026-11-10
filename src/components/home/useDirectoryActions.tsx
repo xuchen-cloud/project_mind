@@ -1,4 +1,4 @@
-import { matchesDirectoryQueryBinding } from "../../lib/project-directory-query";
+import { directoryQueryRelativePath, matchesDirectoryQueryBinding } from "../../lib/project-directory-query";
 import { useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Pencil, Trash2 } from "lucide-react";
@@ -61,10 +61,14 @@ export function useDirectoryActions({ projectId, rootPath, workspaceRoot, bindin
     }
     return after;
   };
-  const refresh = async (current: () => boolean) => {
+  const refresh = async (current: () => boolean, sourcePath: string) => {
     const directoryKey = ["project-directory", rootPath, projectId];
     const pageKey = projectId === null ? queryKeys.workspacePage : queryKeys.projectPage(projectId);
     const matchesBinding = (key: readonly unknown[]) => matchesDirectoryQueryBinding(key, workspaceRoot, binding);
+    const isSource = (key: readonly unknown[]) => {
+      const path = directoryQueryRelativePath(key);
+      return path === sourcePath || path.startsWith(`${sourcePath}/`);
+    };
     // A pre-commit native read cannot satisfy the post-commit reconciliation.
     await Promise.allSettled([...client.getQueryCache().findAll({ queryKey: directoryKey,
       predicate: query => matchesBinding(query.queryKey) }),
@@ -72,7 +76,10 @@ export function useDirectoryActions({ projectId, rootPath, workspaceRoot, bindin
       .filter(query => query.state.fetchStatus !== "idle").map(query => query.promise));
     if (!current()) return;
     await Promise.all([
-      client.invalidateQueries({ queryKey: directoryKey, predicate: query => matchesBinding(query.queryKey) }, { cancelRefetch: false, throwOnError: true }),
+      // The commit moved this subtree. Retire its snapshot without reading the
+      // old paths while the refreshed parent removes their mounted observers.
+      client.invalidateQueries({ queryKey: directoryKey, predicate: query => matchesBinding(query.queryKey) && isSource(query.queryKey), refetchType: "none" }),
+      client.invalidateQueries({ queryKey: directoryKey, predicate: query => matchesBinding(query.queryKey) && !isSource(query.queryKey) }, { cancelRefetch: false, throwOnError: true }),
       client.invalidateQueries({ queryKey: pageKey }, { cancelRefetch: false, throwOnError: true }),
     ]);
   };
@@ -94,7 +101,7 @@ export function useDirectoryActions({ projectId, rootPath, workspaceRoot, bindin
       await projectDirectoryApi.rename({ ...edit.target, token: prepared.token, name, requestId: crypto.randomUUID() });
       if (!current()) return;
       cancelRename();
-      await refresh(current);
+      await refresh(current, edit.target.relativePath);
     });
   };
   const trash = (path: string) => void run(async current => {
@@ -106,7 +113,7 @@ export function useDirectoryActions({ projectId, rootPath, workspaceRoot, bindin
     const after = await reprepare(target, prepared);
     if (!current()) return;
     await projectDirectoryApi.delete({ ...target, token: after.token, confirmed: true, requestId: crypto.randomUUID() });
-    if (current()) await refresh(current);
+    if (current()) await refresh(current, target.relativePath);
   });
   const openMenu = (path: string, x: number, y: number) => {
     if (operation.current || editRef.current) return;

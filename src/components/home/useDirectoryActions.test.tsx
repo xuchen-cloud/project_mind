@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { QueryClient, QueryClientProvider, QueryObserver } from "@tanstack/react-query";
 import { beforeEach, expect, it, vi } from "vitest";
 import { ProjectDirectoryBrowser } from "./ProjectDirectoryBrowser";
+import { projectDirectoryQueryKey } from "../../lib/project-directory-query";
 
 const api = vi.hoisted(() => ({ list: vi.fn(), prepare: vi.fn(), rename: vi.fn(), trash: vi.fn(), binding: vi.fn(), confirm: vi.fn() }));
 vi.mock("../../services/projectDirectoryApi", () => ({ projectDirectoryApi: { list: api.list, prepareChange: api.prepare, rename: api.rename, delete: api.trash } }));
@@ -208,4 +209,67 @@ it("rejects a stale folder selection before preparing against a reopened binding
   expect(api.prepare).not.toHaveBeenCalled();
   expect(api.confirm).not.toHaveBeenCalled();
   expect(api.trash).not.toHaveBeenCalled();
+});
+
+it.each(["rename", "trash"])("does not refetch the removed expanded source after successful %s, and refreshes the tree and flat page", async operation => {
+  let committed = false;
+  const entry = (path: string, kind = "directory") => ({ name: path.split("/").pop(), relativePath: path, kind, bytes: 0 });
+  api.list.mockImplementation(async (_owner, path) => {
+    if (path === "") return [entry(committed && operation === "rename" ? "renamed" : "folder"), entry("folder-copy")]
+      .filter(value => !(committed && operation === "trash" && value.relativePath === "folder"));
+    if (committed && (path === "folder" || path.startsWith("folder/"))) throw new Error(`ENOENT: ${path}`);
+    if (path === "folder") return [entry("folder/deep")];
+    if (path === "folder/deep") return [entry("folder/deep/file.txt", "file")];
+    return [];
+  });
+  api.rename.mockImplementation(async () => { committed = true; return { relativePath: "renamed", fileIds: [2] }; });
+  api.trash.mockImplementation(async () => { committed = true; return { relativePath: null, fileIds: [2] }; });
+  const view = await setup();
+  fireEvent.click(view.row);
+  fireEvent.click(await screen.findByRole("button", { name: "deep" }));
+  await screen.findByRole("button", { name: "file.txt" });
+  fireEvent.click(screen.getByRole("button", { name: "folder-copy" }));
+  const beforeSourceReads = api.list.mock.calls.filter(([, path]) => path === "folder" || path.startsWith("folder/")).length;
+  const pageKey = ["project-page", 7];
+  const page = new QueryObserver(view.client, { queryKey: pageKey, staleTime: Infinity,
+    initialData: ["folder/deep/file.txt"], queryFn: async () => operation === "trash" ? [] : ["renamed/deep/file.txt"] });
+  const unsubscribe = page.subscribe(() => {});
+  try {
+    if (operation === "rename") {
+      const input = await rename(view.row);
+      fireEvent.change(input, { target: { value: "renamed" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+    } else {
+      fireEvent.keyDown(view.row, { key: "F10", shiftKey: true });
+      fireEvent.click(within(await screen.findByRole("menu")).getByRole("menuitem", { name: "移入回收站" }));
+    }
+    await waitFor(() => expect(screen.queryByRole("button", { name: "folder" })).toBeNull());
+    await waitFor(() => expect(view.client.getQueryData(pageKey)).toEqual(operation === "trash" ? [] : ["renamed/deep/file.txt"]));
+    if (operation === "rename") expect(await screen.findByRole("button", { name: "renamed" })).toBeVisible();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(api.list.mock.calls.filter(([, path]) => path === "folder" || path.startsWith("folder/")).length).toBe(beforeSourceReads);
+    expect(api.list.mock.calls.filter(([, path]) => path === "folder-copy")).toHaveLength(2);
+    expect(view.client.getQueryState(projectDirectoryQueryKey("/root", 7, "folder/deep", "/workspace", undefined))?.isInvalidated).toBe(true);
+  } finally { unsubscribe(); }
+});
+
+it("reports an existing sibling's permission error after Trash while skipping the moved source", async () => {
+  let committed = false;
+  const entry = (path: string) => ({ name: path, relativePath: path, kind: "directory", bytes: 0 });
+  api.list.mockImplementation(async (_owner, path) => {
+    if (path === "") return committed ? [entry("private")] : [entry("folder"), entry("private")];
+    if (committed && path === "folder") throw new Error("ENOENT: folder");
+    if (committed && path === "private") throw new Error("EACCES: private");
+    return [];
+  });
+  api.trash.mockImplementation(async () => { committed = true; return { relativePath: null, fileIds: [2] }; });
+  const view = await setup();
+  fireEvent.click(view.row);
+  fireEvent.click(screen.getByRole("button", { name: "private" }));
+  await waitFor(() => expect(api.list).toHaveBeenCalledWith(7, "private"));
+  fireEvent.contextMenu(view.row);
+  fireEvent.click(within(await screen.findByRole("menu")).getByRole("menuitem", { name: "移入回收站" }));
+  await waitFor(() => expect(screen.getAllByRole("alert").some(node => node.textContent?.includes("EACCES: private"))).toBe(true));
+  expect(api.trash).toHaveBeenCalledOnce();
+  expect(api.list.mock.calls.filter(([, path]) => path === "folder")).toHaveLength(1);
 });
