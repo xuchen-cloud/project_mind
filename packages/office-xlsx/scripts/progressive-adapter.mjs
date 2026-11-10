@@ -37,16 +37,24 @@ export function adaptProgressiveSync(source) {
     'formulas: window.__projectMindSheetsHost.formulasWithEdits(state, sheet.id, indexedFormulas(result.cells, shared)),')
   closure = replace(closure, '            rowCount: sheet.rowCount,\n            columnCount: sheet.columnCount,',
     '            ...window.__projectMindSheetsHost.formulaSheetExtent(state, sheet),')
-  closure = replace(closure, '    state.closure.pinned.set(sheetId, pinned)', `    for (const key of cells) {
-      const row = keyRow(key), column = keyColumn(key), address = row + ':' + column
-      const content = journalCellContentAt(state.editJournal, sheetId, row, column)
-      if (content.found) {
-        pinned.set(address, content.formula ? {f: content.formula, v: null} : {v: content.value ?? null})
-      } else if (!pinned.has(address)) {
-        pinned.set(address, {v: null})
-      }
-    }
+  closure = replace(closure, '    const pinned = new Map<string, PinnedClosureCell>()', `    const pinned = new Map<string, PinnedClosureCell>()
+    // Each installed range must survive eviction while later reads are pending.
     state.closure.pinned.set(sheetId, pinned)`)
+  closure = replace(closure, `      }
+    }
+    state.closure.pinned.set(sheetId, pinned)`, `      }
+      for (const key of cells) {
+        const row = keyRow(key), column = keyColumn(key), address = row + ':' + column
+        if (row < range.startRow || row > range.endRow ||
+            column < range.startColumn || column > range.endColumn) continue
+        const content = journalCellContentAt(state.editJournal, sheetId, row, column)
+        if (content.found) {
+          pinned.set(address, content.formula ? {f: content.formula, v: null} : {v: content.value ?? null})
+        } else if (!pinned.has(address)) {
+          pinned.set(address, {v: null})
+        }
+      }
+    }`)
   closure = replace(closure, "  state.closure.status = 'active'", "  if (!current()) return\n  state.closure.status = 'active'")
   source = source.slice(0, start) + closure + source.slice(end)
   return source

@@ -85,3 +85,44 @@ test('forced calculation cannot bypass missing-dependency protection on a partia
     assert.doesNotThrow(()=>before({id:'formula.mutation.set-formula-calculation-start',params:{forceCalculation:true}}))
   }finally{dispose()}
 })
+
+test('closure precedents survive eviction while a later range read is suspended',async()=>{
+  const source=adaptProgressiveSync(readFileSync(new URL('../vendor/apps/sheets/src/renderer/univer-sync.ts',import.meta.url),'utf8'))
+  const start=source.indexOf('export async function activateFormulaClosure(')
+  const end=source.indexOf('\n/// On-demand precedent pinning',start)
+  const code=ts.transpileModule(source.slice(start,end),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText
+  const sheet={id:'sheet',name:'Sheet1',rowCount:10000,columnCount:2}
+  const state={file:{sheets:[sheet],styles:[]},formulaMode:false,closure:{status:'idle',pinned:new Map()},
+    editJournal:{structuralOps:new Map(),cells:new Map(),bulkConstantFills:new Map()},recalc:{}}
+  const grid=new Map([['4999:0',7]])
+  let release,secondRead
+  const suspended=new Promise(resolve=>{secondRead=resolve})
+  const exports={}
+  runInNewContext(code,{exports,Map,Set,Date,Promise,CLOSURE_MAX_CELLS:100,
+    window:{__projectMindSheetsHost:{...closureEdits},desktopApi:{
+      readWorkbookFormulas:async()=>({cells:[],indexingComplete:true}),
+      readWorkbookRange:async({range})=>{
+        if(range.startRow===9999){secondRead();await new Promise(resolve=>{release=resolve})}
+        return {cells:range.startRow===9999?[{row:9999,column:0,value:10}]:[],rows:[]}
+      },
+    }},
+    indexedFormulas:()=>[{row:0,column:1,formula:'=A5000+A10000+1'}],
+    storeFormulaText(){},storeSharedFormulaGroups:()=>({followerCount:0}),recordCachedFormulaValues(){},
+    computeFormulaClosure:()=>({ok:true,cellsBySheet:new Map([['sheet',new Set([4999,9999])]]),formulaCount:1}),
+    closureFetchRanges:()=>[4999,9999].map(row=>({startRow:row,endRow:row,startColumn:0,endColumn:0})),
+    cellKey:row=>row,keyRow:key=>key,keyColumn:()=>0,
+    journalCellContentAt:(_journal,_sheet,row)=>row===4999?{found:true,value:7}:{found:false},
+    degradeCostlyFormulas:(_state,_name,cells)=>cells,recordRowStyleKeys(){},recordHiddenFileRows(){},
+    patchWorksheetRange:(_worksheet,_previous,_range,cells)=>{for(const cell of cells)grid.set(`${cell.row}:${cell.column}`,cell.value)},
+    sheetRowColStyleKeys(){},inheritedWrapLookup(){},hiddenRowsInfo(){},t:()=>'',queueFormulaRecalc(){},
+  })
+  const loading=exports.activateFormulaClosure({univerAPI:{getActiveWorkbook:()=>({getSheetBySheetId:()=>({})})}},{current:state},()=>{})
+  await suspended
+  // A cached viewport eviction runs while the second native range is pending.
+  if(!state.closure.pinned.get('sheet')?.has('4999:0'))grid.delete('4999:0')
+  release()
+  await loading
+  assert.equal(state.closure.status,'active')
+  assert.equal((grid.get('4999:0')??0)+(grid.get('9999:0')??0)+1,18)
+  assert.equal(state.closure.pinned.get('sheet').get('4999:0').v,7)
+})
