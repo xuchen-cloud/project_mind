@@ -35,3 +35,7 @@ Fixtures in `packages/markdown-editor/tests/fixtures/mermaid.ts` cover Chinese l
 ## Verification ledger
 
 The final checks, exact commit and dependency status are recorded in the review handoff's `status/mermaid.json`. Full Office compilation is outside this group; a failed upstream Office download must not be reported as a successful full build. Frontend compilation can reuse the existing Office renderer distributions without rebuilding or changing their sources.
+
+On 2026-11-10, the independent checks passed 44 Record tests, 21 Markdown export/theme/preview tests, and one actual DOCX/PDF geometry test. The geometry test decodes a generated PDF and inspects DOCX image extents; tall images preserve aspect ratio, stay within A4 margins and leave room for a caption. Real browser artifacts also cover SVG decoding, PNG rasterization, and a long sequence exported to DOCX/PDF. Browser timings are a single warmed macOS Chrome sample recorded in `browser-summary.json`, including the main-thread timer gap; they are not a Windows, release, or percentile claim.
+
+The two workspace/project canonical save/HTML/reopen tests remain a strict G01 integration gate. Before #302 is merged, they fail on the known language parser contract. Do not skip them or mark this group mergeable until the dependency is rebased and those tests pass.

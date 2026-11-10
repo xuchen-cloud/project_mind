@@ -51,7 +51,7 @@ function Fixture() {
       <section><h2>Markdown</h2><div style={{ height: 1100 }}><MarkdownEditor value={value} onChange={setValue} documentKey="acceptance" initialView={{ mode: 'preview' }} onPrint={async document => { setPrinted(document.html); }} /></div></section>
     </div>}
     <output data-print-html={printed} />
-    <style>{`.comparison svg{max-width:100%;height:auto}h1{font-size:24px}h2{font-size:17px;margin:16px 0}button{padding:6px 12px;border:1px solid #98958c;border-radius:4px;cursor:pointer}pre{white-space:pre-wrap}.mind-markdown{color:#37352f}`}</style>
+    <style>{`html,body,#root{height:auto;min-height:100%;overflow:auto}.comparison svg{max-width:100%;height:auto}h1{font-size:24px}h2{font-size:17px;margin:16px 0}button{padding:6px 12px;border:1px solid #98958c;border-radius:4px;cursor:pointer}pre{white-space:pre-wrap}.mind-markdown{color:#37352f}`}</style>
   </main>;
 }
 createRoot(document.getElementById('root')!).render(<Fixture />);
