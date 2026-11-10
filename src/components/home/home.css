@@ -1099,7 +1099,6 @@ body:has(.workspace-topbar button[aria-label="切换右侧栏"]) .home-rail.is-c
 .home-note-page .rich-editor--page .rich-editor__surface { min-height:220px; padding:0 0 96px; }
 .home-note-page .rich-editor--page .ProseMirror { color:var(--color-text); }
 .home-note-page .rich-editor--page .ProseMirror :is(h1,h2,h3,h4) { font-weight:600; }
-.home-note-page .rich-editor--page .ProseMirror li { margin-block:6px; }
 .home-note-page .rich-editor--page .ProseMirror > :first-child { margin-top:0; }
 .home-window-shell .home-note-page .home-record-dock { top:calc(var(--home-sticky-gap) + 30px); }
 

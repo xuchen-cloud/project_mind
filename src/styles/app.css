@@ -1832,6 +1832,7 @@ textarea {
 }
 
 .rich-editor__surface li {
+  margin-block: 0;
   font-family: var(--rich-text-list-font-family);
   font-size: var(--rich-text-list-font-size);
   line-height: var(--rich-text-list-line-height);
@@ -1903,11 +1904,26 @@ textarea {
 }
 
 .rich-editor__surface blockquote {
+  display: flex;
+  flex-direction: column;
   margin-block-start: var(--rich-text-body-paragraph-spacing-before);
   margin-block-end: var(--rich-text-body-paragraph-spacing-after);
   border-left: 2px solid var(--color-border-strong);
   padding-left: 0.875rem;
   color: var(--color-text-muted);
+}
+
+.rich-editor__surface blockquote > :first-child {
+  margin-block-start: 0;
+}
+
+.rich-editor__surface blockquote > :last-child {
+  margin-block-end: 0;
+}
+
+.rich-editor__surface hr {
+  margin-block-start: var(--rich-text-body-paragraph-spacing-before);
+  margin-block-end: var(--rich-text-body-paragraph-spacing-after);
 }
 
 .rich-editor__surface pre {
@@ -2042,6 +2058,7 @@ textarea {
 .rich-editor__surface :is(td, th) p,
 .rich-editor__surface :is(td, th) :where(ul, ol),
 .rich-editor__surface :is(td, th) blockquote,
+.rich-editor__surface :is(td, th) hr,
 .rich-editor__surface :is(td, th) pre {
   margin-block-start: 0.2rem;
   margin-block-end: 0.2rem;
@@ -2049,6 +2066,11 @@ textarea {
 
 .rich-editor__surface :is(td, th) :where(ul, ol) {
   padding-left: 1rem;
+}
+
+/* Keep the cell's compact paragraph margins collapsing inside quotes too. */
+.rich-editor__surface :is(td, th) blockquote {
+  display: block;
 }
 
 .rich-editor__surface :is(td, th) ul[data-type="taskList"] li {
