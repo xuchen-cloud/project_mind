@@ -1,3 +1,4 @@
+import { assertQuickNotesSaved, flushQuickNotes } from "./quick-note-transfer";
 import type { AgentObjectRef, AgentWorkspaceBinding } from "./agent-types";
 import type { ContentOwnerMoved } from "./content-owner-move-events";
 
@@ -133,7 +134,11 @@ export function registerProjectContentCloseGuard(guard: ProjectCloseGuard) {
   };
 }
 export async function prepareProjectContentClose(workspaceRoot: string, projectId: number | null) {
+  await flushQuickNotes({ workspaceRoot, projectId });
   await projects.get(key(workspaceRoot, projectId))?.prepare();
+  // Other content guards can wait while the QuickNote remains editable.
+  await flushQuickNotes({ workspaceRoot, projectId });
+  assertQuickNotesSaved({ workspaceRoot, projectId });
 }
 
 /** The move callback reads its native CAS baseline after this object's editor saves. */

@@ -1,7 +1,7 @@
 import {useFeedbackStore} from "../../state/feedback-store";
 import { fileOwnerScope, sameFileOwner } from "../../lib/file-types";
 import { EditorLoading } from "./EditorLoading";
-import { lazy, Suspense, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { ProjectContentMoveContext } from "../../lib/project-content-move-context";
 import { registerFileEditor } from "../../lib/file-editor-registration";
@@ -29,7 +29,10 @@ import {loadOfficeHost, preloadOfficeComponents} from "../office/office-componen
 
 export interface ProjectFileView { versionNumber?: number; line?: number; page?: number; scrollTop?: number; zoom?: number; sourceLocator?: NonNullable<AgentSourceRef["locator"]>; sourceMode?: boolean }
 export interface ProjectFileContentProps {
-  workspaceRoot: string; projectId: number | null; fileId: number; versionNumber?: number; line?: number; page?: number;
+  workspaceRoot: string; projectId: number | null; fileId: number; line?: number; page?: number;
+  /** Requested view. Accepted only after the retained editor saves; failures
+   * restore its version through onViewChange and keep the editor mounted. */
+  versionNumber?: number;
   fileName?: string;
   /** View for the selected File version; zoom 0 means fit width. */
   initialView?: { scrollTop?: number; zoom?: number };
@@ -216,7 +219,6 @@ function FileContent({ workspaceRoot, projectId, fileId, fileName, versionNumber
   const versionMetadataRequest = useRef(0);
   const callbacks = useRef(onViewChange); callbacks.current = onViewChange;
   const sourceCallback = useRef(onSourceReady); sourceCallback.current = onSourceReady;
-  const lastRequested = useRef(versionNumber);
   function isCurrentRenderer(context: Loaded | undefined, binding = context?.binding) {
     const current = latestLoaded.current;
     return sameBinding(binding, activeBinding.current) && current?.rendererId === context?.rendererId
@@ -288,6 +290,9 @@ function FileContent({ workspaceRoot, projectId, fileId, fileName, versionNumber
     } catch (failure) { if (isCurrentRenderer(previous)) setError(`无法更新替换后的文件会话：${message(failure)}`); }
     finally { releaseContentOwnerMove({ binding: event.binding, operationId: event.operationId, source: event.object }); }
   };
+  const versionRequest = useRef(0);
+  const selectionRef = useRef(selection); selectionRef.current = selection;
+  useLayoutEffect(() => () => { versionRequest.current++; }, []);
   useEffect(() => {
     setOpening(false);
     return () => { externalRequest.current?.abort(); externalRequest.current = null; };
@@ -324,9 +329,10 @@ function FileContent({ workspaceRoot, projectId, fileId, fileName, versionNumber
       }).catch(failure=>{if(isCurrentRenderer(current))setError(message(failure));});
     }else if(key[1]!==fileId&&!editorDirty.current)setReload(value=>value+1);
   }), [queryClient, selection, fileId]);
-  // A parent view update acknowledges local version choices without resetting other view state.
-  useEffect(() => {
-    if (lastRequested.current !== versionNumber) { lastRequested.current = versionNumber; setSelection(versionNumber); }
+  // Invalidate older save continuations before passive effects can run. The
+  // editor still renders the accepted selection until this barrier succeeds.
+  useLayoutEffect(() => {
+    void requestSelection(versionNumber, false).catch(() => {});
   }, [versionNumber]);
   useEffect(() => {
     dependentIds.current.clear();
@@ -498,7 +504,7 @@ function FileContent({ workspaceRoot, projectId, fileId, fileName, versionNumber
     })().catch(failure => { if (!signal.aborted) { if (!editorDirty.current) setLoaded(undefined); setError(message(failure)); sourceCallback.current?.(null); } }).finally(() => { if (!signal.aborted) setReading(false); });
     return () => { lifetime.abort(); dependentIds.current.clear(); sourceCallback.current?.(null); };
   }, [workspaceRoot, projectId, fileId, selection, reload, visible]);
-  const valid = loaded && (!(loaded.kind==="office"||loaded.kind==="markdown")||(selection===undefined?!!loaded.working:!loaded.working)) && (!loaded.signal.aborted || ((loaded.kind === "html" && !source) || loaded.kind === "office" || loaded.kind === "markdown")) && (selection === undefined || loaded.version === selection) && (versionNumber === lastRequested.current || versionNumber === undefined || loaded.version === versionNumber) ? loaded : undefined;
+  const valid = loaded && (!(loaded.kind==="office"||loaded.kind==="markdown")||(selection===undefined?!!loaded.working:!loaded.working)) && (!loaded.signal.aborted || ((loaded.kind === "html" && !source) || loaded.kind === "office" || loaded.kind === "markdown")) && (selection === undefined || loaded.version === selection) ? loaded : undefined;
   moveContext.current = valid;
   editorContext.current = valid?.kind === "office" || valid?.kind === "markdown" ? valid : undefined;
   function editorDirtyChanged(context: Loaded, dirty: boolean) {
@@ -513,10 +519,28 @@ function FileContent({ workspaceRoot, projectId, fileId, fileName, versionNumber
     views.current.set(valid.version, { ...initialView, ...views.current.get(valid.version), ...partial });
     callbacks.current?.(partial);
   }
-  async function choose(value: number | undefined) {
-    try { if (editorFlush.current) await editorFlush.current(); sourceCallback.current?.(null); setSelection(value); callbacks.current?.({ versionNumber: value, sourceLocator: undefined, line: undefined, page: undefined }); }
-    catch (failure) { setError(message(failure)); throw failure; }
+  async function requestSelection(value: number | undefined, notify: boolean) {
+    const request = ++versionRequest.current;
+    // A request for the retained view also cancels an older pending switch.
+    if (value === selectionRef.current) return;
+    try {
+      if (editorFlush.current) await editorFlush.current();
+      if (request !== versionRequest.current) return;
+      if (editorDirty.current) throw new Error("文件保存期间有新的修改，请完成保存后重试切换版本");
+      sourceCallback.current?.(null);
+      selectionRef.current = value;
+      setSelection(value);
+      setError(undefined);
+      if (notify) callbacks.current?.({ versionNumber: value, sourceLocator: undefined, line: undefined, page: undefined });
+    } catch (failure) {
+      if (request !== versionRequest.current) return;
+      setError(message(failure));
+      // Restore the parent's persisted view after a rejected external request.
+      if (!notify) callbacks.current?.({ versionNumber: selectionRef.current });
+      throw failure;
+    }
   }
+  function choose(value: number | undefined) { return requestSelection(value, true); }
   function acknowledgeWorkingStatus(current:Loaded,status:FileWorkingStatus,refreshMetadata=true){
     const retained=latestLoaded.current;
     if(!isCurrentRenderer(current)||!retained?.working||retained.working.sessionId!==current.working?.sessionId||retained.working.revision!==status.revision||retained.working.contentHash!==status.contentHash)return;

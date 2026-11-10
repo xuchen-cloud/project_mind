@@ -13,7 +13,7 @@ import {useFileWorkingErrors} from './hooks/useFileWorkingErrors';
 import { useSourceMaintenanceSelection } from "./hooks/useSourceMaintenanceSelection";
 import { ArchivedProjectsDialog } from "./components/workspace/ArchivedProjectsDialog";
 import { HomeWorkspaceActionsContext } from "./components/home/HomeWorkspaceIdentity";
-import { flushQuickNotes } from "./lib/quick-note-transfer";
+import { assertQuickNotesSaved, flushQuickNotes } from "./lib/quick-note-transfer";
 import { cancelAllQuickNoteRecordMetadata, cancelQuickNoteRecordMetadata } from "./lib/quick-note-auto-metadata";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -447,11 +447,15 @@ export function WorkspaceLayout({
       ) ?? null,
     [activeProjectId, projectsQuery.data],
   );
+  const prepareOverviewEviction = useCallback((projectId: number) =>
+    flushQuickNotes({ workspaceRoot: currentWorkspace?.rootPath ?? "", projectId }), [currentWorkspace?.rootPath]);
   const residentProjectIds = useResidentProjectShells({
     activeProjectId,
     enabled: cacheProjectOverviewPages,
     hasWorkspace,
     openProjectIds,
+    workspaceKey: currentWorkspace?.rootPath,
+    prepareEviction: prepareOverviewEviction,
   });
   const projectSidebarOverviewQuery = useQuery({
     queryKey: queryKeys.projectPage(activeProjectId),
@@ -826,6 +830,11 @@ export function WorkspaceLayout({
       try {
         if (currentWorkspace) await prepareProjectContentClose(currentWorkspace.rootPath, projectId);
         await openProjectInNewWindow(projectId, route);
+        // Opening a native window can wait while the source is still editable.
+        if (currentWorkspace) {
+          await flushQuickNotes({ workspaceRoot: currentWorkspace.rootPath, projectId });
+          assertQuickNotesSaved({ workspaceRoot: currentWorkspace.rootPath, projectId });
+        }
       } catch {
         return;
       }
@@ -850,7 +859,10 @@ export function WorkspaceLayout({
   const closeProjectTabAndMaybeNavigate = useCallback(
     async (projectId: number) => {
       try {
-        if (currentWorkspace) await prepareProjectContentClose(currentWorkspace.rootPath, projectId);
+        if (currentWorkspace) {
+          await prepareProjectContentClose(currentWorkspace.rootPath, projectId);
+          assertQuickNotesSaved({ workspaceRoot: currentWorkspace.rootPath, projectId });
+        }
       } catch (reason) {
         pushToast({ tone: "error", title: "项目内容尚不能关闭", detail: String(reason) });
         return;
@@ -1280,6 +1292,9 @@ export function WorkspaceLayout({
           if (!projectWindow) {
             await desktopApi.flushOtherWorkspaceWindows();
           }
+          // Another window's response must not discard edits made in this one.
+          await flushQuickNotes();
+          assertQuickNotesSaved();
           return true;
         } catch (error) {
           setStatus({
