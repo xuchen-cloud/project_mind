@@ -259,5 +259,7 @@ including across native acknowledgments, while candidate manifests compare all
 part bytes. Candidate generation no longer parses every slide. The source lock
 continues to verify unmodified vendor bytes; `progressive-build.mjs` exposes the
 existing one-slide parser at build time with a checked transformation. ZIP budget
-validation/inflation is still eager; Windows timing and native GUI acceptance
+validation/inflation and UTF-8/XML admission of every XML/rels part are still eager;
+`coverage.archiveMs` and `coverage.xmlValidationMs` measure these costs separately.
+Windows timing and native GUI acceptance
 remain separate verification work.

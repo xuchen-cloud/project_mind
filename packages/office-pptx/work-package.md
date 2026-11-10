@@ -63,5 +63,7 @@ both edits and untouched tail/media/master/notes/animation/rels/opaque parts;
 exact candidate changedParts and source binding; sources verify, package build,
 Node regressions (single test worker), UI unit tests and package typecheck. Reuse
 unchanged checks and record true red/green evidence and outstanding native GUI
-acceptance. GUI deferred to the parent agent. Implementation/test delegation uses
+acceptance. Headless App acceptance is authorized in this package under the shared
+lock, with Vite watching/HMR disabled; visible GUI remains with the parent agent.
+Implementation/test delegation uses
 `gpt-6.1-sol`; review has explicit user authorization for this turn.

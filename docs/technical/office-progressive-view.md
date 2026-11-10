@@ -42,9 +42,11 @@ XLSX 的依赖集合同时包含原文件公式和当前累计编辑，范围覆
 | 原生格式保存 | 3 项 opt-in 回归通过，覆盖三格式真实 working 连续保存、重开、历史保留及原生 authoring 兼容 |
 | DOCX | 50 项单测；Chromium/WebKit 真实编辑器只解析 64 个块即显示可编辑正文，320 个附加段落仍未访问；两次保存、重开及未修改 entries 保留 |
 | XLSX | 格式层 50 项有效检查，含 100,000 行真实 native reader、尾部和跨 sheet 公式；手动新公式依赖的真实 renderer 回归继续执行 |
-| PPTX | 格式层解析/编辑/保存与 UI 回归通过；真实 renderer 和全部适用缩放入口继续执行 |
+| PPTX | Node 36/36、UI 50/50；Chrome/WebKit 真实 App 保持 14/48 页加载，尾页 parser 持续阻断下两处编辑/双保存/重开通过；只改 slide1.xml，其余 parts 逐字节保真；全部适用 DOM 缩放入口通过 |
 
 DOCX 最终一次 Node 24.21.0 无界面浏览器导航样本为 Chromium 435.1 ms、WebKit 549 ms 的可见且可编辑正文，真实键盘修改分别在 489 ms、584 ms 确认。它们包含测试 HTTP 宿主，不含原生 IPC/文件系统成本，未清系统缓存，不是 p95 或 Windows 性能结论。DOM 缩放入口和合成 wheel/pinch 已验；fit 从不同手动比例开始，按实际视口和页面尺寸检查预期比例及渲染缩放。原生菜单快捷键、物理触控板及平台视觉验收另计。
+
+PPTX 最终一次无界面浏览器导航样本（Node 26.8.1）分别为 Chrome 567.1 ms / WebKit 593 ms 首内容绘制，857 ms / 926 ms 实际输入确认。它们采用真实 App、Canvas、MessagePort 与 engine，仍不包含 Tauri/File working IPC；ZIP / 全 XML 准入耗时单独记录。fit 检查真实纸面与视口几何，数值缩放对话框在该产品中不适用；物理手势及 Windows 验收仍未执行。
 
 原生广泛回归最初为 60 通过、1 个 Source 运行资源缺失导致的初始化失败、8 跳过。补齐生成资源后，该失败项单独复测通过；原始失败日志保留，不将这次运行重写为全绿。
 
