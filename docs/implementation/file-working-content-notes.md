@@ -52,6 +52,10 @@ Source checkpoints on the selected Host remain serialized by its existing
 selection/database boundary.
 
 File creation withdrawal/restoration use the same lease-before-admission boundary.
+Creation batches scan recovery once before acquiring any lease, take distinct
+owner leases before sorted File leases, guard retained journals per target, and
+admit once before their atomic transaction. A replan cannot mutate a File for
+which the batch did not acquire a lease.
 An owner root cannot be renamed or removed while one of its Files retains a
 working journal; this check runs under the exclusive owner lease.
 

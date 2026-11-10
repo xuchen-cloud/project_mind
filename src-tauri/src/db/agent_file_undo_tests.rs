@@ -1245,7 +1245,8 @@ fn workspace_file_group_undo_reads_actual_committed_chain() {
 fn file_visibility_waits_for_lease_before_workspace_admission() {
     use std::sync::mpsc;
     use std::time::Duration;
-    for restoring in [false, true] {
+    for mode in 0..3 {
+        let restoring = mode == 1;
         let mut f = fixture(); let db = open_db(&f);
         let expected = if restoring {
             Some(db.agent_file_creation_withdraw(&f.request, &f.request.binding, &withdraw(&f)).unwrap().revision)
@@ -1269,16 +1270,21 @@ fn file_visibility_waits_for_lease_before_workspace_admission() {
         let file_lease = db.file_version_lock(file_id(&pending_object).unwrap()).unwrap();
         let fence = f.store.fence.clone();
         let store = Store { paths: f.store.paths.clone(), binding: f.store.binding.clone(), fence: fence.clone(), published: AtomicUsize::new(0) };
-        let request = f.request.clone(); let creation = f.creation.clone();
+        let request = f.request.clone(); let creation = f.creation.clone(); let run = f.run.clone();
         let (attempt_tx, attempt_rx) = mpsc::channel();
         let worker = std::thread::spawn(move || {
             file_versions::FILE_LEASE_ATTEMPT.with(|hook| *hook.borrow_mut() = Some(attempt_tx));
-            if let Some(revision) = expected {
+            if mode == 2 {
+                store.gui_commit_host(&request.binding).unwrap().database().unwrap()
+                    .agent_creation_batch_withdraw(&request, &request.binding, &OperationUndoBatchInput {
+                        run_id: run, operation_ids: vec![creation],
+                    }).map(|_| ())
+            } else if let Some(revision) = expected {
                 crate::agent::file_outputs::restore_created_file(&store, &request, &RecordRestoreInput {
                     creation_operation_id: creation, expected_withdrawal_revision: revision,
-                })
+                }).map(|_| ())
             } else {
-                crate::agent::file_outputs::withdraw_created_file(&store, &request, &RecordWithdrawalInput { creation_operation_id: creation })
+                crate::agent::file_outputs::withdraw_created_file(&store, &request, &RecordWithdrawalInput { creation_operation_id: creation }).map(|_| ())
             }
         });
         attempt_rx.recv_timeout(Duration::from_secs(3)).unwrap();
@@ -1293,4 +1299,36 @@ fn file_visibility_waits_for_lease_before_workspace_admission() {
         let retained: bool = db.conn.query_row("SELECT journal IS NOT NULL FROM file_working_contents WHERE document_id=?1", [file_id(&pending_object).unwrap()], |r|r.get(0)).unwrap();
         assert!(retained, "closed Workspace must not run journal cleanup");
     }
+}
+
+#[test]
+fn creation_batch_retains_conflicting_file_even_when_live_baseline_is_unchanged() {
+    let f = fixture(); let db = open_db(&f); let id = file_id(&f.object).unwrap();
+    db.file_working_begin_session(&f.request, &f.request.binding, &f.object).unwrap();
+    let document = db.document_record(id).unwrap();
+    let old: String = db.conn.query_row("SELECT state FROM file_working_contents WHERE document_id=?1", [id], |r|r.get(0)).unwrap();
+    let old: Value = serde_json::from_str(&old).unwrap(); let mut new = old.clone();
+    let nonce = file_versions::token();
+    let staged = Path::new(&document.history_dir_path).join(format!("working-new-{nonce}"));
+    let backup = Path::new(&document.history_dir_path).join(format!("working-old-{nonce}"));
+    fs::write(&staged, b"prepared content").unwrap();
+    // Foreign backup collision prevents automatic rollback despite unchanged live bytes.
+    fs::write(&backup, b"foreign collision").unwrap();
+    new["revision"] = json!(old["revision"].as_i64().unwrap() + 1);
+    new["hash"] = json!(file_versions::checksum(&staged).unwrap());
+    new["identity"] = serde_json::to_value(file_versions::path_identity(&staged).unwrap()).unwrap();
+    new["pending"] = json!(true);
+    let journal = json!({"object":f.object,"target":db.encode_path_ref(Path::new(&document.managed_path)),
+        "staged":db.encode_path_ref(&staged),"backup":db.encode_path_ref(&backup),"old":old,"new":new});
+    db.conn.execute("UPDATE file_working_contents SET journal=?1 WHERE document_id=?2", params![journal.to_string(),id]).unwrap();
+    let before = count(&db, "agent_visible_files");
+    let result = db.agent_creation_batch_withdraw(&f.request, &f.request.binding, &OperationUndoBatchInput {
+        run_id: f.run.clone(), operation_ids: vec![f.creation.clone()],
+    }).unwrap();
+    assert_eq!(result.len(), 1);
+    assert!(matches!(result[0].outcome, OperationUndoBatchOutcome::Failed { .. }));
+    assert_eq!(count(&db, "agent_visible_files"), before);
+    assert_eq!(fs::read(&document.managed_path).unwrap(), b"Before bytes\r\n");
+    assert_eq!(fs::read(&backup).unwrap(), b"foreign collision");
+    assert!(staged.exists());
 }
