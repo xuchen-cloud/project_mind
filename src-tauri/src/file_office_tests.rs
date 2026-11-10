@@ -1194,6 +1194,18 @@ fn office_directory_staged_recovery_never_overwrites_a_foreign_live_identity() {
 #[tokio::test]
 #[ignore = "requires staged Office resources and shared pinned Node"]
 async fn office_real_formats_working_saves_share_fixed_base_and_archive_once() {
+    office_real_formats_working_saves(false).await;
+}
+
+/// Real-format acceptance after an owner move between native Project roots on
+/// the same filesystem. This does not establish actual second-volume behavior.
+#[tokio::test]
+#[ignore = "requires staged Office resources and shared pinned Node"]
+async fn office_real_formats_moved_working_saves_share_fixed_base_and_archive_once() {
+    office_real_formats_working_saves(true).await;
+}
+
+async fn office_real_formats_working_saves(moved: bool) {
     use crate::file_working::{self, WorkingObject, WorkingSaveOffice, WorkingSession};
     let resources = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("resources");
     let worker = crate::office_worker::OfficeWorker::bundled(&resources).unwrap();
@@ -1212,7 +1224,91 @@ async fn office_real_formats_working_saves_share_fixed_base_and_archive_once() {
         ("pptx", "packages/office-pptx/test/fixtures/simple.pptx"),
     ] {
         let original_bytes = std::fs::read(root.join(relative)).unwrap();
-        let f = fixture_bytes(&format!("working.{format}"), &original_bytes);
+        let mut f = fixture_bytes(&format!("working.{format}"), &original_bytes);
+        let prior_history = if moved {
+            let mut db = f.store.db.lock().unwrap();
+            let document_id = f.input.object.id.parse().unwrap();
+            let versions = db
+                .document_list_versions(crate::models::DocumentListVersionsInput { document_id })
+                .unwrap();
+            let snapshots: Vec<_> = versions
+                .iter()
+                .map(|version| {
+                    let path = PathBuf::from(&version.managed_path);
+                    let hash = crate::db::file_versions::checksum(&path).unwrap();
+                    let bytes = std::fs::read(&path).unwrap();
+                    (path, hash, bytes)
+                })
+                .collect();
+            let source_owner = match &f.input.object.scope {
+                crate::agent::models::Scope::Project { project_id } => *project_id,
+                _ => unreachable!(),
+            };
+            let target = db
+                .project_create(crate::models::ProjectCreateInput {
+                    name: "Office moved".into(),
+                    summary: None,
+                    status: None,
+                })
+                .unwrap();
+            f.request.scope_grant.project_ids.push(target.id);
+            f.request.scope_grant.operations.push("file.move".into());
+            let baseline = db
+                .file_owner_move_baseline(
+                    &f.request,
+                    &f.store.binding,
+                    document_id,
+                    Some(source_owner),
+                )
+                .unwrap();
+            let result = db
+                .file_owner_move(
+                    &f.request,
+                    &f.store.binding,
+                    &crate::db::file_owner_move::FileOwnerMove {
+                        document_id,
+                        source_owner: Some(source_owner),
+                        target_owner: Some(target.id),
+                        expected_version: baseline.expected_version,
+                        expected_working_revision: baseline.expected_working_revision,
+                        expected_hash: baseline.expected_hash,
+                    },
+                )
+                .unwrap();
+            f.path = PathBuf::from(result.managed_path);
+            f.input.object.scope = result.target_scope;
+            assert_eq!(std::fs::read(&f.path).unwrap(), original_bytes);
+            Some((versions, snapshots))
+        } else {
+            None
+        };
+        let assert_prior_history = |added: usize| {
+            let Some((versions, snapshots)) = &prior_history else {
+                return;
+            };
+            let current = f
+                .store
+                .db
+                .lock()
+                .unwrap()
+                .document_list_versions(crate::models::DocumentListVersionsInput {
+                    document_id: f.input.object.id.parse().unwrap(),
+                })
+                .unwrap();
+            assert_eq!(current.len(), versions.len() + added);
+            for version in versions {
+                let retained = current.iter().find(|v| v.id == version.id).unwrap();
+                assert_eq!(
+                    serde_json::to_value(retained).unwrap(),
+                    serde_json::to_value(version).unwrap()
+                );
+            }
+            for (path, hash, bytes) in snapshots {
+                assert_eq!(crate::db::file_versions::checksum(path).unwrap(), *hash);
+                assert_eq!(std::fs::read(path).unwrap(), *bytes);
+            }
+        };
+        assert_prior_history(0);
         let old = f.input.baseline();
         let original_model = FileOfficeService::new(&f.store, &worker)
             .inspect(&f.request, &old)
@@ -1285,6 +1381,7 @@ async fn office_real_formats_working_saves_share_fixed_base_and_archive_once() {
             .unwrap();
         assert_eq!(first.revision, 1);
         assert_eq!(first.archived_version_number, 1);
+        assert_prior_history(0);
         input.expected_revision = first.revision;
         input.expected_content_hash = first.content_hash;
         input.edits = edits(true);
@@ -1295,6 +1392,7 @@ async fn office_real_formats_working_saves_share_fixed_base_and_archive_once() {
             .unwrap();
         assert_eq!(second.revision, 2);
         assert_eq!(second.archived_version_number, 1);
+        assert_prior_history(0);
         assert_eq!(
             f.store
                 .db
@@ -1317,6 +1415,7 @@ async fn office_real_formats_working_saves_share_fixed_base_and_archive_once() {
         )
         .await
         .unwrap();
+        assert_prior_history(0);
         let current = reader.model.unwrap();
         match format {
             "docx" => assert!(current["nodes"]
@@ -1355,6 +1454,7 @@ async fn office_real_formats_working_saves_share_fixed_base_and_archive_once() {
         })
         .unwrap();
         assert_eq!(archived.archived_version_number, 2);
+        assert_prior_history(1);
         let service = FileOfficeService::new(&f.store, &worker);
         let committed = service
             .inspect(
@@ -1391,6 +1491,7 @@ async fn office_real_formats_working_saves_share_fixed_base_and_archive_once() {
         }
         let history = service.inspect(&second_request, &old).await.unwrap();
         assert_eq!(history.model, original_model);
+        assert_prior_history(1);
         assert_eq!(
             STANDARD
                 .decode(

@@ -1,7 +1,7 @@
 //! Durable current content, immutable history and fixed GUI editing bases.
 //! Filesystem replacement uses the same owned-file primitives and File/Project
 //! leases as the native directory journal. Backups exist only until recovery.
-use super::{file_versions as files, Database};
+use super::{file_versions as files, project_directory_changes::directory_identity, Database};
 use crate::{
     agent::{
         access::{Caller, RequestContext},
@@ -70,6 +70,26 @@ fn read_bounded(path: &Path, expected_hash: &str) -> AgentResult<Vec<u8>> {
     }
     Ok(bytes)
 }
+// Model the existing live/history volume split without treating this as real
+// second-volume acceptance. Production still uses the exclusive rename primitive.
+#[cfg(test)]
+thread_local! {
+    static WORKING_TEST_HISTORY_VOLUME: std::cell::RefCell<Option<std::path::PathBuf>> = const { std::cell::RefCell::new(None) };
+}
+fn working_move(from: &Path, to: &Path) -> anyhow::Result<()> {
+    #[cfg(test)]
+    WORKING_TEST_HISTORY_VOLUME.with(|volume| -> anyhow::Result<()> {
+        if let Some(history) = volume.borrow().as_ref() {
+            if from.starts_with(history) != to.starts_with(history) {
+                return Err(
+                    std::io::Error::from_raw_os_error(if cfg!(windows) { 17 } else { 18 }).into(),
+                );
+            }
+        }
+        Ok(())
+    })?;
+    files::move_exclusive(from, to)
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct State {
     revision: i64,
@@ -82,13 +102,37 @@ pub(super) fn stored_working_revision(value: &str) -> anyhow::Result<i64> {
     Ok(serde_json::from_str::<State>(value)?.revision)
 }
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Placement {
+    live_parent: files::FileIdentity,
+}
+#[derive(Debug, Serialize, Deserialize)]
 struct Journal {
+    // Existing pending journals stage in immutable history and have no parent
+    // identities. Keep that exact layout recoverable during upgrade.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    placement: Option<Placement>,
     object: ObjectRef,
     target: String,
     staged: String,
     backup: String,
     old: State,
     new: State,
+}
+impl Journal {
+    fn check_parents(&self, target: &Path, staged: &Path) -> AgentResult<()> {
+        let target_parent = directory_identity(target.parent().unwrap()).map_err(io)?;
+        let staging_parent = directory_identity(staged.parent().unwrap()).map_err(io)?;
+        if let Some(placement) = &self.placement {
+            if target_parent != placement.live_parent || staging_parent != placement.live_parent {
+                return Err(error(
+                    ErrorCode::FileChangedUnregistered,
+                    "Working replacement parent changed; journal retained",
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 impl Database {
     pub(crate) fn bind_file_commit_fence(
@@ -386,12 +430,16 @@ impl Database {
         input: &crate::file_working::WorkingSession,
     ) -> AgentResult<(String, String, usize)> {
         let name = self.file_working_session_name(request, binding, input)?;
-        let (hash, length): (String, i64) = self.conn.query_row(
-            "SELECT base_hash,length(bytes) FROM file_working_sessions WHERE session_id=?1",
-            [&input.session_id], |r| Ok((r.get(0)?,r.get(1)?)),
-        ).map_err(io)?;
+        let (hash, length): (String, i64) = self
+            .conn
+            .query_row(
+                "SELECT base_hash,length(bytes) FROM file_working_sessions WHERE session_id=?1",
+                [&input.session_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .map_err(io)?;
         let length = usize::try_from(length).map_err(io)?;
-        Ok((name,hash,length))
+        Ok((name, hash, length))
     }
     pub(crate) fn file_working_close(
         &self,
@@ -430,9 +478,14 @@ impl Database {
         let id: i64 = object.id.parse().map_err(io)?;
         // Authorization may precede a wait for owner/File leases. A move can
         // finish during that gap; even a journal-free replay must recheck scope.
-        let actual=self.document_record(id).map_err(io)?;
-        if object.scope!=super::file_scope::scope(actual.project_id) || self.native_workspace_id.as_deref()!=Some(object.workspace_id.as_str()) {
-            return Err(error(ErrorCode::ScopeDenied,"File moved to another owner while waiting for its lease"));
+        let actual = self.document_record(id).map_err(io)?;
+        if object.scope != super::file_scope::scope(actual.project_id)
+            || self.native_workspace_id.as_deref() != Some(object.workspace_id.as_str())
+        {
+            return Err(error(
+                ErrorCode::ScopeDenied,
+                "File moved to another owner while waiting for its lease",
+            ));
         }
         let pending: Option<String> = self
             .conn
@@ -452,9 +505,18 @@ impl Database {
         let target = self.decode_path_ref(&journal.target);
         let staged = self.decode_path_ref(&journal.staged);
         let backup = self.decode_path_ref(&journal.backup);
-        if journal.object != *object
-            || target != Path::new(&document.managed_path)
-            || staged.parent() != Some(Path::new(&document.history_dir_path))
+        if journal.object != *object || target != Path::new(&document.managed_path) {
+            return Err(error(
+                ErrorCode::IoFailed,
+                "Working replacement journal ownership changed",
+            ));
+        }
+        let staging_parent = if journal.placement.is_some() {
+            target.parent().unwrap().to_owned()
+        } else {
+            document.history_dir_path.into()
+        };
+        if staged.parent() != Some(staging_parent.as_path())
             || backup.parent() != staged.parent()
             || staged == backup
         {
@@ -463,7 +525,13 @@ impl Database {
                 "Working replacement journal ownership changed",
             ));
         }
-        for (path, prefix) in [(&staged, "working-new-"), (&backup, "working-old-")] {
+        files::relative(&self.workspace_root, &target).map_err(io)?;
+        let (new_prefix, old_prefix) = if journal.placement.is_some() {
+            (".pm-working-new-", ".pm-working-old-")
+        } else {
+            ("working-new-", "working-old-")
+        };
+        for (path, prefix) in [(&staged, new_prefix), (&backup, old_prefix)] {
             files::relative(&self.workspace_root, path).map_err(io)?;
             if !path
                 .file_name()
@@ -477,6 +545,25 @@ impl Database {
                 ));
             }
         }
+        if staged
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .strip_prefix(new_prefix)
+            != backup
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .strip_prefix(old_prefix)
+        {
+            return Err(error(
+                ErrorCode::IoFailed,
+                "Working replacement tokens differ",
+            ));
+        }
+        journal.check_parents(&target, &staged)?;
         let current = self
             .working_state(id)?
             .ok_or_else(|| error(ErrorCode::IoFailed, "Working replacement state missing"))?;
@@ -506,7 +593,8 @@ impl Database {
                 let identity = files::path_identity(&target).map_err(io)?;
                 if identity == journal.new.identity {
                     self.working_check_disk(&target, &journal.new)?;
-                    files::move_exclusive(&target, &staged).map_err(io)?;
+                    journal.check_parents(&target, &staged)?;
+                    working_move(&target, &staged).map_err(io)?;
                 } else {
                     self.working_check_disk(&target, &journal.old)?;
                     if backup.exists() {
@@ -519,13 +607,15 @@ impl Database {
             }
             if !target.exists() {
                 self.working_recovery_check_disk(&backup, &journal.old)?;
-                files::move_exclusive(&backup, &target).map_err(io)?;
+                journal.check_parents(&target, &staged)?;
+                working_move(&backup, &target).map_err(io)?;
             }
         }
         for (path, state) in [(&backup, &journal.old), (&staged, &journal.new)] {
             match fs::symlink_metadata(path) {
                 Ok(_) => {
                     self.working_recovery_check_disk(path, state)?;
+                    journal.check_parents(&target, &staged)?;
                     fs::remove_file(path).map_err(io)?;
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
@@ -534,6 +624,7 @@ impl Database {
         }
         files::sync_directory(target.parent().unwrap()).map_err(io)?;
         files::sync_directory(staged.parent().unwrap()).map_err(io)?;
+        journal.check_parents(&target, &staged)?;
         self.conn
             .execute(
                 "UPDATE file_working_contents SET journal=NULL WHERE document_id=?1",
@@ -603,11 +694,19 @@ impl Database {
             );
         }
         let target = Path::new(&document.managed_path);
-        let history = Path::new(&document.history_dir_path);
-        files::create_owned_directories(&self.workspace_root, history).map_err(io)?;
+        files::relative(&self.workspace_root, target).map_err(io)?;
+        let staging_parent = target.parent().unwrap();
+        // An owner move may leave immutable history on the old volume. Only
+        // replacement artifacts use live's existing, identity-checked parent,
+        // just like directory restore. No extra metadata directory is left to
+        // obstruct a later directory move; history rows and bytes never move.
+        let placement = Placement {
+            live_parent: directory_identity(staging_parent).map_err(io)?,
+        };
+        working_crash(0);
         let token = files::token();
-        let staged = history.join(format!("working-new-{token}"));
-        let backup = history.join(format!("working-old-{token}"));
+        let staged = staging_parent.join(format!(".pm-working-new-{token}"));
+        let backup = staging_parent.join(format!(".pm-working-old-{token}"));
         let mut file = fs::OpenOptions::new()
             .create_new(true)
             .write(true)
@@ -627,8 +726,9 @@ impl Database {
             pending: archived_hash.as_deref() != Some(&hash),
         };
         drop(file);
-        files::sync_directory(history).map_err(io)?;
+        files::sync_directory(&staging_parent).map_err(io)?;
         let journal = Journal {
+            placement: Some(placement),
             object: object.clone(),
             target: self.encode_path_ref(target),
             staged: self.encode_path_ref(&staged),
@@ -636,6 +736,7 @@ impl Database {
             old: old.clone(),
             new: new.clone(),
         };
+        journal.check_parents(target, &staged)?;
         self.conn
             .execute(
                 "UPDATE file_working_contents SET journal=?1 WHERE document_id=?2",
@@ -646,14 +747,16 @@ impl Database {
         let result = (|| {
             self.working_authorize(request, binding, object)?;
             self.working_check_disk(target, &old)?;
-            files::move_exclusive(target, &backup).map_err(io)?;
+            journal.check_parents(target, &staged)?;
+            working_move(target, &backup).map_err(io)?;
             files::sync_directory(target.parent().unwrap()).map_err(io)?;
-            files::sync_directory(history).map_err(io)?;
+            files::sync_directory(&staging_parent).map_err(io)?;
             working_crash(2);
             self.working_check_disk(&backup, &old)?;
-            files::move_exclusive(&staged, target).map_err(io)?;
+            journal.check_parents(target, &staged)?;
+            working_move(&staged, target).map_err(io)?;
             files::sync_directory(target.parent().unwrap()).map_err(io)?;
-            files::sync_directory(history).map_err(io)?;
+            files::sync_directory(&staging_parent).map_err(io)?;
             working_crash(3);
             let tx = rusqlite::Transaction::new_unchecked(
                 &self.conn,
@@ -661,6 +764,7 @@ impl Database {
             )
             .map_err(io)?;
             self.working_check_disk(target, &new)?;
+            journal.check_parents(target, &staged)?;
             self.working_authorize(request, binding, object)?;
             tx.execute(
                 "UPDATE file_working_contents SET state=?1,bytes=?3 WHERE document_id=?2",
@@ -688,6 +792,7 @@ impl Database {
                     ))
                 },
             )?;
+            working_crash(5);
             tx.commit().map_err(io)?;
             working_crash(4);
             Ok(saved)
@@ -791,7 +896,10 @@ impl Database {
         if let Some((_, baseline)) = drop_intent {
             let actual = self.move_baseline_locked(document.id)?;
             if actual != *baseline {
-                return Err(error(ErrorCode::RevisionConflict, "File changed before Drop archive"));
+                return Err(error(
+                    ErrorCode::RevisionConflict,
+                    "File changed before Drop archive",
+                ));
             }
         }
         let mut state = self.working_initialize_locked(object)?;
@@ -851,40 +959,74 @@ impl Database {
         .map_err(io)?;
         tx.execute("INSERT INTO agent_change_log(object_key,scope_key,operation,revision,created_at) VALUES (?1,?2,'file.working.archive',?3,?4)",params![object.key()?,object.scope.key(),state.hash,timestamp]).map_err(io)?;
         if let Some((id, _)) = drop_intent {
-            self.working_drop_marker(&tx, id, &super::file_owner_move::FileMoveBaseline {
-                expected_version: version,
-                expected_working_revision: Some(state.revision),
-                expected_hash: state.hash.clone(),
-            })?;
+            self.working_drop_marker(
+                &tx,
+                id,
+                &super::file_owner_move::FileMoveBaseline {
+                    expected_version: version,
+                    expected_working_revision: Some(state.revision),
+                    expected_hash: state.hash.clone(),
+                },
+            )?;
         }
         tx.commit().map_err(io)?;
         self.working_status(object, &state)
     }
-    fn working_drop_marker(&self, conn: &rusqlite::Connection, id: &str, baseline: &super::file_owner_move::FileMoveBaseline) -> AgentResult<()> {
+    fn working_drop_marker(
+        &self,
+        conn: &rusqlite::Connection,
+        id: &str,
+        baseline: &super::file_owner_move::FileMoveBaseline,
+    ) -> AgentResult<()> {
         // Legacy managed imports also use working-save replacement. Their directory
         // identity must follow this explicitly verified saved base before Drop replaces it.
         let document_id:i64=conn.query_row("SELECT json_extract(payload,'$.prepare.target.documentId') FROM file_drop_intents WHERE id=?1",[id],|r|r.get(0)).map_err(io)?;
-        let doc=self.document_record(document_id).map_err(io)?;
-        let physical=match self.working_state(document_id)? {Some(state)=>state.identity,None=>files::path_identity(Path::new(&doc.managed_path)).map_err(io)?};
+        let doc = self.document_record(document_id).map_err(io)?;
+        let physical = match self.working_state(document_id)? {
+            Some(state) => state.identity,
+            None => files::path_identity(Path::new(&doc.managed_path)).map_err(io)?,
+        };
         conn.execute("UPDATE project_directory_files SET physical_identity=?1,state='ready',reason=NULL WHERE document_id=?2",params![serde_json::to_string(&physical).map_err(io)?,document_id]).map_err(io)?;
         let changed = conn.execute("UPDATE file_drop_intents SET payload=json_set(payload,'$.post_archive',json(?2)) WHERE id=?1", params![id,serde_json::to_string(baseline).map_err(io)?]).map_err(io)?;
-        if changed != 1 { return Err(error(ErrorCode::NotFound,"Drop archive intent missing")); }
+        if changed != 1 {
+            return Err(error(ErrorCode::NotFound, "Drop archive intent missing"));
+        }
         Ok(())
     }
-    pub(super) fn file_working_drop_archive(&self, request: &RequestContext, binding: &WorkspaceBinding, object: &ObjectRef, intent_id: &str, baseline: &super::file_owner_move::FileMoveBaseline) -> AgentResult<()> {
+    pub(super) fn file_working_drop_archive(
+        &self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        object: &ObjectRef,
+        intent_id: &str,
+        baseline: &super::file_owner_move::FileMoveBaseline,
+    ) -> AgentResult<()> {
         if baseline.expected_working_revision.is_some() {
-            self.working_archive(request,binding,object,chrono::Utc::now().timestamp_millis(),true,false,Some((intent_id,baseline)))?;
+            self.working_archive(
+                request,
+                binding,
+                object,
+                chrono::Utc::now().timestamp_millis(),
+                true,
+                false,
+                Some((intent_id, baseline)),
+            )?;
         } else {
             let _durable = Durable::new(&self.conn)?;
-            self.working_archive_authorize(request,binding,object,false)?;
-            let _locks = self.file_recovery_write_locks(object.id.parse().map_err(io)?).map_err(io)?;
+            self.working_archive_authorize(request, binding, object, false)?;
+            let _locks = self
+                .file_recovery_write_locks(object.id.parse().map_err(io)?)
+                .map_err(io)?;
             let _permit = self.file_commit_permit()?;
-            self.working_archive_authorize(request,binding,object,false)?;
+            self.working_archive_authorize(request, binding, object, false)?;
             let actual = self.move_baseline_locked(object.id.parse().map_err(io)?)?;
             if actual != *baseline {
-                return Err(error(ErrorCode::RevisionConflict,"File changed before Drop archive"));
+                return Err(error(
+                    ErrorCode::RevisionConflict,
+                    "File changed before Drop archive",
+                ));
             }
-            self.working_drop_marker(&self.conn,intent_id,baseline)?;
+            self.working_drop_marker(&self.conn, intent_id, baseline)?;
         }
         Ok(())
     }
