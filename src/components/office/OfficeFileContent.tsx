@@ -18,7 +18,7 @@ import { printEditorHtml, renderEditorPdf } from '../../services/editorPrint';
 import { desktopApi } from '../../services/desktopApi';
 import { inspectImportedWorkbook } from '../../services/editorWorkbookImport';
 import './office-file-content.css';
-import type { RecalculateRequest, RecalculateResult } from '../../../packages/office-xlsx/types';
+import type { RecalculateRequest, RecalculateResult, OfficeViewRead } from '../../../packages/office-xlsx/types';
 import {loadDocxEditor, loadXlsxEditor, loadPptxEditor} from './office-component-loader';
 async function convertAltChunkHtml(html: string) {
   const converter = await import('../../../packages/office-html2docx/dist/index.mjs');
@@ -137,7 +137,7 @@ export function OfficeFileContent({visible=true,toolbar,menuToolbar,fileName,bin
     const epoch = ++lifetime.current;
     recalculations.current.clear();
     session.current = null;pendingEditor.current = false;setEditorPending(false);setSnapshot(undefined);setReading(true);setError(undefined);setEditing(false);setOutputBusy(false);setOutputError(undefined);
-    const opened = readOnly ? officeFileApi.inspect(binding,baseline) : working?.model
+    const opened = readOnly ? officeFileApi.inspectView(binding,baseline) : working?.model
       ? Promise.resolve({model:working.model}) : Promise.reject(new Error('当前文件尚未建立编辑会话'));
     void opened.then(result => {
       if (lifetime.current !== epoch) return;
@@ -242,6 +242,16 @@ export function OfficeFileContent({visible=true,toolbar,menuToolbar,fileName,bin
     try { return await operation; }
     finally { if (recalculations.current.get(key) === operation) recalculations.current.delete(key); }
   }, []);
+  const readView = useCallback(async (read: OfficeViewRead) => {
+    const current = session.current, currentBinding = sessionBinding.current;
+    if (!current || !currentBinding) throw new Error('Excel 文件尚未加载');
+    const epoch = lifetime.current, source = liveSource.current.working;
+    const result = source
+      ? await fileWorkingApi.readView(currentBinding,{object:source.object,sessionId:source.sessionId,read})
+      : await officeFileApi.readView(currentBinding,{...liveSource.current.baseline,read});
+    if (epoch !== lifetime.current || current !== session.current) throw new Error('Excel 文件已关闭或切换');
+    return result;
+  }, []);
   useEffect(() => registerFlush(async () => {
     const current = session.current;
     await saveRef.current();
@@ -324,7 +334,7 @@ export function OfficeFileContent({visible=true,toolbar,menuToolbar,fileName,bin
       {snapshot && !components[snapshot.model.format] && !componentError ? <EditorLoading format={snapshot.model.format} stage="runtime" /> : null}
       <OfficeFormatCommit format={snapshot && components[snapshot.model.format] ? snapshot.model.format : undefined}>
         {!suspended && snapshot?.model.format === 'docx' && DocxEditor ? <DocxEditor registerPreview={registerPreview} initialPreviewView={previewView.current} onFetchImage={fetchImage} onGetSystemFonts={desktopApi.listSystemFontFamilies} onFontMetrics={desktopApi.editorFontMetrics} onConvertAltChunkHtml={convertAltChunkHtml} savedEditRevision={snapshot.savedEditRevision} model={snapshot.model} edits={snapshot.edits as DocxEdit[]} onChange={changed} readOnly={frozen} presentationMode={editing ? 'edit' : 'preview'} registerSelection={selection.registerSelection} registerBeforeSave={registerBeforeSave} registerOutput={registerOutput} onPendingChange={editorPendingChanged} onSaveRequest={() => save()} onExport={exportEditorFile} onPrint={printEditorHtml} onRenderPdf={renderEditorPdf} />
-          : !suspended && snapshot?.model.format === 'xlsx' && XlsxEditor ? <XlsxEditor registerPreview={registerPreview} initialPreviewView={previewView.current} savedEditRevision={snapshot.savedEditRevision} model={snapshot.model} edits={snapshot.edits as XlsxEdit[]} onChange={changed} readOnly={frozen} presentationMode={editing ? 'edit' : 'preview'} registerSelection={selection.registerSelection} registerBeforeSave={registerBeforeSave} registerOutput={registerOutput} onPendingChange={editorPendingChanged} onSaveRequest={() => save()} onExport={exportEditorFile} onPrint={printEditorHtml} onRenderPdf={renderEditorPdf} onRecalculate={recalculate} onInspectImportedWorkbook={inspectImportedWorkbook} onCaptureScreenSources={desktopApi.editorCaptureSources} onCaptureScreenSource={desktopApi.editorCaptureSource} />
+          : !suspended && snapshot?.model.format === 'xlsx' && XlsxEditor ? <XlsxEditor registerPreview={registerPreview} initialPreviewView={previewView.current} savedEditRevision={snapshot.savedEditRevision} model={snapshot.model} edits={snapshot.edits as XlsxEdit[]} onChange={changed} readOnly={frozen} presentationMode={editing ? 'edit' : 'preview'} registerSelection={selection.registerSelection} registerBeforeSave={registerBeforeSave} registerOutput={registerOutput} onPendingChange={editorPendingChanged} onSaveRequest={() => save()} onExport={exportEditorFile} onPrint={printEditorHtml} onRenderPdf={renderEditorPdf} onRecalculate={recalculate} onReadView={readView} onInspectImportedWorkbook={inspectImportedWorkbook} onCaptureScreenSources={desktopApi.editorCaptureSources} onCaptureScreenSource={desktopApi.editorCaptureSource} />
           : !suspended && snapshot?.model.format === 'pptx' && PptxEditor ? <PptxEditor registerPreview={registerPreview} initialPreviewView={previewView.current} savedEditRevision={snapshot.savedEditRevision} model={snapshot.model} edits={snapshot.edits as PptxEdit[]} onChange={changed} readOnly={frozen} presentationMode={editing ? 'edit' : 'preview'} registerSelection={selection.registerSelection} registerBeforeSave={registerBeforeSave} registerOutput={registerOutput} onPendingChange={editorPendingChanged} onSaveRequest={() => save()} onExport={exportEditorFile} onPrint={printEditorHtml} onRenderPdf={renderEditorPdf} /> : null}
       </OfficeFormatCommit>
     </div>

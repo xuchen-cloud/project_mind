@@ -21,7 +21,9 @@ export function secureExtensions(extensions:any[]){
  });
  safe.push(Extension.create({name:'projectMindPrivilegedFileBoundary',priority:10000,addProseMirrorPlugins:()=>[new Plugin({
   props:{editable:()=>!(globalThis as any).window?.__projectMindDocxHost?.locked},
-  filterTransaction(tr){return !tr.docChanged||!(globalThis as any).window?.__projectMindDocxHost?.readOnly;},
+  // Loading validated source content is not a user edit. A preview can request
+  // its tail after the host has become read-only; ordinary changes stay locked.
+  filterTransaction(tr){return !tr.docChanged||tr.getMeta('phasedAppend')===true||!(globalThis as any).window?.__projectMindDocxHost?.readOnly;},
   view(view){inertAnchors(view.dom);const unregister=(window as any).__projectMindDocxHost?.registerEditorView(view);const observer=new MutationObserver(()=>inertAnchors(view.dom));observer.observe(view.dom,{subtree:true,childList:true,attributes:true});return{update:next=>inertAnchors(next.dom),destroy:()=>{observer.disconnect();unregister?.();}};},
  })]}));return safe;
 }

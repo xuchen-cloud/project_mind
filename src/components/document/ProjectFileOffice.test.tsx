@@ -11,7 +11,7 @@ import {queryKeys} from '../../lib/queryKeys';
 vi.mock('../../services/fileDocumentApi',()=>({fileDocumentApi:{versionsList:vi.fn()}}));
 vi.mock('../../services/recordDocumentApi',()=>({recordDocumentApi:{bindingGet:vi.fn()}}));
 vi.mock('../../services/projectFileApi',()=>({projectFileApi:{resolve:vi.fn(),readBytes:vi.fn(),applications:vi.fn(),openWith:vi.fn(),openLocal:vi.fn()},fileBytes:()=>new Uint8Array([80,75])}));
-vi.mock('../../services/officeFileApi',()=>({officeFileApi:{inspect:vi.fn()}}));
+vi.mock('../../services/officeFileApi',()=>({officeFileApi:{inspectView:vi.fn()}}));
 vi.mock('../../services/fileWorkingApi',()=>({fileWorkingApi:{open:vi.fn(),saveOffice:vi.fn(),activity:vi.fn(),close:vi.fn(),tick:vi.fn()}}));
 vi.mock('../office/DocxEditor',()=>({DocxEditor:(props:{model:{nodes:{text:string}[]};edits:{text:string}[];readOnly:boolean;onChange:(edits:unknown[])=>void})=><div>
   <p>{props.edits[0]?.text??props.model.nodes[0].text}</p><button disabled={props.readOnly} onClick={()=>props.onChange([{type:'text',nodeId:'p0',text:'保留草稿'}])}>编辑文档</button>

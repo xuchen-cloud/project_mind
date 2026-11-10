@@ -26,6 +26,10 @@ node packages/office-xlsx/scripts/build.mjs --skip-native
 
 完整 dist 交主宿主资源流程复制；不需要运行时源码目录或网络。支持 `OFFICE_RUST_TARGET` 交叉构建，实际 native 验证平台是 macOS arm64；未声称其它平台已实测。
 
+## 渐进 GUI 打开（#303）
+
+GUI 使用 `createViewSession` / `inspectView` 与 `onReadView`；首屏为活动表 A1:Z100，后续读取复用 native session。完整 `inspect` 继续服务 authoring 和外部导入。协议、保存约束、来源补丁与验证边界见 [渐进打开记录](PROGRESSIVE-VIEW.md)。
+
 ## 字节接口
 
 ```ts

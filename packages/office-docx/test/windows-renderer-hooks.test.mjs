@@ -5,6 +5,7 @@ import {runInNewContext} from 'node:vm';
 import {dirname, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import ts from 'typescript';
+import {adaptPlainTextPaste} from '../../office-xlsx/scripts/paste-adapter.mjs';
 
 // Capture the actual onLoad registrations without building the renderer. These
 // filters receive native filesystem paths from esbuild, unlike onResolve's
@@ -15,7 +16,7 @@ async function hooks(relative) {
   const ast = ts.createSourceFile(file.pathname, source, ts.ScriptTarget.Latest, true);
   const registrations = [];
   const build = {onLoad(options, callback) { registrations.push({...options, callback}); }};
-  const context = {build, b: build, readFile, resolve, dirname};
+  const context = {build, b: build, readFile, resolve, dirname, adaptPlainTextPaste};
   function visit(node) {
     if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'onLoad') {
       runInNewContext(node.getText(ast), context);
@@ -30,15 +31,15 @@ const cases = [
   ['../renderer-build.mjs', [
     'packages/office-docx/renderer.tsx', 'packages/office-docx/scroll-edges.ts',
     ...['components/PrintDialog.tsx','components/ZoomDialog.tsx','components/ProtectDialog.tsx',
-      'components/PaginationPreview.tsx','system-fonts.ts','file-actions.ts','html-export.ts',
+      'components/PaginationPreview.tsx','wheel-zoom.ts','system-fonts.ts','file-actions.ts','html-export.ts',
       'components/Ribbon.tsx','editor/extensions.ts','components/ribbon-tabs.tsx',
-      'editor/image-drop.ts','App.tsx','parse-off-thread.ts','ai/AiPanel.tsx']
+      'editor/image-drop.ts','App.tsx','parse-off-thread.ts','phased-content.ts','ai/AiPanel.tsx']
       .map(path => 'packages/office-docx/upstream/apps/docs/src/renderer/' + path),
   ]],
   ['../../office-xlsx/scripts/build-renderer.mjs', [
     'formula-stream-hold.ts','univer-sync.ts','i18n/strings.ts','i18n/locale.tsx','main.tsx',
     'App.tsx','ExcelShell.tsx','csv-export.ts','page-layout-actions.ts','PrintDialog.tsx',
-    'SheetTabContextMenu.tsx','merge-workbooks.ts',
+    'SheetTabContextMenu.tsx','merge-workbooks.ts','zoom-range.ts','ZoomDialog.tsx',
   ].map(path => 'packages/office-xlsx/vendor/apps/sheets/src/renderer/' + path)],
   ['../../office-xlsx/scripts/patch-univer.mjs', ['ui','sheets-note-ui','sheets-ui']
     .map(name => 'node_modules/@univerjs/' + name + '/lib/es/index.js')],
@@ -89,6 +90,16 @@ test('Windows DOCX App dispatch executes the real save and read-only host transf
   const result = await transformWindowsFile(t, registrations, 'apps/docs/src/renderer/App.tsx', source);
   assert.match(result.contents, /window\.__projectMindDocxHost\.requestSave\(\)/);
   assert.match(result.contents, /embeddedReadOnly \|\| writeLocked \|\|/);
+  assert.match(result.contents, /setZoomState\(current => clampDocsZoom\(/);
+  for (const [relative, expected] of [
+    ['wheel-zoom.ts', /DOCS_ZOOM_MIN = 50[\s\S]*DOCS_ZOOM_MAX = 150/],
+    ['components/ZoomDialog.tsx', /radio\(150, '150%'\)/],
+  ]) {
+    const source = await readFile(new URL('../upstream/apps/docs/src/renderer/' + relative, import.meta.url), 'utf8');
+    const transformed = await transformWindowsFile(t, registrations, 'apps/docs/src/renderer/' + relative, source);
+    assert.match(transformed.contents, expected);
+  }
+
 });
 
 test('Windows XLSX menu dispatch executes the real read-only permission transform', async t => {
@@ -96,6 +107,15 @@ test('Windows XLSX menu dispatch executes the real read-only permission transfor
   const result = await transformWindowsFile(t, await hooks('../../office-xlsx/scripts/build-renderer.mjs'), 'apps/sheets/src/renderer/SheetTabContextMenu.tsx', source);
   assert.match(result.contents, /const locked = protection.locked \|\| window\.__projectMindSheetsHost\.isReadOnly\(\)/);
   assert.match(result.contents, /disabled=\{options.disabled \|\|/);
+  for (const [relative, expected] of [
+    ['zoom-range.ts', /SHEET_ZOOM_MIN = 50[\s\S]*SHEET_ZOOM_MAX = 150/],
+    ['ZoomDialog.tsx', /PRESETS = \[150, 100, 75, 50\]/],
+  ]) {
+    const source = await readFile(new URL('../../office-xlsx/vendor/apps/sheets/src/renderer/' + relative, import.meta.url), 'utf8');
+    const transformed = await transformWindowsFile(t, await hooks('../../office-xlsx/scripts/build-renderer.mjs'), 'apps/sheets/src/renderer/' + relative, source);
+    assert.match(transformed.contents, expected);
+  }
+
 });
 
 test('Windows Univer dispatch keeps note input synchronous before saving', async t => {
@@ -103,4 +123,29 @@ test('Windows Univer dispatch keeps note input synchronous before saving', async
   const result = await transformWindowsFile(t, await hooks('../../office-xlsx/scripts/patch-univer.mjs'), 'node_modules/@univerjs/sheets-note-ui/lib/es/index.js', source);
   assert.match(result.contents, /const updateNote = \(\(newNote\) => \{/);
   assert.doesNotMatch(result.contents, /const updateNote = useDebounceFn/);
+  const sheetsSource = await readFile(new URL('../../office-xlsx/node_modules/@univerjs/sheets-ui/lib/es/index.js', import.meta.url), 'utf8');
+  const sheets = await transformWindowsFile(t, await hooks('../../office-xlsx/scripts/patch-univer.mjs'), 'node_modules/@univerjs/sheets-ui/lib/es/index.js', sheetsSource);
+  const ast = ts.createSourceFile('sheets.js', sheets.contents, ts.ScriptTarget.Latest, true);
+  let range, listener;
+  function visit(node) {
+    if (ts.isVariableDeclaration(node) && node.name.getText(ast) === 'SHEET_ZOOM_RANGE') range = node.initializer.getText(ast);
+    if (ts.isVariableDeclaration(node) && node.name.getText(ast) === 'SheetsZoomRenderController') listener = node.initializer.members.find(member => member.name?.getText(ast) === '_initSkeletonListener').getText(ast);
+    ts.forEachChild(node, visit);
+  }
+  visit(ast);
+  assert.ok(range && listener);
+  // Execute the actual controller listener: restored snapshots and sheet switches
+  // must normalize the stored view before the scene sees a scale.
+  for (const [stored, expected] of [[0.1, 0.5], [0.5, 0.5], [1, 1], [1.5, 1.5], [4, 1.5]]) {
+    const config = {zoomRatio: stored}; let applied;
+    const controller = runInNewContext(`({${listener}})`, {SHEET_ZOOM_RANGE: JSON.parse(range)});
+    Object.assign(controller, {
+      _context: {unit: {getActiveSheet: () => ({getZoomRatio: () => config.zoomRatio, getConfig: () => config})}},
+      _sheetSkeletonManagerService: {currentSkeleton$: {subscribe(callback) {callback({});}}},
+      disposeWithMe() {}, _updateViewZoom(value) {applied = value;},
+    });
+    controller._initSkeletonListener();
+    assert.equal(config.zoomRatio, expected); assert.equal(applied, expected);
+  }
+
 });

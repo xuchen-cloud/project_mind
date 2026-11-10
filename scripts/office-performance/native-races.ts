@@ -27,7 +27,7 @@ export const nativeRaceGaps = {
   history: 'The current mount bridge omits versionNumber and its public open accepts samples only. History coverage needs a real retained pre-edit version, actual version-menu/prop selection, immutable File/version/hash plus read-only renderer evidence, then a stale native restore/save CAS rejection with unchanged current bytes/version. Fixture metadata or mocked permission replies cannot substitute.',
 } as const;
 
-const readCommands = ['project_file_resolve', 'project_file_read_bytes', 'file_versions_list', 'file_office_inspect', 'file_source_read'] as const;
+const readCommands = ['project_file_resolve', 'project_file_read_bytes', 'file_versions_list', 'file_office_inspect', 'file_source_read', 'file_working_open'] as const;
 export type NativeRaceReadCommand = typeof readCommands[number];
 type Action = 'switch' | 'close';
 export interface NativeReadObservation {

@@ -25,6 +25,8 @@ pub(crate) struct OfficeBaseline {
     scope: Arc<Scope>,
     input: FileBytesInput,
     bytes: usize,
+    view_owner: Option<String>,
+    view_active: Option<Arc<AtomicBool>>,
 }
 // Called under the authorized current-store lock, before any asynchronous work.
 pub(crate) fn baseline_context(
@@ -32,7 +34,15 @@ pub(crate) fn baseline_context(
     input: &FileBytesInput,
     bytes: usize,
 ) -> AgentResult<OfficeBaseline> {
-    if bytes == 0 || bytes > BASELINE_LIMIT {
+    baseline_context_bounded(binding, input, bytes, BASELINE_LIMIT)
+}
+fn baseline_context_bounded(
+    binding: &WorkspaceBinding,
+    input: &FileBytesInput,
+    bytes: usize,
+    limit: usize,
+) -> AgentResult<OfficeBaseline> {
+    if bytes == 0 || bytes > limit {
         return Err(failure(
             ErrorCode::BudgetExceeded,
             "Recalculation baseline exceeds 64 MiB",
@@ -71,7 +81,81 @@ pub(crate) fn baseline_context(
         scope,
         input: input.clone(),
         bytes,
+        view_owner: None,
+        view_active: None,
     })
+}
+struct ViewOwner {
+    binding: WorkspaceBinding,
+    owner: String,
+    active: Arc<AtomicBool>,
+}
+static VIEW_OWNERS: LazyLock<Mutex<VecDeque<ViewOwner>>> =
+    LazyLock::new(|| Mutex::new(VecDeque::new()));
+/// The owner is the native working-session ID (or immutable version identity).
+/// It is never accepted as authority without the File service reauthorizing it.
+pub(crate) fn view_baseline_context(
+    binding: &WorkspaceBinding,
+    input: &FileBytesInput,
+    bytes: usize,
+    owner: &str,
+) -> AgentResult<OfficeBaseline> {
+    let mut baseline = baseline_context_bounded(
+        binding,
+        input,
+        bytes,
+        crate::file_content::MAX_CONTENT as usize,
+    )?;
+    let mut owners = VIEW_OWNERS.lock().map_err(|_| busy())?;
+    let token = if let Some(entry) = owners
+        .iter()
+        .find(|entry| entry.binding == *binding && entry.owner == owner)
+    {
+        entry.active.clone()
+    } else {
+        while owners.len() >= 64 {
+            let index = owners
+                .iter()
+                .position(|entry| Arc::strong_count(&entry.active) == 1)
+                .ok_or_else(busy)?;
+            owners
+                .remove(index)
+                .unwrap()
+                .active
+                .store(false, Ordering::Release);
+        }
+        let active = Arc::new(AtomicBool::new(true));
+        owners.push_back(ViewOwner {
+            binding: binding.clone(),
+            owner: owner.to_owned(),
+            active: active.clone(),
+        });
+        active
+    };
+    baseline.view_owner = Some(owner.to_owned());
+    baseline.view_active = Some(token);
+    Ok(baseline)
+}
+pub(crate) fn close_view(binding: &WorkspaceBinding, owner: &str) {
+    if let Ok(mut owners) = VIEW_OWNERS.lock() {
+        owners.retain(|entry| {
+            let close = entry.binding == *binding && entry.owner == owner;
+            if close {
+                entry.active.store(false, Ordering::Release);
+            }
+            !close
+        });
+    }
+    if let Ok(mut entries) = LEASES.lock() {
+        entries.retain(|entry| {
+            let close = entry.baseline.scope.binding == *binding
+                && entry.baseline.view_owner.as_deref() == Some(owner);
+            if close {
+                entry.close();
+            }
+            !close
+        });
+    }
 }
 fn busy() -> AgentError {
     failure(
@@ -94,7 +178,7 @@ struct Lease {
 }
 impl Lease {
     fn is_active(&self) -> bool {
-        self.active.load(Ordering::Acquire) && self.baseline.scope.active.load(Ordering::Acquire)
+        self.active.load(Ordering::Acquire) && baseline_active(&self.baseline)
     }
     fn close(&self) {
         self.active.store(false, Ordering::Release);
@@ -110,6 +194,15 @@ impl Lease {
 static LEASES: LazyLock<Mutex<VecDeque<Arc<Lease>>>> =
     LazyLock::new(|| Mutex::new(VecDeque::new()));
 pub(crate) fn clear_baselines(binding: &WorkspaceBinding) {
+    if let Ok(mut owners) = VIEW_OWNERS.lock() {
+        owners.retain(|entry| {
+            let close = entry.binding == *binding;
+            if close {
+                entry.active.store(false, Ordering::Release);
+            }
+            !close
+        });
+    }
     if let Ok(mut scopes) = SCOPES.lock() {
         scopes.retain(|scope| {
             if scope.binding == *binding {
@@ -144,9 +237,16 @@ pub(super) fn evict_idle() {
         });
     }
 }
+fn baseline_active(baseline: &OfficeBaseline) -> bool {
+    baseline.scope.active.load(Ordering::Acquire)
+        && baseline
+            .view_active
+            .as_ref()
+            .is_none_or(|active| active.load(Ordering::Acquire))
+}
 fn lease(baseline: &OfficeBaseline) -> AgentResult<Arc<Lease>> {
     let mut entries = LEASES.lock().map_err(|_| busy())?;
-    if !baseline.scope.active.load(Ordering::Acquire) {
+    if !baseline_active(baseline) {
         return Err(closed());
     }
     entries.retain(|entry| {
@@ -161,6 +261,7 @@ fn lease(baseline: &OfficeBaseline) -> AgentResult<Arc<Lease>> {
     if let Some(index) = entries.iter().position(|entry| {
         entry.baseline.scope.binding == baseline.scope.binding
             && entry.baseline.input == baseline.input
+            && entry.baseline.view_owner == baseline.view_owner
     }) {
         let entry = entries.remove(index).unwrap();
         entries.push_back(entry.clone());
@@ -287,7 +388,11 @@ impl Session {
             .arg("--allow-child-process")
             .arg(format!("--import={NODE_GUARD}"))
             .arg(&worker.entry)
-            .arg("--recalc-baseline")
+            .arg(if lease.baseline.view_owner.is_some() {
+                "--view-baseline"
+            } else {
+                "--recalc-baseline"
+            })
             .current_dir(&temp)
             .env_clear()
             .env("PATH", "")
@@ -347,17 +452,16 @@ impl Session {
         &mut self,
         id: &str,
         source: Option<&str>,
-        input: &OfficeRecalculation,
+        method: &str,
+        payload: Value,
     ) -> AgentResult<Value> {
-        let mut data = json!({"format":"xlsx","recalculation":input});
+        let mut data = payload;
+        data["format"] = json!("xlsx");
         if let Some(source) = source {
             data["base64"] = json!(source);
         }
-        let mut frame =
-            serde_json::to_vec(&json!({"requestId":id,"method":"office.recalculate","data":data}))
-                .map_err(|_| {
-                    failure(ErrorCode::InvalidArgument, "Invalid Office baseline frame")
-                })?;
+        let mut frame = serde_json::to_vec(&json!({"requestId":id,"method":method,"data":data}))
+            .map_err(|_| failure(ErrorCode::InvalidArgument, "Invalid Office baseline frame"))?;
         if frame.len() > FRAME_LIMIT {
             return Err(failure(
                 ErrorCode::BudgetExceeded,
@@ -391,7 +495,7 @@ impl Session {
                 "Incomplete Office baseline response",
             ));
         }
-        decode_response(id, "office.recalculate", &result)
+        decode_response(id, method, &result)
     }
 }
 pub(super) async fn recalculate(
@@ -401,8 +505,57 @@ pub(super) async fn recalculate(
     source: &str,
     input: &OfficeRecalculation,
 ) -> AgentResult<Value> {
-    use base64::{engine::general_purpose::STANDARD, Engine};
     input.validate()?;
+    exchange(
+        worker,
+        baseline,
+        id,
+        source,
+        "office.recalculate",
+        json!({"recalculation":input}),
+    )
+    .await
+}
+pub(super) async fn view(
+    worker: &OfficeWorker,
+    baseline: &OfficeBaseline,
+    id: &str,
+    source: &str,
+    read: Option<&crate::office_view::OfficeViewRead>,
+) -> AgentResult<Value> {
+    if baseline.view_owner.is_none() {
+        return Err(failure(
+            ErrorCode::InvalidArgument,
+            "View requires a private owner",
+        ));
+    }
+    if let Some(read) = read {
+        read.validate()?;
+    }
+    exchange(
+        worker,
+        baseline,
+        id,
+        source,
+        if read.is_some() {
+            "office.view.read"
+        } else {
+            "office.view.open"
+        },
+        read.map(|read| json!({"read":read}))
+            .unwrap_or_else(|| json!({})),
+    )
+    .await
+}
+async fn exchange(
+    worker: &OfficeWorker,
+    baseline: &OfficeBaseline,
+    id: &str,
+    source: &str,
+    method: &str,
+    payload: Value,
+) -> AgentResult<Value> {
+    use base64::{engine::general_purpose::STANDARD, Engine};
     if id.is_empty() || id.len() > 128 {
         return Err(failure(
             ErrorCode::InvalidArgument,
@@ -416,12 +569,25 @@ pub(super) async fn recalculate(
     if !lease.is_active() {
         return Err(closed());
     }
-    let existing = state.take().filter(|session| session.entry == worker.entry);
+    let existing = state
+        .take()
+        .filter(|session| session.entry == worker.entry && method != "office.view.open");
     let fresh = existing.is_none();
     // Only initialization crosses the source-byte process boundary. Every
     // warm call still arrives after FileOfficeService read/hash and auth checks.
     if fresh {
-        if source.len() > BASELINE_LIMIT.div_ceil(3) * 4 {
+        if source.is_empty() && baseline.view_owner.is_some() {
+            return Err(failure(
+                ErrorCode::SourceNotReady,
+                "Office view baseline needs source bytes",
+            ));
+        }
+        let limit = if baseline.view_owner.is_some() {
+            crate::file_content::MAX_CONTENT as usize
+        } else {
+            BASELINE_LIMIT
+        };
+        if source.len() > limit.div_ceil(3) * 4 {
             return Err(failure(
                 ErrorCode::BudgetExceeded,
                 "Office baseline exceeds 64 MiB",
@@ -448,7 +614,7 @@ pub(super) async fn recalculate(
     };
     let result = tokio::time::timeout(
         worker.timeout,
-        session.exchange(id, if fresh { Some(source) } else { None }, input),
+        session.exchange(id, if fresh { Some(source) } else { None }, method, payload),
     )
     .await
     .map_err(|_| failure(ErrorCode::IoFailed, "Office baseline worker timed out"))?;
@@ -539,6 +705,64 @@ mod tests {
             .filter(|(workspace, _)| workspace == &baseline.scope.binding.workspace_id)
             .map(|(_, pid)| *pid)
             .collect()
+    }
+    #[tokio::test]
+    async fn office_view_reuses_private_reader_and_close_rejects_late_results() {
+        let _gate = TEST_GATE.lock().await;
+        let bytes = std::fs::read(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../packages/office-xlsx/tests/fixtures/simple.original.xlsx"),
+        )
+        .unwrap();
+        let (_temp, worker, baseline) = fixture(&bytes, None);
+        let baseline = view_baseline_context(
+            &baseline.scope.binding,
+            &baseline.input,
+            baseline.bytes,
+            "working-view-test",
+        )
+        .unwrap();
+        let source = base64::engine::general_purpose::STANDARD.encode(&bytes);
+        let opened = view(&worker, &baseline, "open-view", &source, None)
+            .await
+            .unwrap();
+        assert_eq!(opened["model"]["coverage"]["kind"], "partial");
+        let sheet = opened["model"]["activeSheetId"].as_str().unwrap();
+        let read = serde_json::from_value::<crate::office_view::OfficeViewRead>(
+            json!({"kind":"range","sheetId":sheet,
+            "range":{"startRow":0,"endRow":9,"startColumn":0,"endColumn":3}}),
+        )
+        .unwrap();
+        for number in 0..25 {
+            let result = view(
+                &worker,
+                &baseline,
+                &format!("range-{number}"),
+                "",
+                Some(&read),
+            )
+            .await
+            .unwrap();
+            assert!(result["result"]["cells"].is_array());
+        }
+        assert_eq!(
+            starts(&baseline).len(),
+            1,
+            "viewport reads reuse one native worker"
+        );
+        let held = lease(&baseline).unwrap();
+        close_view(&baseline.scope.binding, "working-view-test");
+        assert!(!held.is_active());
+        assert!(held.state.try_lock().unwrap().is_none());
+        assert!(
+            matches!(view(&worker,&baseline,"after-close","",Some(&read)).await,
+            Err(error) if error.code == ErrorCode::WorkspaceChanged)
+        );
+        clear_baselines(&baseline.scope.binding);
+        assert!(
+            matches!(view(&worker,&baseline,"late","",Some(&read)).await,
+            Err(error) if error.code == ErrorCode::WorkspaceChanged)
+        );
     }
     #[tokio::test]
     async fn office_baseline_50_distinct_edits_and_concurrent_requests_reuse_one_private_worker() {

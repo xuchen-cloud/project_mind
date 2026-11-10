@@ -19,7 +19,11 @@ test('real pinned renderer transforms retain Windows import specifiers through e
  for(const plugin of parityPlugins(windowsRoot,{browser:true}))plugin.setup({onLoad:(options,callback)=>hooks.push({...options,callback}),onResolve:()=>{}});
  const cases=[
   ['vendor/packages/pptx-engine/src/index.ts',['parity-context.ts']],
+  ['vendor/packages/pptx-engine/src/resource-cleanup.ts',[]],
+  ['vendor/apps/slides/src/renderer/zoom-actions.ts',['parity-images.ts']],
+  ['vendor/apps/slides/src/renderer/clipboard-actions.ts',['parity-images.ts']],
   ['vendor/apps/slides/src/renderer/file-actions.ts',['parity-text-edit.ts','parity-protocol.ts']],
+  ['vendor/apps/slides/src/renderer/zoom-steps.ts',[]],
   ['vendor/apps/slides/src/renderer/TextEditOverlay.tsx',['parity-text-edit.ts']],
   ['vendor/apps/slides/src/renderer/components/Ribbon.tsx',[]],
   ['vendor/apps/slides/src/renderer/App.tsx',['parity-output.ts','parity-presentation.ts','parity-text-edit.ts','../editor-chrome/StatusZoom.tsx']],
@@ -31,6 +35,14 @@ test('real pinned renderer transforms retain Windows import specifiers through e
   const windowsFilename=(portableRoot+'/'+relative).replaceAll('/',String.fromCharCode(92));
   assert.equal(hooks.find(candidate=>!candidate.namespace&&candidate.filter.test(windowsFilename)),hook,`Windows onLoad hook: ${relative}`);
   const transformed=await hook.callback({path:filename});
+  if(relative.endsWith('/zoom-steps.ts')){
+   assert.match(transformed.contents,/ZOOM_MIN = 0\.5[\s\S]*ZOOM_MAX = 1\.5/);
+   assert.match(transformed.contents,/ZOOM_PRESETS = \[0\.5, 0\.66, 0\.75, 1, 1\.5\]/);
+  }
+  if(relative.endsWith('/App.tsx')){
+   assert.match(transformed.contents,/setZoomState\(current => clampZoom\(/);
+   assert.match(transformed.contents,/\(s\?: RenderSlide\) => clampZoom\(rawFit\(s\)\)/);
+  }
   const resolved=[];
   await build({stdin:{contents:transformed.contents,loader:transformed.loader,resolveDir:root},bundle:true,write:false,format:'esm',platform:'browser',logLevel:'silent',plugins:[{name:'capture-imports',setup(b){b.onResolve({filter:/.*/},args=>{resolved.push(args.path);return {path:args.path,external:true};});}}]});
   for(const name of expected)assert.ok(resolved.includes(buildImportPath(portableRoot,name)),`${relative}: missing ${name}; got ${resolved.join(', ')}`);

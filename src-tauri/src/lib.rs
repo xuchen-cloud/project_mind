@@ -67,6 +67,7 @@ mod file_office_create;
 mod office_acceptance_fixture;
 mod office_selection;
 mod office_worker;
+mod office_view;
 mod office_process;
 mod file_office_commands;
 mod workspace_commit_fence;
@@ -1890,9 +1891,11 @@ pub fn run() {
             office_selection::office_selection_claim,
             office_selection::office_selection_reply,
             file_office_commands::file_office_inspect,
+            file_office_commands::file_office_view,
             file_office_commands::file_office_recalculate,
             file_office_commands::file_office_save,
             file_working_commands::file_working_open,
+            file_working_commands::file_working_read_view,
             file_working_commands::file_working_save_text,
             file_working_commands::file_working_save_office,
             file_working_commands::file_working_activity,

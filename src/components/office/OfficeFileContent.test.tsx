@@ -7,13 +7,13 @@ import {officeFileApi} from '../../services/officeFileApi';
 import {inspectImportedWorkbook} from '../../services/editorWorkbookImport';
 import {convertAltChunkHtml} from '../../../packages/office-html2docx/dist/index.mjs';
 import {desktopApi} from '../../services/desktopApi';
-import type {Model as XlsxModel,RecalculateRequest,RecalculateResult,ScreenSourcesResult,ScreenCaptureResult} from '../../../packages/office-xlsx/types';
-vi.mock('../../services/officeFileApi',()=>({officeFileApi:{inspect:vi.fn(),save:vi.fn(),recalculate:vi.fn()}}));
-vi.mock('../../services/fileWorkingApi',()=>({fileWorkingApi:{saveOffice:vi.fn(),recalculate:vi.fn(),activity:vi.fn()}}));
+import type {Model as XlsxModel,OfficeViewRead,RecalculateRequest,RecalculateResult,ScreenSourcesResult,ScreenCaptureResult} from '../../../packages/office-xlsx/types';
+vi.mock('../../services/officeFileApi',()=>({officeFileApi:{inspectView:vi.fn(),readView:vi.fn(),save:vi.fn(),recalculate:vi.fn()}}));
+vi.mock('../../services/fileWorkingApi',()=>({fileWorkingApi:{saveOffice:vi.fn(),recalculate:vi.fn(),readView:vi.fn(),activity:vi.fn()}}));
 vi.mock('../../services/editorWorkbookImport',()=>({inspectImportedWorkbook:vi.fn()}));
 vi.mock('../../../packages/office-html2docx/dist/index.mjs',()=>({convertAltChunkHtml:vi.fn()}));
 vi.mock('../../services/desktopApi',()=>({desktopApi:{listSystemFontFamilies:vi.fn(),editorFontMetrics:vi.fn(),editorCaptureSources:vi.fn(),editorCaptureSource:vi.fn(),fetchEditorRemoteImage:vi.fn()}}));
-const spreadsheet = vi.hoisted(()=>({model:undefined as XlsxModel|undefined,savedEditRevision:undefined as number|undefined,save:undefined as undefined|(()=>Promise<void>),recalculate:undefined as undefined|((input:RecalculateRequest)=>Promise<RecalculateResult>),importWorkbook:undefined as undefined|((bytes:Uint8Array)=>Promise<XlsxModel>),captureSources:undefined as undefined|(()=>Promise<ScreenSourcesResult>),captureSource:undefined as undefined|((input:{id:string})=>Promise<ScreenCaptureResult|null>)}));
+const spreadsheet = vi.hoisted(()=>({model:undefined as XlsxModel|undefined,readView:undefined as undefined|((read:OfficeViewRead)=>Promise<unknown>),savedEditRevision:undefined as number|undefined,save:undefined as undefined|(()=>Promise<void>),recalculate:undefined as undefined|((input:RecalculateRequest)=>Promise<RecalculateResult>),importWorkbook:undefined as undefined|((bytes:Uint8Array)=>Promise<XlsxModel>),captureSources:undefined as undefined|(()=>Promise<ScreenSourcesResult>),captureSource:undefined as undefined|((input:{id:string})=>Promise<ScreenCaptureResult|null>)}));
 const preview = vi.hoisted(()=>({capture:vi.fn(()=>({zoom:135,scroll:[{top:640,left:12}]})),restored:vi.fn()}));
 const wordFlush = vi.hoisted(()=>({output:vi.fn(async(_command:string)=>{}),fetchImage:undefined as undefined|((url:string)=>Promise<{mime:'image/png'|'image/jpeg'|'image/gif';base64:string}>),wait:undefined as undefined|(()=>Promise<void>),convert:undefined as undefined|((html:string)=>Promise<Uint8Array|null>)}));
 vi.mock('./DocxEditor',async()=>{
@@ -52,10 +52,10 @@ vi.mock('./PptxEditor',async()=>{
 });
 vi.mock('./XlsxEditor',async()=>{
   const {useEffect,useRef}=await import('react');
-  return{XlsxEditor:(props:{registerPreview?:(access:{capture:()=>unknown})=>()=>void;model:XlsxModel;readOnly:boolean;savedEditRevision?:number;onSaveRequest?:()=>Promise<void>;registerBeforeSave:(flush:()=>Promise<void>)=>()=>void;onPendingChange:(pending:boolean)=>void;onChange:(edits:unknown[],snapshot?:{editRevision:number})=>void;onRecalculate?:(input:RecalculateRequest)=>Promise<RecalculateResult>;onInspectImportedWorkbook?:(bytes:Uint8Array)=>Promise<XlsxModel>;onCaptureScreenSources?:()=>Promise<ScreenSourcesResult>;onCaptureScreenSource?:(input:{id:string})=>Promise<ScreenCaptureResult|null>})=>{
+  return{XlsxEditor:(props:{registerPreview?:(access:{capture:()=>unknown})=>()=>void;model:XlsxModel;readOnly:boolean;savedEditRevision?:number;onSaveRequest?:()=>Promise<void>;registerBeforeSave:(flush:()=>Promise<void>)=>()=>void;onPendingChange:(pending:boolean)=>void;onChange:(edits:unknown[],snapshot?:{editRevision:number})=>void;onReadView?:(read:OfficeViewRead)=>Promise<unknown>;onRecalculate?:(input:RecalculateRequest)=>Promise<RecalculateResult>;onInspectImportedWorkbook?:(bytes:Uint8Array)=>Promise<XlsxModel>;onCaptureScreenSources?:()=>Promise<ScreenSourcesResult>;onCaptureScreenSource?:(input:{id:string})=>Promise<ScreenCaptureResult|null>})=>{
     useEffect(()=>props.registerPreview?.({capture:preview.capture}),[props.registerPreview]);
     spreadsheet.save=props.onSaveRequest;spreadsheet.model=props.model;spreadsheet.savedEditRevision=props.savedEditRevision;
-    spreadsheet.recalculate=props.onRecalculate;
+    spreadsheet.recalculate=props.onRecalculate;spreadsheet.readView=props.onReadView;
     spreadsheet.importWorkbook=props.onInspectImportedWorkbook;
     spreadsheet.captureSources=props.onCaptureScreenSources;spreadsheet.captureSource=props.onCaptureScreenSource;
     const text=useRef<string|null>(null),revision=useRef(0);const latest=useRef(props);latest.current=props;
@@ -154,7 +154,7 @@ const binding={workspaceId:'workspace',generation:'generation'};
 const baseline={object:{workspaceId:'workspace',scope:{kind:'project' as const,projectId:7},kind:'file' as const,id:'42'},versionNumber:2,expectedContentHash:'sha256:old'};
 const model={format:'docx',nodes:[{id:'p0',text:'原文'}]};
 let inspectedModel:unknown=model;
-function setInspection(result:{model:unknown}){inspectedModel=result.model;vi.mocked(officeFileApi.inspect).mockResolvedValue(result as never);}
+function setInspection(result:{model:unknown}){inspectedModel=result.model;vi.mocked(officeFileApi.inspectView).mockResolvedValue(result as never);}
 const workingStatus={object:baseline.object,revision:2,contentHash:'sha256:old',archivedVersionNumber:2,pendingArchive:false,lastActivityAtMs:null,archiveDueAtMs:null};
 function savedStatus(hash='sha256:new'):FileWorkingSaved{return {...workingStatus,revision:3,contentHash:hash,pendingArchive:true,noChange:false};}
 function working():FileWorkingOpen{return {...workingStatus,sessionId:'working-session',name:'document',base64:'',format:(inspectedModel as {format:string}).format,model:inspectedModel as FileWorkingOpen['model']};}
@@ -171,7 +171,7 @@ async function mount(readOnly=false, preview=false){
 it('loads the working model and advances native revision while retaining the original editor baseline',async()=>{
   vi.mocked(fileWorkingApi.saveOffice).mockResolvedValue(savedStatus('sha256:new') as never);
   const view=await mount();await screen.findByText('原文');
-  expect(officeFileApi.inspect).not.toHaveBeenCalled();
+  expect(officeFileApi.inspectView).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button',{name:'修改正文'}));
   expect(screen.getByText('已修改')).toBeVisible();
   fireEvent.keyDown(screen.getByText('已修改'),{key:'s',metaKey:true});
@@ -396,7 +396,7 @@ it('keeps the clean preview alive when hidden and avoids re-inspecting on re-vis
  expect(preview.capture).toHaveBeenCalledOnce();
  expect(fileWorkingApi.saveOffice).not.toHaveBeenCalled();
   view.setVisible(true);expect(screen.getByText('原文')).toBeInTheDocument();
- expect(officeFileApi.inspect).not.toHaveBeenCalled();
+ expect(officeFileApi.inspectView).not.toHaveBeenCalled();
  view.cleanup();
 });
 it('pins hidden editing, pending input and failed CAS while keeping the close guard live',async()=>{
@@ -434,7 +434,7 @@ it('repeated clean-preview switches keep the editor alive and avoid re-inspectin
    view.setVisible(false);expect(screen.getByText('原文')).toBeInTheDocument();
     view.setVisible(true);expect(screen.getByText('原文')).toBeInTheDocument();
  }
- expect(preview.capture).toHaveBeenCalledTimes(10);expect(officeFileApi.inspect).not.toHaveBeenCalled();expect(fileWorkingApi.saveOffice).not.toHaveBeenCalled();view.cleanup();
+ expect(preview.capture).toHaveBeenCalledTimes(10);expect(officeFileApi.inspectView).not.toHaveBeenCalled();expect(fileWorkingApi.saveOffice).not.toHaveBeenCalled();view.cleanup();
 });
 
 it.each(['xlsx','pptx'] as const)('keeps a clean hidden %s preview mounted as well as Word',async format=>{
@@ -451,7 +451,7 @@ it('does not restore an old workspace generation view after a hidden switch',asy
  const next={...binding,generation:'new-generation'};
  const content=(visible:boolean)=><div hidden={!visible}><OfficeFileContent visible={visible} toolbar={view.toolbar} binding={next} baseline={baseline} working={working()} readOnly={false} registerFlush={()=>()=>{}} onDirtyChange={view.dirty} onSaved={view.saved}/></div>;
  view.rerender(content(false));view.rerender(content(true));await screen.findByText('原文');
- expect(officeFileApi.inspect).not.toHaveBeenCalled();expect(preview.restored).not.toHaveBeenCalled();view.cleanup();
+ expect(officeFileApi.inspectView).not.toHaveBeenCalled();expect(preview.restored).not.toHaveBeenCalled();view.cleanup();
 });
 
 it('accepts committed Excel input while saving and confirms only the captured revision',async()=>{
@@ -487,4 +487,16 @@ it('autosaves a settled journal without calling the active-input commit hook',as
  const view=await mount();await screen.findByText('原文');wordFlush.wait=vi.fn(async()=>{});vi.useFakeTimers();
  vi.mocked(fileWorkingApi.saveOffice).mockResolvedValue(savedStatus());
  try{fireEvent.click(screen.getByRole('button',{name:'修改正文'}));await act(()=>vi.advanceTimersByTimeAsync(1200));expect(fileWorkingApi.saveOffice).toHaveBeenCalledOnce();expect(wordFlush.wait).not.toHaveBeenCalled();view.cleanup();}finally{vi.useRealTimers();}
+});
+
+it('reads XLSX ranges from the fixed working session and rejects results after unmount',async()=>{
+ setInspection({model:{format:'xlsx'}} as never);
+ const view=await mount();await screen.findByRole('textbox',{name:'正在编辑的单元格'});
+ const read:OfficeViewRead={kind:'range',sheetId:'sheet-1',range:{startRow:0,endRow:9,startColumn:0,endColumn:3}};
+ let finish!:(value:unknown)=>void;
+ vi.mocked(fileWorkingApi.readView).mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));
+ const pending=spreadsheet.readView!(read);const rejected=expect(pending).rejects.toThrow('Excel 文件已关闭或切换');
+ expect(fileWorkingApi.readView).toHaveBeenCalledWith(binding,{object:baseline.object,sessionId:'working-session',read});
+ expect(fileWorkingApi.saveOffice).not.toHaveBeenCalled();
+ view.cleanup();finish({cells:[]});await rejected;
 });

@@ -100,7 +100,6 @@ pub(crate) async fn open<
     request: &RequestContext,
     input: &WorkingObject,
 ) -> AgentResult<WorkingOpened> {
-    use crate::office_worker::OfficePayload;
     let mut opened = with_db(store, request, |db| {
         db.file_working_begin_session(request, &request.binding, &input.object)
     })?;
@@ -117,21 +116,47 @@ pub(crate) async fn open<
         let _admission = match crate::office_worker::admit_source().await {
             Ok(admission) => admission,
             Err(error) => {
+                crate::office_worker::close_view(&request.binding, &opened.session_id);
                 let _ = with_db(store, request, |db| {
                     db.file_working_close(request, &request.binding, &session)
                 });
                 return Err(error);
             }
         };
-        let result = worker
-            .request(
-                &request.request_id,
-                "office.inspect",
-                &extension,
-                &opened.base64,
-                OfficePayload::Inspect,
+        let context = with_db(store, request, |db| {
+            let (name, hash, length) =
+                db.file_working_view_metadata(request, &request.binding, &session)?;
+            if name != opened.name || hash != opened.status.content_hash {
+                return Err(error(
+                    ErrorCode::SourceChanged,
+                    "Office initial baseline changed",
+                ));
+            }
+            crate::office_worker::view_baseline_context(
+                &request.binding,
+                &crate::db::project_directory_files::FileBytesInput {
+                    object: input.object.clone(),
+                    version_number: 0,
+                    expected_content_hash: hash,
+                },
+                length,
+                &opened.session_id,
             )
-            .await;
+        });
+        let result = match context {
+            Ok(context) => {
+                worker
+                    .view(
+                        &context,
+                        &request.request_id,
+                        &extension,
+                        &opened.base64,
+                        None,
+                    )
+                    .await
+            }
+            Err(error) => Err(error),
+        };
         let check = with_db(store, request, |db| {
             db.file_working_verify_open(
                 request,
@@ -156,6 +181,7 @@ pub(crate) async fn open<
                 opened.base64.clear();
             }
             Err(error) => {
+                crate::office_worker::close_view(&request.binding, &opened.session_id);
                 let _ = with_db(store, request, |db| {
                     db.file_working_close(request, &request.binding, &session)
                 });
@@ -164,6 +190,100 @@ pub(crate) async fn open<
         }
     }
     Ok(opened)
+}
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct WorkingReadView {
+    pub object: ObjectRef,
+    pub session_id: String,
+    pub read: crate::office_view::OfficeViewRead,
+}
+pub(crate) async fn read_view<
+    S: BoundSourceStore + BoundFileCommitStore,
+    W: crate::office_worker::OfficeUtility,
+>(
+    store: &S,
+    worker: &W,
+    request: &RequestContext,
+    input: &WorkingReadView,
+) -> AgentResult<Value> {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    input.read.validate()?;
+    let _admission = crate::office_worker::admit_source().await?;
+    let session = WorkingSession {
+        object: input.object.clone(),
+        session_id: input.session_id.clone(),
+    };
+    let (metadata, context) = with_db(store, request, |db| {
+        let metadata = db.file_working_view_metadata(request, &request.binding, &session)?;
+        if !std::path::Path::new(&metadata.0)
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("xlsx"))
+        {
+            return Err(error(
+                ErrorCode::InvalidArgument,
+                "Range reads require XLSX",
+            ));
+        }
+        let context = crate::office_worker::view_baseline_context(
+            &request.binding,
+            &crate::db::project_directory_files::FileBytesInput {
+                object: input.object.clone(),
+                version_number: 0,
+                expected_content_hash: metadata.1.clone(),
+            },
+            metadata.2,
+            &input.session_id,
+        )?;
+        Ok((metadata, context))
+    })?;
+    let mut result = worker
+        .view(&context, &request.request_id, "xlsx", "", Some(&input.read))
+        .await;
+    if result.as_ref().is_err_and(|error| {
+        error.code == ErrorCode::SourceNotReady
+            && error.message == "Office view baseline needs source bytes"
+    }) {
+        let (_, bytes) = with_db(store, request, |db| {
+            db.file_working_session_base(request, &request.binding, &session)
+        })?;
+        result = worker
+            .view(
+                &context,
+                &request.request_id,
+                "xlsx",
+                &STANDARD.encode(bytes),
+                Some(&input.read),
+            )
+            .await;
+    }
+    let after = with_db(store, request, |db| {
+        db.file_working_view_metadata(request, &request.binding, &session)
+    })?;
+    if after != metadata {
+        return Err(error(
+            ErrorCode::SourceChanged,
+            "Office view baseline changed during read",
+        ));
+    }
+    result?.get("result").cloned().ok_or_else(|| {
+        error(
+            ErrorCode::RuntimeIncompatible,
+            "Office range result is missing",
+        )
+    })
+}
+
+pub(crate) fn close<S: BoundSourceStore + BoundFileCommitStore>(
+    store: &S,
+    request: &RequestContext,
+    input: &WorkingSession,
+) -> AgentResult<()> {
+    with_db(store, request, |db| {
+        db.file_working_close(request, &request.binding, input)?;
+        crate::office_worker::close_view(&request.binding, &input.session_id);
+        Ok(())
+    })
 }
 pub(crate) fn save_text<S: BoundSourceStore + BoundFileCommitStore>(
     store: &S,

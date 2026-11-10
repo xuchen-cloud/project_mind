@@ -13,6 +13,11 @@ export type ContentEdit = { sheetId: string; row: number; column: number } & (
 export type Edit = ContentEdit | { kind: 'gateway'; changes: GatewayChanges; snapshot?: Record<string, unknown> }
 export interface Context { binaryPath?: string; tempRoot?: string }
 export type Scalar = string | number | boolean | null
+export type OfficeViewRead =
+  | { kind: 'range'; sheetId: string; range: Area }
+  | { kind: 'formulas' | 'outline'; sheetId: string }
+  | { kind: 'media'; visualId: string }
+  | { kind: 'pivot'; path: string }
 export interface Area { startRow: number; endRow: number; startColumn: number; endColumn: number }
 export interface Border { style: string; color?: string }
 export interface Style {
@@ -40,11 +45,14 @@ export interface Sheet {
 export interface Range {
   /** Bounds actually loaded. Absence beyond these bounds never means blank. */
   area: Area; cells: Cell[]; rows: Row[]; merges: Area[]
+  rangeReady?: boolean; metadataReady?: boolean
   indexingComplete: boolean; conditionalRules: unknown[]; dataValidations: unknown[]
   sheetProtection: { protected: boolean; hasPassword: boolean; allow: Record<string, boolean>; [property: string]: unknown } | null
   [property: string]: unknown
 }
 export interface Model {
+  /** The ranges are a view cache, never a complete save source. */
+  coverage?: { kind: 'partial'; sourceHash: string }
   format: 'xlsx'; name: string; activeSheetId: string
   styles: Style[]; dxfStyles?: Style[]; sheets: Sheet[]; ranges: Record<string, Range>
   visuals: unknown[]; definedNames: { name: string; formula: string; sheetIndex?: number }[]
@@ -85,6 +93,7 @@ export interface EditorProps {
   onExport?: (file: ExportFile) => Promise<boolean>
   onPrint?: (document: PrintDocument) => Promise<void>
   onRenderPdf?: (document: PrintDocument) => Promise<Uint8Array>
+  onReadView?: (request: OfficeViewRead) => Promise<unknown>
   onRecalculate?: (request: RecalculateRequest) => Promise<RecalculateResult>
   /** Inspect only user-selected XLSX bytes; never creates or writes a File. */
   onInspectImportedWorkbook?: (bytes: Uint8Array) => Promise<Model>

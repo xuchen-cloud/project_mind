@@ -20,7 +20,16 @@ export const disposedAutoHeightPatch={
       return {contents:text.replace(needle,'const updateNote = ((newNote) => {'),loader:'js'}
     })
     build.onLoad({filter:/@univerjs[\\/]sheets-ui[\\/]lib[\\/]es[\\/]index\.js$/},async({path})=>{
-      const text=await readFile(path,'utf8')
+      let text=await readFile(path,'utf8')
+      // A restored draft can create a workbook directly from a Univer snapshot.
+      // Normalize its active view before scaling the scene, including sheet switches.
+      for(const [from,to] of [
+        ['const SHEET_ZOOM_RANGE = [10, 400];','const SHEET_ZOOM_RANGE = [50, 150];'],
+        ['const zoomRatio = worksheet.getZoomRatio() || 1;', 'const zoomRatio = Math.min(SHEET_ZOOM_RANGE[1] / 100, Math.max(SHEET_ZOOM_RANGE[0] / 100, worksheet.getZoomRatio() || 1));\n\t\t\tworksheet.getConfig().zoomRatio = zoomRatio;'],
+      ]){
+        if(text.split(from).length!==2)throw Error('Pinned Univer zoom point changed: '+from);
+        text=text.replace(from,to);
+      }
       const needle='getUndoRedoParamsOfAutoHeight(ranges, subUnitIdParam, currentCellHeights) {\n\t\tconst { _univerInstanceService: univerInstanceService } = this;\n\t\tconst workbook = univerInstanceService.getCurrentUnitOfType(UniverInstanceType.UNIVER_SHEET);'
       if(text.split(needle).length!==2)throw new Error('Pinned Univer auto-height patch no longer matches')
       return {contents:adaptPlainTextPaste(text.replace(needle,needle+'\n\t\tif (!workbook) return { redos: [], undos: [] };')),loader:'js'}

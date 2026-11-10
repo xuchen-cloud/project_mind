@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join, dirname, posix } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
+import {assertZipInflatesWithinLimits} from './vendor/packages/zip-gate/src/index'
 import JSZip from 'jszip'
 import { createHash } from 'node:crypto'
 import { workbookFileSchema, workbookMediaResultSchema, workbookFormulaCellsResultSchema, workbookRowOutlineResultSchema, workbookPivotDefinitionSchema,workbookRecalcRequestSchema,workbookRecalcResultSchema } from './generated/desktop-api'
@@ -12,13 +13,13 @@ import { gatewayChangesSchema, saveRequest } from './gateway-contract'
 import { writeWorkbookTo } from './generated/save-workbook'
 import { saveWorkbookViaSidecar } from './vendor/packages/xlsx-gateway/src/gateway/xlsx-package-io'
 import type { CellEdit, SheetFormulaValues } from './vendor/packages/xlsx-gateway/src/gateway/xlsx-gateway'
-import type { Area, Context, Edit, Model, Range, Sheet, Style, RecalculateRequest, RecalculateResult, FormulaWarning } from './types'
+import type { Area, Context, Edit, Model, Range, Sheet, Style, RecalculateRequest, RecalculateResult, FormulaWarning, OfficeViewRead } from './types'
 import { blankXlsxBuffer } from './vendor/packages/xlsx-gateway/src/gateway/csv-import'
 import { parseCreateContent } from './authoring'
 import { parseRelationships, parseSheetElements } from './vendor/packages/xlsx-gateway/src/gateway/xlsx-sheets'
 import { parseAddress } from './vendor/packages/xlsx-gateway/src/domain/cell-address'
 
-export type { Model, Edit, Context,RecalculateRequest,RecalculateResult } from './types'
+export type { Model, Edit, Context, OfficeViewRead,RecalculateRequest,RecalculateResult } from './types'
 export { createSchema, createJsonSchema, gatewayChangesJsonSchema, authoringContract } from './authoring'
 export { gatewayChangesSchema } from './gateway-contract'
 export type { CreateContent } from './authoring'
@@ -67,6 +68,7 @@ const metadataSchema = z.object({ sessionId: nativeText.min(1), name: nativeText
 const rangeSchema = z.object({ cells: z.array(cellSchema), rows: z.array(z.object({ row, height: z.number().finite().optional(), hidden: z.boolean(),
   styleIndex: z.number().int().nonnegative().optional() }).passthrough()),
   merges: z.array(z.object({ startRow: row, endRow: row, startColumn: column, endColumn: column }).passthrough()),
+  metadataReady: z.boolean().optional(), indexedThroughRow: z.number().int().nonnegative().nullable().optional(),
   indexingComplete: z.boolean(), conditionalRules: z.array(z.unknown()), dataValidations: z.array(z.unknown()),
   sheetProtection: z.object({ protected: z.boolean(), hasPassword: z.boolean(), allow: z.record(z.string(), z.boolean()) }).passthrough().nullable() }).passthrough()
 const formulasSchema = z.object({ cells: z.array(cellSchema), sharedGroups: z.array(z.unknown()), indexingComplete: z.boolean(), truncated: z.boolean() }).strict()
@@ -118,18 +120,24 @@ export async function create(content: unknown, context?: Context): Promise<Uint8
   return candidate
 }
 type Metadata = Pick<Model, 'name' | 'styles' | 'sheets' | 'visuals' | 'definedNames'> & { dxfStyles?: Style[]; sessionId: string; activeTab: number; date1904?: boolean }
-async function openWorkbook(bytes: Uint8Array, context?: Context) {
+async function openWorkbook(bytes: Uint8Array, context?: Context, view = false) {
   if (!(bytes instanceof Uint8Array) || bytes.length > LIMIT_BYTES || bytes.length < 4 || bytes[0] !== 0x50 || bytes[1] !== 0x4b) {
     throw new Error('Expected XLSX ZIP bytes, at most 64 MiB')
   }
   const ctx = contextSchema.parse(context ?? {})
+  if (view) await assertZipInflatesWithinLimits(bytes)
   const dir = await mkdtemp(join(ctx.tempRoot ?? tmpdir(), 'office-xlsx-'))
   const client = new Sidecar(ctx.binaryPath ?? fileURLToPath(new URL(process.platform === 'win32' ? './xlsx-sidecar.exe' : './xlsx-sidecar', import.meta.url)))
-  const close = async () => { try { await client.stop() } finally { await rm(dir, { recursive: true, force: true }) } }
+  let sessionId: string | undefined
+  const close = async () => {
+    try { if (sessionId) await client.close(sessionId) }
+    finally { try { await client.stop() } finally { await rm(dir, { recursive: true, force: true }) } }
+  }
   try {
     const path = join(dir, 'source.xlsx')
     await writeFile(path, bytes, { flag: 'wx' })
-    const metadata = metadataSchema.parse(await client.open(path)) as Metadata
+    const metadata = metadataSchema.parse(await (view ? client.openView(path) : client.open(path))) as Metadata
+    sessionId = metadata.sessionId
     return { client, path, dir, metadata, close }
   } catch (error) { await close(); throw error }
 }
@@ -139,7 +147,7 @@ async function withWorkbook<T>(bytes: Uint8Array, context: Context | undefined,
   try { return await run(workbook.client, workbook.path, workbook.dir, workbook.metadata) }
   finally { await workbook.close() }
 }
-async function loadedRange(client: Sidecar, metadata: Metadata, sheetId: string, area: Area): Promise<Range> {
+async function loadedRange(client: Sidecar, metadata: Metadata, sheetId: string, area: Area, partial = false): Promise<Range> {
   const sheet = metadata.sheets.find((s) => s.id === sheetId)!
   // Native reads intersect the actual used rectangle. Outside it, cells are
   // known empty; expose the requested bounded grid without widening native I/O.
@@ -149,7 +157,7 @@ async function loadedRange(client: Sidecar, metadata: Metadata, sheetId: string,
   let retryDelay = 25
   while (true) {
     const result = rangeSchema.parse(await client.readRange({ sessionId: metadata.sessionId, sheetId, range: nativeArea }))
-    if (result.indexingComplete) return { ...result, area,
+    if (result.indexingComplete || (partial && result.metadataReady === true && result.indexedThroughRow != null && result.indexedThroughRow >= nativeArea.endRow)) return { ...result, area, rangeReady: true,
       cells: result.cells.filter((c) => c.row >= area.startRow && c.row <= area.endRow && c.column >= area.startColumn && c.column <= area.endColumn),
       rows: result.rows.filter((r) => r.row >= area.startRow && r.row <= area.endRow) } as Range
     if (Date.now() >= deadline) throw new Error(`XLSX indexing incomplete: ${sheetId}`)
@@ -158,6 +166,66 @@ async function loadedRange(client: Sidecar, metadata: Metadata, sheetId: string,
     await new Promise((resolve) => setTimeout(resolve, Math.min(retryDelay, deadline - Date.now())))
     retryDelay = Math.min(retryDelay * 2, 250)
   }
+}
+/** GUI owner: one immutable package, sidecar and native row index for the entire view lease. */
+export async function createViewSession(bytes: Uint8Array, context?: Context) {
+  if (!(bytes instanceof Uint8Array) || bytes.length > LIMIT_BYTES) throw Error('Expected XLSX ZIP bytes, at most 64 MiB')
+  // Copy synchronously before the first await; callers cannot replace this baseline in flight.
+  const source = new Uint8Array(bytes)
+  const sourceHash = createHash('sha256').update(source).digest('hex')
+  const workbook = await openWorkbook(source, context, true)
+  const { client, metadata } = workbook
+  let closed = false
+  const sheet = (id: string) => {
+    if (!metadata.sheets.some(sheet => sheet.id === id)) throw Error('Unknown sheet')
+    return id
+  }
+  const read = async (input: OfficeViewRead): Promise<unknown> => {
+    if (closed) throw Error('Workbook view is closed')
+    const request = viewReadSchema.parse(input)
+    switch (request.kind) {
+      case 'range': return loadedRange(client, metadata, sheet(request.sheetId), request.range, true)
+      case 'formulas': return workbookFormulaCellsResultSchema.parse(await client.request({ command: 'read_formula_cells', sessionId: metadata.sessionId, sheetId: sheet(request.sheetId) }))
+      case 'outline': return workbookRowOutlineResultSchema.parse(await client.request({ command: 'read_row_outline', sessionId: metadata.sessionId, sheetId: sheet(request.sheetId) }))
+      case 'media': return workbookMediaResultSchema.parse(await client.request({ command: 'read_media', sessionId: metadata.sessionId, visualId: request.visualId }))
+      case 'pivot': {
+        // Only declared pivot parts are addressable; no renderer-supplied ZIP paths.
+        if (!metadata.sheets.some(sheet => (sheet.pivotTables as {path: string}[]).some(pivot => pivot.path === request.path))) throw Error('Unknown pivot definition')
+        const zip = await JSZip.loadAsync(source)
+        const entry = zip.file(request.path)
+        if (!entry) throw Error('Missing pivot definition')
+        const pivot = (metadata.sheets.flatMap(sheet => sheet.pivotTables as {path: string; cachePath?: string}[])).find(pivot => pivot.path === request.path)!
+        const cache = pivot.cachePath && zip.file(pivot.cachePath)
+        if (!cache) throw Error('Missing source pivot cache')
+        return workbookPivotDefinitionSchema.parse(parsePivotDefinition(await entry.async('string'), await cache.async('string')))
+      }
+    }
+  }
+  try {
+    if (metadata.sheets.reduce((total, sheet) => total + sheet.rowCount * sheet.columnCount, 0) > MAX_RECALC_CELLS)
+      throw Error('Workbook used area exceeds the 2000000-cell editor budget')
+    const file = workbookFileSchema.parse({ ...metadata, sessionId: snapshotIdentity(sourceHash), sha256: sourceHash, fileBytes: source.length, readOnly: false })
+    delete file.path
+    const active = metadata.sheets[metadata.activeTab] ?? metadata.sheets[0]
+    const ranges: Record<string, Range> = {}
+    if (active) ranges[active.id] = await read({kind: 'range', sheetId: active.id, range: {startRow: 0, endRow: 99, startColumn: 0, endColumn: 25}}) as Range
+    const model: Model = {format: 'xlsx', name: metadata.name, activeSheetId: active?.id ?? '',
+      styles: metadata.styles, dxfStyles: metadata.dxfStyles, sheets: metadata.sheets, ranges,
+      visuals: metadata.visuals, definedNames: metadata.definedNames, date1904: metadata.date1904 ?? false,
+      coverage: {kind: 'partial', sourceHash}, rendererData: {file, formulas: {}, outlines: {}, media: {}, pivots: {}}}
+    return {model, read, async close() { if (!closed) { closed = true; await workbook.close() } }}
+  } catch (error) { closed = true; await workbook.close(); throw error }
+}
+const viewReadSchema = z.discriminatedUnion('kind', [
+  z.object({kind: z.literal('range'), sheetId: z.string().min(1), range: areaSchema}).strict(),
+  z.object({kind: z.literal('formulas'), sheetId: z.string().min(1)}).strict(),
+  z.object({kind: z.literal('outline'), sheetId: z.string().min(1)}).strict(),
+  z.object({kind: z.literal('media'), visualId: z.string().min(1)}).strict(),
+  z.object({kind: z.literal('pivot'), path: z.string().min(1)}).strict(),
+])
+export async function inspectView(bytes: Uint8Array, context?: Context): Promise<Model> {
+  const session = await createViewSession(bytes, context)
+  try { return session.model } finally { await session.close() }
 }
 /** Preload the used workbook in bounded native reads, matching upstream's
  * two-million-cell formula budget. The canvas also exposes blank working space. */

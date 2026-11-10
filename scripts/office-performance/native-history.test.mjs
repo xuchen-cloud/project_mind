@@ -1,5 +1,5 @@
-// Pure evidence guards only: no native command, DOM, renderer or permission is
-// mocked; these tests do not execute or report a native acceptance scenario.
+// Evidence guards and a menu/service boundary fixture. These tests do not
+// execute or report a native acceptance scenario.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
@@ -15,6 +15,52 @@ const witness = (historical = true) => ({ source: source(historical ? original :
   text: historical ? '原始内容' : '原始内容 UNIQUE_EDIT', contentWitness: '原始内容', editMarker: 'UNIQUE_EDIT',
   historical, status: historical ? '历史版本 · 只读' : '已保存', saveEnabled: false });
 const bytes = { ...latest, byteLength: 3, base64: 'YWJj' };
+
+test('actual history orchestration returns through the current-content menu entry', async () => {
+  let selected = latest, expanded = false, clock = 0;
+  const selections = [], trigger = {
+    getAttribute: name => name === 'aria-controls' ? 'fixture-menu' : String(expanded),
+    click: () => {expanded = true;},
+  };
+  const rows = [['v1', original], ['v2', latest], ['当前内容', latest]].map(([label, file]) => ({
+    disabled: false, getAttribute: () => label,
+    click: () => {selections.push(label); selected = file; expanded = false;},
+  }));
+  class AgentApiError extends Error { code = 'REVISION_CONFLICT'; }
+  const root = {
+    querySelector: selector => selector.startsWith('button') ? trigger : {textContent: selected === original ? '历史版本 · 只读' : '已保存'},
+    querySelectorAll: () => [],
+    ownerDocument: {getElementById: id => id === 'fixture-menu' ? {querySelectorAll: () => rows} : null},
+  };
+  const services = {
+    '../../src/services/projectFileApi': {projectFileApi: {
+      resolve: async () => latest,
+      readBytes: async (_binding, input) => ({...bytes, ...input, contentHash: input.expectedContentHash}),
+    }},
+    '../../src/services/fileDocumentApi': {fileDocumentApi: {
+      versionsList: async () => ({object, currentVersionNumber: 2, currentContentHash: latest.contentHash,
+        versions: [{...original, id: 'v1', isCurrent: false}, {...latest, id: 'v2', isCurrent: true}]}),
+      restore: async () => {throw new AgentApiError('stale fixture');},
+    }},
+    '../../src/services/agentApi': {AgentApiError},
+  };
+  const code = ts.transpileModule(readFileSync(new URL('./native-history.ts', import.meta.url), 'utf8'), {
+    compilerOptions: {target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS},
+    transformers: {before: [context => {
+      const visit = node => ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword
+        ? ts.factory.createCallExpression(ts.factory.createIdentifier('importModule'), undefined, node.arguments)
+        : ts.visitEachChild(node, visit, context);
+      return node => ts.visitNode(node, visit);
+    }]},
+  }).outputText;
+  const context = vm.createContext({exports: {}, crypto, performance: {now: () => clock += 10000},
+    setTimeout: callback => callback(), importModule: async name => services[name]});
+  vm.runInContext(code, context);
+  const result = await context.exports.runNativeHistoryAcceptance({root, file: latest, binding: {workspaceId: 'w'},
+    source: () => source(selected), ready: async () => ({}), renderedText: async () => selected === original ? '原始内容' : '原始内容 UNIQUE_EDIT'},
+  {isolatedFixture: true, original, editMarker: 'UNIQUE_EDIT', contentWitness: '原始内容'});
+  assert.deepEqual(selections, ['v1', '当前内容']); assert.equal(result.status, 'passed');
+});
 
 test('actual XLSX history text adapter keeps multiline scalar values contiguous without JSON escapes', async () => {
   const ast = ts.createSourceFile('native-page.tsx', readFileSync(new URL('./native-page.tsx', import.meta.url), 'utf8'),

@@ -11,6 +11,7 @@ export { DocxError } from './types';
 export { create } from './create';
 export { catalog } from './authoring';
 import { editOperations, summary } from './authoring';
+import {openProgressive} from './progressive';
 
 async function open(bytes: Uint8Array) {
   if (!(bytes instanceof Uint8Array)) throw new DocxError('INVALID_EDIT', 'DOCX must be Uint8Array');
@@ -39,6 +40,24 @@ export async function inspect(bytes: Uint8Array, _context?: Context): Promise<Do
       margins: { top: px(section.marginTop), right: px(section.marginRight), bottom: px(section.marginBottom), left: px(section.marginLeft) },
       fontFamily: parsed.docDefaults?.asciiFont ?? null, eastAsianFontFamily: parsed.docDefaults?.eastAsiaFont ?? null,
       fontSizePt: parsed.docDefaults?.sizeHalfPoints ? parsed.docDefaults.sizeHalfPoints / 2 : null } };
+}
+/** GUI admission: full ZIP/UTF budgets and metadata, bounded body conversion. */
+export async function inspectView(bytes: Uint8Array, _context?: Context): Promise<DocxModel> {
+  const session = await openProgressive(bytes);
+  const {parsed, initialDocument} = session;
+  const baselineHash = createHash('sha256').update(parsed.internal.originalBytes).digest('hex');
+  const document = normalizeDocument(initialDocument as PmJSON);
+  const section = session.sections[0]?.settings ?? DEFAULT_SECTION;
+  const px = (twips: number) => twips / 15;
+  return {format: 'docx', sourceBase64: Buffer.from(parsed.internal.originalBytes).toString('base64'),
+    baselineHash,
+    coverage: {kind: session.complete ? 'complete' : 'partial', partial: !session.complete, loadedBlocks: parsed.blocks.length, sourceHash: baselineHash},
+    document, documentCss: docStyleCss(parsed), nodes: textNodes(document), assets: assets(document),
+    readOnly: !!parsed.protection?.enforced || !!parsed.writeProtection?.hash,
+    page: {width: px(section.pageWidth), height: px(section.pageHeight),
+      margins: {top: px(section.marginTop), right: px(section.marginRight), bottom: px(section.marginBottom), left: px(section.marginLeft)},
+      fontFamily: parsed.docDefaults?.asciiFont ?? null, eastAsianFontFamily: parsed.docDefaults?.eastAsiaFont ?? null,
+      fontSizePt: parsed.docDefaults?.sizeHalfPoints ? parsed.docDefaults.sizeHalfPoints / 2 : null}};
 }
 export async function edit(bytes: Uint8Array, edits: Edit[], _context?: Context): Promise<Uint8Array> {
   assertJson(edits);

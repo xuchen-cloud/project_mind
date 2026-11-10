@@ -234,6 +234,25 @@ impl WorkbookSessions {
         short_date_format: Option<&str>,
         cancelled: &AtomicBool,
     ) -> Result<WorkbookMetadata, SidecarError> {
+        self.open_internal(path, locale, short_date_format, cancelled, false)
+    }
+
+    pub fn open_view(
+        &mut self,
+        path: &Path,
+        cancelled: &AtomicBool,
+    ) -> Result<WorkbookMetadata, SidecarError> {
+        self.open_internal(path, "zh", None, cancelled, true)
+    }
+
+    fn open_internal(
+        &mut self,
+        path: &Path,
+        locale: &str,
+        short_date_format: Option<&str>,
+        cancelled: &AtomicBool,
+        progressive: bool,
+    ) -> Result<WorkbookMetadata, SidecarError> {
         // Before any work: the host may have cancelled before this ran at all.
         if cancelled.load(Ordering::Acquire) {
             return Err(SidecarError::cancelled());
@@ -271,7 +290,11 @@ impl WorkbookSessions {
         let mut runtimes = Vec::with_capacity(declarations.len());
         let mut visual_sources = Vec::with_capacity(declarations.len());
         let mut sheet_names = Vec::with_capacity(declarations.len());
-        let mut stored_cell_budget = STORED_CELL_COUNT_BUDGET;
+        let mut stored_cell_budget = if progressive {
+            0
+        } else {
+            STORED_CELL_COUNT_BUDGET
+        };
 
         for declaration in declarations {
             // One poll per worksheet rather than between reads: a
@@ -458,6 +481,7 @@ impl WorkbookSessions {
         self.sessions.insert(
             session_id.clone(),
             WorkbookSession {
+                progressive,
                 path: canonical_path,
                 sheets: sheets.clone(),
                 runtimes,
@@ -615,6 +639,7 @@ impl Drop for WorkbookSessions {
 }
 
 struct WorkbookSession {
+    progressive: bool,
     path: PathBuf,
     sheets: Vec<SheetMetadata>,
     runtimes: Vec<SheetRuntime>,
@@ -665,6 +690,23 @@ impl WorkbookSession {
                 .collect(),
         );
         let cancelled = Arc::clone(&self.cancelled);
+        // Tail metadata must be known before an editable first viewport. Skip
+        // sheetData without decoding cells or constructing formula/row indices.
+        if self.progressive {
+            index_worksheet(
+                &path,
+                &worksheet_path,
+                sheet_index,
+                &cache_directory,
+                &shared_strings,
+                &styled_xfs,
+                &color_context,
+                &rich_image_cells,
+                &state,
+                &cancelled,
+                true,
+            )?;
+        }
         let index = move || {
             let result = index_worksheet(
                 &path,
@@ -677,6 +719,7 @@ impl WorkbookSession {
                 &rich_image_cells,
                 &state,
                 &cancelled,
+                false,
             );
             let (lock, condition) = &*state;
             if let Ok(mut index) = lock.lock() {
@@ -735,6 +778,7 @@ impl WorkbookSession {
         }
         let indexed_through_row = index.indexed_through_row;
         let indexing_complete = index.complete;
+        let metadata_ready = index.metadata_ready;
         let merges = index
             .merges
             .iter()
@@ -757,47 +801,47 @@ impl WorkbookSession {
             })
             .cloned()
             .collect::<Vec<_>>();
-        let conditional_rules = if indexing_complete {
+        let conditional_rules = if index.metadata_ready {
             index.conditional_rules.clone()
         } else {
             Vec::new()
         };
-        let auto_filter = if indexing_complete {
+        let auto_filter = if index.metadata_ready {
             index.auto_filter
         } else {
             None
         };
-        let auto_filter_columns = if indexing_complete {
+        let auto_filter_columns = if index.metadata_ready {
             index.auto_filter_columns.clone()
         } else {
             Vec::new()
         };
-        let data_validations = if indexing_complete {
+        let data_validations = if index.metadata_ready {
             index.data_validations.clone()
         } else {
             Vec::new()
         };
-        let sheet_protection = if indexing_complete {
+        let sheet_protection = if index.metadata_ready {
             index.sheet_protection.clone()
         } else {
             None
         };
-        let row_breaks = if indexing_complete {
+        let row_breaks = if index.metadata_ready {
             index.row_breaks.clone()
         } else {
             Vec::new()
         };
-        let col_breaks = if indexing_complete {
+        let col_breaks = if index.metadata_ready {
             index.col_breaks.clone()
         } else {
             Vec::new()
         };
-        let protected_ranges = if indexing_complete {
+        let protected_ranges = if index.metadata_ready {
             index.protected_ranges.clone()
         } else {
             Vec::new()
         };
-        let page_setup = if indexing_complete {
+        let page_setup = if index.metadata_ready {
             index.page_setup.clone()
         } else {
             None
@@ -850,6 +894,7 @@ impl WorkbookSession {
             page_setup,
             indexed_through_row,
             indexing_complete,
+            metadata_ready,
         })
     }
 
@@ -934,6 +979,7 @@ impl SheetRuntime {
 struct SheetIndex {
     indexed_through_row: Option<usize>,
     complete: bool,
+    metadata_ready: bool,
     error: Option<String>,
     chunk_files: HashMap<usize, PathBuf>,
     merges: Vec<MergedRange>,

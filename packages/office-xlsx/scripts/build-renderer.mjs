@@ -1,3 +1,4 @@
+import {adaptProgressiveApp,adaptProgressiveSync,adaptProgressiveHold} from './progressive-adapter.mjs';
 import ts from 'typescript';
 import {adaptLocaleStrings,adaptLocaleProvider,adaptLocaleBootstrap} from './locale-adapter.mjs';
 import {adaptFormulaStreamHold,adaptPreloadCompletion,adaptLoadedVisualScroll} from './initialization-adapter.mjs';
@@ -7,7 +8,28 @@ const root=resolve(import.meta.dirname,'..')
 export async function buildRenderer(){
  await rm(resolve(root,'dist/renderer'),{recursive:true,force:true});await mkdir(resolve(root,'dist/renderer'),{recursive:true});
  const result=await build({absWorkingDir:root,entryPoints:['renderer-entry.ts'],outdir:'dist/renderer',entryNames:'[name]-[hash]',chunkNames:'chunks/[name]-[hash]',assetNames:'assets/[name]-[hash]',outExtension:{'.js':'.mjs'},bundle:true,splitting:true,platform:'browser',format:'esm',target:'es2022',jsx:'automatic',write:true,minify:true,metafile:true,define:{'process.env.NODE_ENV':'"production"','import.meta.hot':'undefined','import.meta.env.DEV':'false'},loader:{'.ttf':'file','.woff':'file','.woff2':'file','.svg':'file','.png':'file','.jpg':'file'},plugins:[disposedAutoHeightPatch,{name:'fixed-renderer-bridge',setup(b){
- b.onLoad({filter:/apps[\\/]sheets[\\/]src[\\/]renderer[\\/](formula-stream-hold|univer-sync)\.ts$/},async a=>({contents:(a.path.endsWith('formula-stream-hold.ts')?adaptFormulaStreamHold:adaptPreloadCompletion)(await readFile(a.path,'utf8')),loader:'ts',resolveDir:dirname(a.path)}))
+ b.onLoad({filter:/apps[\\/]sheets[\\/]src[\\/]renderer[\\/](formula-stream-hold|univer-sync)\.ts$/},async a=>{
+ let source=await readFile(a.path,'utf8');
+ if(a.path.endsWith('univer-sync.ts')){
+  const needle='zoomRatio: sheet.zoomScale / 100';
+  if(source.split(needle).length!==2)throw Error('Upstream stored zoom point changed');
+  source="import {clampZoomRatio} from './zoom-range';\n"+source.replace(needle,'zoomRatio: clampZoomRatio(sheet.zoomScale / 100)');
+ }
+ return{contents:(a.path.endsWith('formula-stream-hold.ts')?value=>adaptFormulaStreamHold(adaptProgressiveHold(value)):value=>adaptProgressiveSync(adaptPreloadCompletion(value)))(source),loader:'ts',resolveDir:dirname(a.path)}
+ })
+ b.onLoad({filter:/apps[\\/]sheets[\\/]src[\\/]renderer[\\/]zoom-range\.ts$/},async a=>{
+ let source=await readFile(a.path,'utf8');
+ for(const [from,to] of [["Excel's zoom range; Univer's facade clamps to the same 0.1-4 ratio.",'Office viewing range, shared by controls and Univer command inputs.'],['SHEET_ZOOM_MIN = 10','SHEET_ZOOM_MIN = 50'],['SHEET_ZOOM_MAX = 400','SHEET_ZOOM_MAX = 150']]){
+  if(source.split(from).length!==2)throw Error('Upstream zoom range changed: '+from);
+  source=source.replace(from,to);
+ }
+ return{contents:source,loader:'ts',resolveDir:dirname(a.path)}
+ })
+ b.onLoad({filter:/apps[\\/]sheets[\\/]src[\\/]renderer[\\/]ZoomDialog\.tsx$/},async a=>{
+ const source=await readFile(a.path,'utf8'),needle='const PRESETS = [200, 100, 75, 50, 25]';
+ if(source.split(needle).length!==2)throw Error('Upstream zoom presets changed');
+ return{contents:source.replace(needle,'const PRESETS = [150, 100, 75, 50]'),loader:'tsx',resolveDir:dirname(a.path)}
+ })
  b.onLoad({filter:/apps[\\/]sheets[\\/]src[\\/]renderer[\\/]i18n[\\/](strings\.ts|locale\.tsx)$/},async a=>({contents:(a.path.endsWith('strings.ts')?adaptLocaleStrings:adaptLocaleProvider)(await readFile(a.path,'utf8')),loader:a.path.endsWith('.tsx')?'tsx':'ts',resolveDir:dirname(a.path)}))
  b.onLoad({filter:/apps[\\/]sheets[\\/]src[\\/]renderer[\\/]main\.tsx$/},async a=>{
  let source=adaptLocaleBootstrap(await readFile(a.path,'utf8'));
@@ -17,7 +39,20 @@ export async function buildRenderer(){
  replace('  ReactDOM.createRoot(root!).render(', "  performance.mark('office-xlsx:react-render');\n  ReactDOM.createRoot(root!).render(");
  return{contents:source,loader:'tsx',resolveDir:dirname(a.path)}
  })
- b.onLoad({filter:/apps[\\/]sheets[\\/]src[\\/]renderer[\\/]App\.tsx$/},async a=>{let source=adaptLoadedVisualScroll(await readFile(a.path,'utf8'));const replace=(from,to)=>{if(!source.includes(from))throw Error('Upstream bridge point changed: '+from);source=source.replace(from,to)};
+ b.onLoad({filter:/apps[\\/]sheets[\\/]src[\\/]renderer[\\/]App\.tsx$/},async a=>{let source=adaptProgressiveApp(adaptLoadedVisualScroll(await readFile(a.path,'utf8')));const replace=(from,to)=>{if(!source.includes(from))throw Error('Upstream bridge point changed: '+from);source=source.replace(from,to)};
+ source="import {clampZoomRatio} from './zoom-range';\n"+source;
+ // All Univer inputs, including shortcuts, pinch and preview restore, converge here.
+ replace('    const zoomDisposable = runtime.univerAPI.addEvent(', `    const zoomBoundsDisposable = runtime.univerAPI.onBeforeCommandExecute(
+      (command: { id: string; params?: { zoomRatio?: number } }) => {
+        if ((command.id === 'sheet.command.set-zoom-ratio' ||
+             command.id === 'sheet.operation.set-zoom-ratio') &&
+            typeof command.params?.zoomRatio === 'number') {
+          command.params.zoomRatio = clampZoomRatio(command.params.zoomRatio)
+        }
+      },
+    )
+    const zoomDisposable = runtime.univerAPI.addEvent(`);
+ replace('      zoomDisposable.dispose()', '      zoomBoundsDisposable.dispose();zoomDisposable.dispose()');
  replace('const [pendingEdits, setPendingEdits] = useState(0)', 'const [pendingEdits, setPendingEditsState] = useState(0);const setPendingEdits = useCallback((value: Parameters<typeof setPendingEditsState>[0])=>{setPendingEditsState(value);queueMicrotask(()=>window.__projectMindSheetsHost.edited())},[])');
  replace('univerRef.current = runtime','univerRef.current = runtime; window.__projectMindSheetsHost.attach(runtime)');
  replace('return handleSaveImpl(saveContext(), mode, quiet, explicitTarget)',"return mode === 'recovery' ? handleSaveImpl(saveContext(), mode, quiet, explicitTarget) : window.__projectMindSheetsHost.requestSave()");

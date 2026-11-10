@@ -1,4 +1,4 @@
-import {openPptx,type OpenedPptx} from '@genoffice/pptx-engine';
+import {PackageArchive,type OpenedPptx} from '@genoffice/pptx-engine';
 import {assertZipInflatesWithinLimits} from '@genoffice/zip-gate';
 import type {PptxCandidateEdit} from './types';
 export const CANDIDATE_MAX_BYTES=100*1024*1024;
@@ -15,6 +15,7 @@ export function changedParts(source:CandidateBaseline,candidate:CandidateBaselin
 export async function candidateEdit(source:CandidateBaseline,bytes:Uint8Array):Promise<PptxCandidateEdit>{
  if(bytes.length>CANDIDATE_MAX_BYTES)throw new Error('PPTX candidate exceeds 100 MiB');
  await assertZipInflatesWithinLimits(bytes,CANDIDATE_ZIP_LIMITS);
- const candidate=await openPptx(bytes);
+ const archive=await PackageArchive.open(bytes);
+ const candidate={archive,deck:{originalHash:archive.originalHash}};
  return {kind:'candidate',sourceHash:source.deck.originalHash,base64:Buffer.from(bytes).toString('base64'),changedParts:changedParts(source,candidate)};
 }

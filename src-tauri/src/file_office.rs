@@ -63,6 +63,14 @@ pub(crate) struct FileOfficeRecalculateInput {
     pub expected_content_hash: String,
     pub recalculation: OfficeRecalculation,
 }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct FileOfficeViewInput {
+    pub object: ObjectRef,
+    pub version_number: u32,
+    pub expected_content_hash: String,
+    pub read: Option<crate::office_view::OfficeViewRead>,
+}
 impl FileOfficeRecalculateInput {
     fn baseline(&self) -> FileOfficeInput {
         FileOfficeInput {
@@ -266,43 +274,59 @@ impl<'a, S: BoundSourceStore + BoundFileCommitStore, W: OfficeUtility> FileOffic
     ) -> AgentResult<reads::OfficeRead> {
         reads::read(self.store, request, &input.bytes_input())
     }
-    fn verify_read(&self, request: &RequestContext, input: &FileOfficeInput, captured: &reads::OfficeRead) -> AgentResult<()> {
+    fn verify_read(
+        &self,
+        request: &RequestContext,
+        input: &FileOfficeInput,
+        captured: &reads::OfficeRead,
+    ) -> AgentResult<()> {
         reads::verify(self.store, request, &input.bytes_input(), captured)
     }
     fn latest(&self, request: &RequestContext, input: &FileOfficeInput) -> AgentResult<()> {
-        let metadata = || self.store.with_current(|binding, db| {
-            let target = db.file_version_registered_target(request, binding, &input.object)?;
-            if target.current_version_number != i64::from(input.version_number) {
-                return Err(error(
-                    ErrorCode::RevisionConflict,
-                    "Historical Office versions are read-only; select the latest File baseline",
-                ));
-            }
-            let metadata =
-                db.file_version_gui_metadata(&crate::db::file_versions::GuiFileVersionPrepare {
-                    document_id: target.id,
-                    project_id: target.project_id,
-                    managed_path: target.managed_path.clone(),
-                    expected_version_number: input.version_number,
-                    source_path: None,
-                })?;
-            if metadata.registered_content_hash.as_deref()
-                != Some(input.expected_content_hash.as_str())
-            {
-                return Err(error(
-                    ErrorCode::RevisionConflict,
-                    "Office File baseline hash changed",
-                ));
-            }
-            Ok(metadata)
-        });
+        let metadata = || {
+            self.store.with_current(|binding, db| {
+                let target = db.file_version_registered_target(request, binding, &input.object)?;
+                if target.current_version_number != i64::from(input.version_number) {
+                    return Err(error(
+                        ErrorCode::RevisionConflict,
+                        "Historical Office versions are read-only; select the latest File baseline",
+                    ));
+                }
+                let metadata = db.file_version_gui_metadata(
+                    &crate::db::file_versions::GuiFileVersionPrepare {
+                        document_id: target.id,
+                        project_id: target.project_id,
+                        managed_path: target.managed_path.clone(),
+                        expected_version_number: input.version_number,
+                        source_path: None,
+                    },
+                )?;
+                if metadata.registered_content_hash.as_deref()
+                    != Some(input.expected_content_hash.as_str())
+                {
+                    return Err(error(
+                        ErrorCode::RevisionConflict,
+                        "Office File baseline hash changed",
+                    ));
+                }
+                Ok(metadata)
+            })
+        };
         let before = metadata()?;
         let snapshot = crate::file_version_service::FilesystemFileReader
             .capture_original(std::path::Path::new(&before.input.managed_path))?;
         if snapshot.content_hash() != input.expected_content_hash {
-            return Err(error(ErrorCode::FileChangedUnregistered, "Office File changed on disk"));
+            return Err(error(
+                ErrorCode::FileChangedUnregistered,
+                "Office File changed on disk",
+            ));
         }
-        if metadata()? != before { return Err(error(ErrorCode::RevisionConflict, "Office File metadata changed during preflight")); }
+        if metadata()? != before {
+            return Err(error(
+                ErrorCode::RevisionConflict,
+                "Office File metadata changed during preflight",
+            ));
+        }
         Ok(())
     }
     pub(crate) async fn inspect(
@@ -313,13 +337,72 @@ impl<'a, S: BoundSourceStore + BoundFileCommitStore, W: OfficeUtility> FileOffic
         let _admission = crate::office_worker::admit_source().await?;
         self.inspect_admitted(request, input).await
     }
-    async fn inspect_admitted(&self, request: &RequestContext, input: &FileOfficeInput) -> AgentResult<FileOfficeInspection> {
+    /// GUI projection; full inspect remains available to authoring callers.
+    pub(crate) async fn view(
+        &self,
+        request: &RequestContext,
+        input: &FileOfficeViewInput,
+    ) -> AgentResult<Value> {
+        if let Some(read) = &input.read {
+            read.validate()?;
+        }
+        let _admission = crate::office_worker::admit_source().await?;
+        let baseline = FileOfficeInput {
+            object: input.object.clone(),
+            version_number: input.version_number,
+            expected_content_hash: input.expected_content_hash.clone(),
+        };
+        let captured = self.read(request, &baseline)?;
+        let bytes = &captured.bytes;
+        let format = format(&bytes.name)?;
+        let owner = format!(
+            "version:{}:{}:{}",
+            input.object.id, input.version_number, input.expected_content_hash
+        );
+        let context = self.store.with_current(|binding, db| {
+            if db.project_file_office_plan(request, binding, &baseline.bytes_input())?
+                != captured.plan
+            {
+                return Err(error(
+                    ErrorCode::SourceChanged,
+                    "Office view baseline changed",
+                ));
+            }
+            crate::office_worker::view_baseline_context(
+                binding,
+                &baseline.bytes_input(),
+                bytes.byte_length,
+                &owner,
+            )
+        })?;
+        let result = self
+            .worker
+            .view(
+                &context,
+                &request.request_id,
+                &format,
+                &bytes.base64,
+                input.read.as_ref(),
+            )
+            .await;
+        self.verify_read(request, &baseline, &captured)?;
+        result
+    }
+    async fn inspect_admitted(
+        &self,
+        request: &RequestContext,
+        input: &FileOfficeInput,
+    ) -> AgentResult<FileOfficeInspection> {
         #[cfg(feature = "office-performance")]
         let measured = std::time::Instant::now();
         let captured = self.read(request, input)?;
         let bytes = &captured.bytes;
         #[cfg(feature = "office-performance")]
-        eprintln!("[office-performance] {} read {:.3}", request.request_id, measured.elapsed().as_secs_f64() * 1000.0);
+        eprintln!(
+            "[office-performance] {} read {:.3}",
+            request.request_id,
+            measured.elapsed().as_secs_f64() * 1000.0
+        );
         let format = format(&bytes.name)?;
         let result = self
             .worker
@@ -332,11 +415,19 @@ impl<'a, S: BoundSourceStore + BoundFileCommitStore, W: OfficeUtility> FileOffic
             )
             .await?;
         #[cfg(feature = "office-performance")]
-        eprintln!("[office-performance] {} worker-complete {:.3}", request.request_id, measured.elapsed().as_secs_f64() * 1000.0);
+        eprintln!(
+            "[office-performance] {} worker-complete {:.3}",
+            request.request_id,
+            measured.elapsed().as_secs_f64() * 1000.0
+        );
         // Async work releases storage: recheck binding, owner, policy and bytes.
         self.verify_read(request, input, &captured)?;
         #[cfg(feature = "office-performance")]
-        eprintln!("[office-performance] {} revalidated {:.3}", request.request_id, measured.elapsed().as_secs_f64() * 1000.0);
+        eprintln!(
+            "[office-performance] {} revalidated {:.3}",
+            request.request_id,
+            measured.elapsed().as_secs_f64() * 1000.0
+        );
         Ok(FileOfficeInspection {
             object: bytes.object.clone(),
             version_number: bytes.version_number,
@@ -465,12 +556,24 @@ impl<'a, S: BoundSourceStore + BoundFileCommitStore, W: OfficeUtility> FileOffic
         let commit = FileContentService::new(self.store, &SystemFileContentClock)
             .update(request, &candidate.update())?;
         let model = if candidate.model.is_null() {
-            self.inspect_admitted(request, &FileOfficeInput {
-                object: candidate.target.clone(),
-                version_number: commit.receipt.version_number.try_into().map_err(|_| error(ErrorCode::RuntimeIncompatible, "Invalid committed Office version"))?,
-                expected_content_hash: commit.receipt.content_hash.clone(),
-            }).await?.model
-        } else { candidate.model };
+            self.inspect_admitted(
+                request,
+                &FileOfficeInput {
+                    object: candidate.target.clone(),
+                    version_number: commit.receipt.version_number.try_into().map_err(|_| {
+                        error(
+                            ErrorCode::RuntimeIncompatible,
+                            "Invalid committed Office version",
+                        )
+                    })?,
+                    expected_content_hash: commit.receipt.content_hash.clone(),
+                },
+            )
+            .await?
+            .model
+        } else {
+            candidate.model
+        };
         Ok(FileOfficeSaved {
             object: candidate.target,
             version_number: commit.receipt.version_number,

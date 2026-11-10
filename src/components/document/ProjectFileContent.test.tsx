@@ -20,7 +20,7 @@ import { registerProjectContentCloseGuard, releaseContentOwnerMove, withProjectC
 import { fileEditorApi } from "../../services/fileEditorApi";
 vi.mock("../../services/fileEditorApi", () => ({fileEditorApi:{register:vi.fn(),unregister:vi.fn(),reply:vi.fn()}}));
 vi.mock("../../services/fileWorkingApi",()=>({fileWorkingApi:{open:vi.fn(),saveOffice:vi.fn(),activity:vi.fn(),tick:vi.fn(),close:vi.fn()}}));
-vi.mock("../../services/officeFileApi", () => ({ officeFileApi: { inspect: vi.fn(), save: vi.fn() } }));
+vi.mock("../../services/officeFileApi", () => ({ officeFileApi: { inspectView: vi.fn(), save: vi.fn() } }));
 // The editor components are mocked; their runtime preloads must not compile unused vendor bundles.
 vi.mock("../../../packages/office-docx/dist/editor.mjs", () => ({}));
 vi.mock("../../../packages/office-xlsx/dist/browser.mjs", () => ({}));
@@ -117,7 +117,7 @@ async function editedOffice(format: 'docx' | 'xlsx' = 'docx', moveState?: { comm
   vi.mocked(fileWorkingApi.open).mockResolvedValue({...workingStatus(),sessionId:'session',name:`sample.${format}`,base64:'UEs=',format,model:{format,nodes:[{id:'p0',text:'原文'}]}} as never);
   const versions = [2, 1].map(n => ({ ...version(n), name: `sample.${format}` }));
   vi.mocked(fileDocumentApi.versionsList).mockResolvedValue({ object, currentVersionNumber: 2, currentContentHash: "hash2", versions, nextCursor: null });
-  vi.mocked(officeFileApi.inspect).mockResolvedValue({ model: { format, nodes: [{ id: "p0", text: "原文" }] } } as never);
+  vi.mocked(officeFileApi.inspectView).mockResolvedValue({ model: { format, nodes: [{ id: "p0", text: "原文" }] } } as never);
   let guard!: () => Promise<void>;
   const registerCloseGuard = (next: () => Promise<void>) => { guard = next; return () => {}; };
   const rendered = view({ ...input, registerCloseGuard } as typeof input, moveState);

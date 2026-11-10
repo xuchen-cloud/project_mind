@@ -8,15 +8,15 @@ const source=readFileSync(new URL('../renderer-host.ts',import.meta.url),'utf8')
 const ast=ts.createSourceFile('renderer-host.ts',source,ts.ScriptTarget.Latest,true);
 const compiled=ts.transpileModule(ast.statements.filter(node=>!ts.isImportDeclaration(node)).map(node=>node.getFullText(ast)).join('\n'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
-function fixture(build){
+function fixture(build,isDirty=()=>true,materialize=async()=>{}){
  const timers=new Map(),listeners=new Map(),changes=[],snapshots=[],errors=[],pending=[];let id=0;
  const options={sourceBase64:'YQ==',baselineHash:'baseline',readOnly:false,presentationMode:'edit',hasDraft:false,appearance:{theme:'light',font:'sans',tokens:{}},onChange:(edits,snapshot)=>{changes.push(edits);snapshots.push(snapshot)},onPending:value=>pending.push(value),onError:error=>errors.push(error)};
  const window={frameElement:{__projectMindDocxOptions:options},dispatchEvent(event){listeners.get(event.type)?.(event);},addEventListener(){}};
  const document={activeElement:null,addEventListener:(name,callback)=>listeners.set(name,callback),querySelectorAll:()=>[],documentElement:{dataset:{},classList:{toggle(){}},style:{setProperty(){}}}};
  const exports={},builds=[];
  const setTimeout=(fn,delay)=>{const key=++id;timers.set(key,{fn,delay});return key;},clearTimeout=key=>timers.delete(key);
- runInNewContext(compiled,{exports,window,document,URL,Blob,Event,atob,btoa,Uint8Array,queueMicrotask,setTimeout,clearTimeout,HTMLInputElement:class{},HTMLTextAreaElement:class{},flushSync:fn=>fn(),requestAnimationFrame:fn=>setImmediate(fn),createPdfBridge:()=>({cancelImages(){}}),pickImage(){},copyImageToClipboard(){},exportHtml(){},pickViaInput(){}});
- exports.initializeHost({async buildDocBytes(ctx){builds.push(ctx.doc.value);return build?await build(ctx,builds.length):new Uint8Array([ctx.doc.value]);},isDocDirty:()=>true,exportHtml:async()=>true});
+ runInNewContext(compiled,{materializeProgressive:materialize,updateProgressiveContext(){},cancelProgressive(){},exports,window,document,URL,Blob,Event,atob,btoa,Uint8Array,queueMicrotask,setTimeout,clearTimeout,HTMLInputElement:class{},HTMLTextAreaElement:class{},flushSync:fn=>fn(),requestAnimationFrame:fn=>setImmediate(fn),createPdfBridge:()=>({cancelImages(){}}),pickImage(){},copyImageToClipboard(){},exportHtml(){},pickViaInput(){}});
+ exports.initializeHost({async buildDocBytes(ctx){builds.push(ctx.doc.value);return build?await build(ctx,builds.length):new Uint8Array([ctx.doc.value]);},isDocDirty:isDirty,exportHtml:async()=>true});
  const host=window.__projectMindDocxHost;
  const render=value=>host.render({doc:{value}},false);
  const fire=async()=>{const batch=[...timers.values()];timers.clear();for(const timer of batch)timer.fn();await tick();await tick();};
@@ -122,5 +122,25 @@ test('save revisions acknowledge only captured DOCX content and keep cumulative 
   assert.equal(edits[0].base64,btoa(String.fromCharCode(2)));
   f.render(3);f.host.update({...f.options,savedEditRevision:second});
   assert.equal(f.pending.at(-1),true,'old receipt cannot clear pending unbuilt input');
+ }finally{f.host.destroy();}
+});
+
+
+test('a clean background recovery flush does not materialize the unloaded body',async()=>{
+ let materializations=0;
+ const f=fixture(undefined,()=>false,async()=>{materializations++;});
+ try{
+  f.render(1);await f.host.flush();
+  assert.equal(materializations,0);assert.equal(f.builds.length,0);
+  await f.host.flush(true);assert.equal(materializations,1,'explicit save retains the complete-content barrier');
+ }finally{f.host.destroy();}
+});
+
+test('a tail read failure rejects the actual host output promise before serialization',async()=>{
+ const f=fixture(undefined,()=>false,async()=>{throw Error('tail read failed');});
+ try{
+  f.render(1);await assert.rejects(f.host.output('html'),/tail read failed/);
+  assert.equal(f.builds.length,0);assert.equal(f.changes.length,0);
+  assert.equal(f.errors.at(-1),'tail read failed');
  }finally{f.host.destroy();}
 });

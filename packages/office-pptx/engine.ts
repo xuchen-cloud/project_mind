@@ -5,12 +5,13 @@ import { createParitySession } from './parity-session';
 import { openPptx, elementSpid, type OpenedPptx, type SlideElement, type TextElement } from '@genoffice/pptx-engine';
 import { buildRenderSlide } from '@genoffice/pptx-render';
 import JSZip from 'jszip';
-import { XMLValidator } from 'fast-xml-parser';
+import {validateArchiveXml} from './archive-validation';
 import type { PptxModel, PptxEdit } from './types';
-import { validateEdits, validateXmlCharacters } from './validate';
+import { validateEdits } from './validate';
 import {auditOpenedDeck} from './audit-opened';
 import {create as createDeck,applyCreationOperations} from './create';
 import {synchronizeGeneratedChartWorkbooks} from './chart-workbook';
+import {openViewPptx} from './progressive-open';
 import {authoringSummary} from './authoring';
 export {creationSchema,creationOperationFields,applyCreationOperations} from './create';
 
@@ -34,25 +35,25 @@ export async function inspect(bytes: Uint8Array): Promise<PptxModel> {
   return { ...modelOf(opened), sourceBase64: Buffer.from(bytes).toString('base64'), layoutAudit: auditOpenedDeck(opened),authoring:authoringSummary(opened) };
 }
 
+/** GUI opening does not build render trees, full authoring summaries or media data URLs. */
+export async function inspectView(bytes:Uint8Array,_context?:unknown):Promise<PptxModel>{
+  const opened=await openViewPptx(bytes);
+  const slideCatalog=opened.deck.slides.map((slide,slideIndex)=>({slideIndex,path:slide.path}));
+  const first={...opened,deck:{...opened.deck,slides:opened.deck.slides.slice(0,1)}};
+  return {...modelOf(first,{render:false,media:false}),sourceBase64:Buffer.from(bytes).toString('base64'),slideCatalog,
+    coverage:{kind:slideCatalog.length>1?'partial':'complete',sourceHash:opened.deck.originalHash,partial:slideCatalog.length>1,loadedSlides:slideCatalog.length?[0]:[],totalSlides:slideCatalog.length,...opened.viewTimings}};
+}
+
 async function openValidated(bytes: Uint8Array): Promise<OpenedPptx> {
   if (!(bytes instanceof Uint8Array) || bytes.length === 0) throw new Error('Invalid PPTX bytes: expected nonempty Uint8Array');
   const opened = await openPptx(bytes);
-  const decoder = new TextDecoder('utf-8', { fatal: true });
-  for (const [path, content] of opened.archive.entries) if (/\.(?:xml|rels)$/.test(path)) {
-    let xml: string;
-    try { xml = decoder.decode(content); } catch { throw new Error(`Invalid UTF-8 XML part: ${path}`); }
-    validateXmlCharacters(xml);
-    const encoding = /<\?xml\b[^>]*\bencoding=["']([^"']+)["']/.exec(xml)?.[1];
-    if (encoding && !/^utf-8$/i.test(encoding)) throw new Error(`Unsupported XML encoding ${encoding}: ${path}`);
-    const valid = XMLValidator.validate(xml);
-    if (valid !== true) throw new Error(`Invalid XML part ${path}: ${valid.err.msg}`);
-  }
+  validateArchiveXml(opened.archive.entries);
   return opened;
 }
 
-function modelOf(opened: OpenedPptx): PptxModel {
+function modelOf(opened: OpenedPptx,options:{render?:boolean;media?:boolean}={}): PptxModel {
   const media: Record<string, string> = {};
-  for (const [part, bytes] of opened.archive.entries) if (part.startsWith('ppt/media/')) {
+  for (const [part, bytes] of opened.archive.entries) if (options.media!==false&&part.startsWith('ppt/media/')) {
     const ext = part.split('.').pop()!.toLowerCase();
     media[part] = `data:${mime[ext] ?? 'application/octet-stream'};base64,${Buffer.from(bytes).toString('base64')}`;
   }
@@ -77,7 +78,7 @@ function modelOf(opened: OpenedPptx): PptxModel {
     const decorate = (el: SlideElement, prefix: string) => { el.id = prefix; if (el.type === 'group') el.children.forEach((child, i) => decorate(child, `${prefix}:${i}`)); };
     slide.decorations?.forEach((el, i) => decorate(el, `slide-${slideIndex}:decoration-${i}`));
   });
-  const renderSlides = slides.map((slide, i) => buildRenderSlide(slide, opened.deck.size, { fitWidthPx: 960, slideNo: i + 1, media: ref => media[ref] }));
+  const renderSlides = options.render===false?[]:slides.map((slide, i) => buildRenderSlide(slide, opened.deck.size, { fitWidthPx: 960, slideNo: i + 1, media: ref => media[ref] }));
   return { format: 'pptx', originalHash: opened.deck.originalHash, size: opened.deck.size, slides, renderSlides, media, textElements, pictureElements, limitations: ['完整上游 renderer 与 ops 编辑会话；未修改部件沿用原件。二进制 .ppt 不受上游引擎支持。', '字体依赖系统回退与估算度量；导入图表编辑采用上游图表模板，可能丢失未建模的格式。'] };
 }
 
