@@ -252,50 +252,86 @@ pub(crate) struct RecordOwnerMoveCommandInput {
     request_id: String,
     data: RecordOwnerMoveInput,
 }
+/// Source-window authority comes from the frozen flow. A matching receipt is read-only;
+/// fresh aliases cannot turn that flow into a capability for the new owner.
+pub(crate) fn gui_move_request(
+    binding: &WorkspaceBinding,
+    request_id: &str,
+    input: &RecordOwnerMoveInput,
+    authorize_origin: impl FnOnce(&Scope) -> AgentResult<()>,
+    resolve_source: impl FnOnce() -> AgentResult<(RecordTarget, bool)>,
+) -> AgentResult<RequestContext> {
+    authorize_origin(&input.source.scope)?;
+    let (actual, has_receipt) = resolve_source()?;
+    if !has_receipt && actual.key()? != input.source.key()? {
+        return Err(AgentError::new(
+            ErrorCode::SourceChanged,
+            "Record has moved; reopen its current location",
+        )
+        .with_details(json!({"target":actual})));
+    }
+    let source_key = actual.object_key(&binding.workspace_id)?;
+    let mut scopes = vec![input.source.scope.clone(), input.destination.clone()];
+    scopes.dedup();
+    Ok(RequestContext {
+        binding: binding.clone(),
+        request_id: request_id.into(),
+        caller: Caller::Gui,
+        scope_grant: ScopeGrant {
+            workspace_id: binding.workspace_id.clone(),
+            workspace_content: scopes.contains(&Scope::Workspace),
+            project_ids: scopes
+                .iter()
+                .filter_map(|s| match s {
+                    Scope::Project { project_id } => Some(*project_id),
+                    _ => None,
+                })
+                .collect(),
+            operations: vec!["record.move".into()],
+            object_keys: Some(vec![source_key]),
+        },
+    })
+}
 #[tauri::command]
 pub(crate) async fn record_owner_move(
     state: tauri::State<'_, crate::AppState>,
+    caller: tauri::Webview,
     input: RecordOwnerMoveCommandInput,
 ) -> Result<ApiResponse<RecordOwnerMoveResult>, String> {
     let result = async {
-        let request = {
-            let current = crate::lock_mutex(&state.current_workspace);
-            let runtime = current.as_ref().ok_or_else(|| {
-                AgentError::new(ErrorCode::WorkspaceNotOpen, "Open a Workspace first")
-            })?;
-            if runtime.agent_binding != input.binding {
-                return Err(AgentError::new(
-                    ErrorCode::WorkspaceChanged,
-                    "Workspace binding is no longer current",
-                ));
-            }
-            let actual = crate::lock_mutex(&runtime.db)
-                .record_resolve_location(&input.data.source)?
-                .target;
-            let mut scopes = vec![actual.scope, input.data.destination.clone()];
-            scopes.dedup();
-            RequestContext {
-                binding: input.binding.clone(),
-                request_id: input.request_id.clone(),
-                caller: Caller::Gui,
-                scope_grant: ScopeGrant {
-                    workspace_id: runtime.agent_binding.workspace_id.clone(),
-                    workspace_content: scopes.contains(&Scope::Workspace),
-                    project_ids: scopes
-                        .iter()
-                        .filter_map(|s| {
-                            if let Scope::Project { project_id } = s {
-                                Some(*project_id)
-                            } else {
-                                None
-                            }
-                        })
-                        .collect(),
-                    operations: vec!["record.move".into()],
-                    object_keys: None,
-                },
-            }
-        };
+        let request = gui_move_request(
+            &input.binding,
+            &input.request_id,
+            &input.data,
+            |scope| {
+                let project = match scope {
+                    Scope::Workspace => None,
+                    Scope::Project { project_id } => Some(*project_id),
+                };
+                crate::project_directory::authorize_caller(&caller, project)
+                    .map_err(|message| AgentError::new(ErrorCode::ScopeDenied, message))
+            },
+            || {
+                crate::record_document_service::BoundRecordStore::with_current(
+                    &*state,
+                    |binding, db| {
+                        if *binding != input.binding {
+                            return Err(AgentError::new(
+                                ErrorCode::WorkspaceChanged,
+                                "Workspace binding is no longer current",
+                            ));
+                        }
+                        let actual = db.record_resolve_location(&input.data.source)?.target;
+                        let has_receipt = db.record_owner_move_gui_receipt_exists(
+                            binding,
+                            &input.request_id,
+                            &input.data,
+                        )?;
+                        Ok((actual, has_receipt))
+                    },
+                )
+            },
+        )?;
         let utility = crate::record_document_service::AppDocumentUtility(state.app_handle.clone());
         RecordOwnerMoveService {
             store: &*state,

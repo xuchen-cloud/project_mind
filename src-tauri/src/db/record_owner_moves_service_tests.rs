@@ -276,6 +276,16 @@ async fn g13_cross_window_object_only_barrier_pending_ai_late_registration_and_o
     assert_eq!(store.moved.lock().unwrap()[0].operation_id, "success");
     assert_eq!(store.events.lock().unwrap().len(), 1);
     assert_eq!(store.events.lock().unwrap()[0].changed_refs.len(), 2);
+    let flush_count = store.flushed.lock().unwrap().len();
+    store.review.store(true, Ordering::Release);
+    let replay = svc.move_record(&r, &i).await.unwrap();
+    assert_eq!(replay.operation_id, moved.operation_id);
+    assert_eq!(replay.logical_id, moved.logical_id);
+    assert_eq!(replay.target.key().unwrap(), moved.target.key().unwrap());
+    assert_eq!(store.flushed.lock().unwrap().len(), flush_count);
+    assert_eq!(store.released.lock().unwrap().len(), 4);
+    assert_eq!(store.moved.lock().unwrap().len(), 1);
+    assert_eq!(store.events.lock().unwrap().len(), 1);
     for (window, id, target) in &registrations[..2] {
         let cleanup = RecordEditorRegistration {
             target: target.clone(),

@@ -389,7 +389,7 @@ fn preview(root: &Path, relative: &str) -> Result<DirectoryPreview> {
     }
 }
 
-fn authorize_identity(
+pub(crate) fn authorize_identity(
     label: &str,
     window_label: &str,
     project_id: Option<i64>,

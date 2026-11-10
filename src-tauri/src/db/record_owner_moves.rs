@@ -292,6 +292,23 @@ impl Database {
         input.destination.validate()?;
         Ok(location)
     }
+    /// Admission probes only existence/payload equality after source-window origin
+    /// validation. The result itself is returned solely by authorized canonical replay.
+    pub(crate) fn record_owner_move_gui_receipt_exists(
+        &self,
+        binding: &WorkspaceBinding,
+        request_id: &str,
+        input: &RecordOwnerMoveInput,
+    ) -> AgentResult<bool> {
+        self.operation_binding(binding)?;
+        self.agent_operation_replay::<RecordOwnerMoveResult>(
+            &crate::agent::access::Caller::Gui.key(),
+            request_id,
+            OP,
+            &json!({"binding":binding,"input":input}),
+        )
+        .map(|receipt| receipt.is_some())
+    }
     pub(crate) fn record_owner_move_replay(
         &self,
         request: &RequestContext,
@@ -637,5 +654,38 @@ pub(super) fn resolve_receipt_object(
         resolve_object(conn, object)
     } else {
         Ok(object.clone())
+    }
+}
+
+impl Database {
+    /// Read-only directory mutation guard. Integration invokes this before the
+    /// filesystem mutation, again under its commit-time owner lease/fence.
+    pub(crate) fn record_owner_require_unshared_root(
+        &self,
+        _root: &std::path::Path,
+        _owner: Option<i64>,
+    ) -> anyhow::Result<()> {
+        if !installed(&self.conn).map_err(|e| anyhow::anyhow!(e.message))? {
+            return Ok(());
+        }
+        anyhow::ensure!(
+            _root.is_absolute(),
+            "Record resource mutation root must be absolute"
+        );
+        // Directory callers already reject symlinks and validate the physical owner.
+        // Canonicalizing the existing root also aligns /tmp and /private/tmp aliases.
+        let root = std::fs::canonicalize(_root)?;
+        let workspace = std::fs::canonicalize(&self.workspace_root)?;
+        let owner = _owner.map_or_else(|| "workspace".to_string(), |id| format!("project:{id}"));
+        let mut statement = self.conn.prepare("SELECT a.asset_ref,i.logical_id FROM record_owner_move_assets a JOIN record_logical_identities i USING(logical_id) WHERE i.scope_key!=?1")?;
+        for row in statement.query_map([owner], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })? {
+            let (asset, logical_id) = row?;
+            if workspace.join(&asset).starts_with(&root) {
+                anyhow::bail!("此路径仍保留已移到其他位置的 Record {logical_id} 使用的资源 {asset}，请先迁移或保留这些资源");
+            }
+        }
+        Ok(())
     }
 }

@@ -829,3 +829,157 @@ async fn g13_worker_project_assets_remain_scoped_and_block_source_root_cleanup()
         crate::agent::errors::ErrorCode::ScopeDenied
     );
 }
+
+#[test]
+fn g13_native_move_origin_and_response_lost_replay_do_not_authorize_fresh_alias_moves() {
+    let (_dir, db, mut r, source) = setup();
+    let first = input(&db, &source, Scope::Project { project_id: 1 });
+    let a = db.record_owner_move(&r, &r.binding, &first).unwrap();
+    r.request_id = "origin-second".into();
+    let second = input(&db, &a.target, Scope::Project { project_id: 2 });
+    let b = db.record_owner_move(&r, &r.binding, &second).unwrap();
+    let authorize = |label: &str, window: &str, local: bool, id: &str, i: &RecordOwnerMoveInput| {
+        crate::record_owner_moves::gui_move_request(
+            &r.binding,
+            id,
+            i,
+            |scope| {
+                let project = match scope {
+                    Scope::Workspace => None,
+                    Scope::Project { project_id } => Some(*project_id),
+                };
+                crate::project_directory::authorize_identity(label, window, project, local).map_err(
+                    |message| {
+                        crate::agent::errors::AgentError::new(
+                            crate::agent::errors::ErrorCode::ScopeDenied,
+                            message,
+                        )
+                    },
+                )
+            },
+            || {
+                Ok((
+                    db.record_resolve_location(&i.source)?.target,
+                    db.record_owner_move_gui_receipt_exists(&r.binding, id, i)?,
+                ))
+            },
+        )
+    };
+    assert_eq!(
+        authorize("project-3", "project-3", true, "origin-second", &second)
+            .unwrap_err()
+            .code,
+        crate::agent::errors::ErrorCode::ScopeDenied
+    );
+    assert!(authorize("project-1", "main", true, "origin-second", &second).is_err());
+    assert!(authorize("main", "main", false, "origin-second", &second).is_err());
+    // Response lost: retry still comes from original Project A window after A→B commit.
+    let retry = authorize("project-1", "project-1", true, "origin-second", &second).unwrap();
+    let replay = db
+        .record_owner_move_replay(&retry, &r.binding, &second)
+        .unwrap()
+        .unwrap();
+    assert_eq!(replay.operation_id, b.operation_id);
+    assert_eq!(replay.logical_id, b.logical_id);
+    assert_eq!(
+        retry.scope_grant.object_keys,
+        Some(vec![b.target.object_key("test").unwrap()])
+    );
+    assert_eq!(
+        authorize("project-1", "project-1", true, "fresh-stale", &second)
+            .unwrap_err()
+            .code,
+        crate::agent::errors::ErrorCode::SourceChanged
+    );
+    let fresh_b = input(&db, &b.target, Scope::Workspace);
+    assert_eq!(
+        authorize("project-1", "project-1", true, "fresh-b", &fresh_b)
+            .unwrap_err()
+            .code,
+        crate::agent::errors::ErrorCode::ScopeDenied
+    );
+    let main = authorize("main", "main", true, "origin-second", &second).unwrap();
+    assert!(db
+        .record_owner_move_replay(&main, &r.binding, &second)
+        .unwrap()
+        .is_some());
+    // A later B→Workspace move is outside the frozen A/B grant, even for old receipts.
+    let mut third = r.clone();
+    third.request_id = "origin-third".into();
+    db.record_owner_move(&third, &third.binding, &fresh_b)
+        .unwrap();
+    let retry = authorize("project-1", "project-1", true, "origin-second", &second).unwrap();
+    assert_eq!(
+        db.record_owner_move_replay(&retry, &r.binding, &second)
+            .unwrap_err()
+            .code,
+        crate::agent::errors::ErrorCode::ScopeDenied
+    );
+}
+
+#[tokio::test]
+async fn g13_resource_subdirectory_and_single_file_guard_retains_foreign_record_assets() {
+    let (dir, db, mut r, source) = setup();
+    let a = db
+        .record_owner_move(
+            &r,
+            &r.binding,
+            &input(&db, &source, Scope::Project { project_id: 1 }),
+        )
+        .unwrap();
+    let resources = dir.path().join("a/resources/sub");
+    std::fs::create_dir_all(&resources).unwrap();
+    for name in ["图片.png", "文件.pdf", "unrelated.txt"] {
+        std::fs::write(resources.join(name), b"retained").unwrap();
+    }
+    let original = db
+        .record_document_head(&a.target)
+        .unwrap()
+        .unwrap()
+        .projection
+        .document;
+    let document = serde_json::from_str(
+        &original
+            .to_string()
+            .replace("assets/图片.png", "a/resources/sub/图片.png")
+            .replace("assets/文件.pdf", "a/resources/sub/文件.pdf"),
+    )
+    .unwrap();
+    save_document(&db, &a.target, document).await;
+    r.request_id = "resource-subpath".into();
+    db.record_owner_move(
+        &r,
+        &r.binding,
+        &input(&db, &a.target, Scope::Project { project_id: 2 }),
+    )
+    .unwrap();
+    // Both reachable file rename/trash and parent directory rename/trash must be blocked.
+    assert!(db
+        .record_owner_require_unshared_root(&resources.join("图片.png"), Some(1))
+        .is_err());
+    assert!(db
+        .record_owner_require_unshared_root(&dir.path().join("a/resources"), Some(1))
+        .is_err());
+    assert!(db
+        .record_owner_require_unshared_root(&resources, Some(1))
+        .is_err());
+    assert!(db
+        .record_owner_require_unshared_root(&resources.join("unrelated.txt"), Some(1))
+        .is_ok());
+    let sibling = dir.path().join("a/resources/sub-extra");
+    std::fs::create_dir_all(&sibling).unwrap();
+    assert!(db
+        .record_owner_require_unshared_root(&sibling, Some(1))
+        .is_ok());
+    // This helper protects resources owned by other Records; caller validates physical owner.
+    assert!(db
+        .record_owner_require_unshared_root(&resources, Some(2))
+        .is_ok());
+    assert!(db
+        .record_owner_require_unshared_root(&dir.path().join("assets/图片.png"), None)
+        .is_err());
+    assert_eq!(
+        std::fs::read(resources.join("图片.png")).unwrap(),
+        b"retained"
+    );
+}
