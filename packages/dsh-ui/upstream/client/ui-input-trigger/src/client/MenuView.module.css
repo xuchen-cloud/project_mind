@@ -305,11 +305,15 @@
   }
 
   .item.active {
+    /* Preserve the system selection as one surface; forced per-span Canvas
+       backgrounds otherwise hide white text inside the selected button. */
+    forced-color-adjust: none;
     background: Highlight;
     color: HighlightText;
   }
 
   .item.active :is(.itemAlias, .itemDescription, .itemIcon, .drill, .drillHintText, .drillHint) {
     color: HighlightText;
+    background: transparent;
   }
 }

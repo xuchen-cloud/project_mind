@@ -22,7 +22,7 @@ import '/packages/dsh-ui/adapters/host.css';
 import {MenuView} from '/packages/dsh-ui/upstream/client/ui-input-trigger/src/client/MenuView.tsx';
 const dark = new URLSearchParams(location.search).get('theme') === 'dark';
 document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-let state = {open:true,hit:null,generation:1,highlight:{source:'files',index:0},groups:[{source:'files',status:'ready',items:Array.from({length:30},(_,i)=>({name:'File '+i,label:'候选文件 '+i,description:'说明文字 '+i}))}]};
+let state = {open:true,hit:null,generation:1,highlight:{source:'files',index:0},groups:[{source:'files',status:'ready',items:Array.from({length:30},(_,i)=>({name:'File '+i,label:'候选文件 '+i,description:'说明文字 '+i,drill:i===0}))}]};
 const listeners=new Set();
 const menu={getSnapshot:()=>state,subscribe:f=>{listeners.add(f);return()=>listeners.delete(f)}};
 const headers={getSnapshot:()=>crumbs,subscribe:()=>()=>{}};
@@ -57,11 +57,16 @@ try {
     await command('goto',url+'?theme='+(theme==='dark'?'dark':'light'));
     await command('snapshot');
     await command('run-code',"async page => { await page.locator('[data-trigger-menu] [role=listbox]').waitFor(); }");
-    const metrics = await evaluate(`() => {const menu=document.querySelector('[data-trigger-menu]');const view=menu.querySelector('[role=listbox]');const frame=view.parentElement;const material=menu.firstElementChild;return {background:getComputedStyle(material).backgroundColor,backdrop:getComputedStyle(material).backdropFilter,outline:getComputedStyle(menu).outlineStyle,top:Number(getComputedStyle(frame,'::before').opacity),bottom:Number(getComputedStyle(frame,'::after').opacity),max:view.scrollHeight-view.clientHeight,focus:document.activeElement?.tagName,selection:getComputedStyle(menu.querySelector('[aria-selected=true]')).backgroundColor,selectionInk:getComputedStyle(menu.querySelector('[aria-selected=true]')).color,system:(()=>{const probe=document.createElement('span');probe.style.cssText='background:Highlight;color:HighlightText';document.body.append(probe);const colors={background:getComputedStyle(probe).backgroundColor,color:getComputedStyle(probe).color};probe.remove();return colors;})()};}`);
+    const metrics = await evaluate(`() => {const menu=document.querySelector('[data-trigger-menu]');const view=menu.querySelector('[role=listbox]');const frame=view.parentElement;const material=menu.firstElementChild;return {background:getComputedStyle(material).backgroundColor,backdrop:getComputedStyle(material).backdropFilter,outline:getComputedStyle(menu).outlineStyle,top:Number(getComputedStyle(frame,'::before').opacity),bottom:Number(getComputedStyle(frame,'::after').opacity),max:view.scrollHeight-view.clientHeight,focus:document.activeElement?.tagName,selection:getComputedStyle(menu.querySelector('[aria-selected=true]')).backgroundColor,selectionInk:getComputedStyle(menu.querySelector('[aria-selected=true]')).color,selectedText:[...menu.querySelector('[aria-selected=true]').querySelectorAll('span,kbd')].map(span=>({color:getComputedStyle(span).color,background:getComputedStyle(span).backgroundColor})),system:(()=>{const probe=document.createElement('span');probe.style.cssText='background:Highlight;color:HighlightText';document.body.append(probe);const colors={background:getComputedStyle(probe).backgroundColor,color:getComputedStyle(probe).color};probe.remove();return colors;})()};}`);
     assert.ok(!metrics.background.includes('rgba'),theme+' must have an opaque material');
     assert.equal(metrics.backdrop,'none');
     assert.equal(metrics.top,0); assert.equal(metrics.bottom,1); assert.ok(metrics.max>64);
-    if(theme==='forced') { assert.equal(metrics.outline,'solid'); assert.equal(metrics.selection,metrics.system.background); assert.equal(metrics.selectionInk,metrics.system.color); assert.notEqual(metrics.selection,metrics.background); }
+    if(theme==='forced') { assert.equal(metrics.outline,'solid'); assert.equal(metrics.selection,metrics.system.background); assert.equal(metrics.selectionInk,metrics.system.color); for(const span of metrics.selectedText) { assert.equal(span.color,metrics.system.color); assert.equal(span.background,'rgba(0, 0, 0, 0)'); } assert.notEqual(metrics.selection,metrics.background); }
+    await command('run-code',"async page => { await page.locator('[aria-selected=true] [role=button]').hover(); }");
+    if(theme==='forced') {
+      const drill=await evaluate(`() => {const node=document.querySelector('[aria-selected=true] [role=button]');return {background:getComputedStyle(node).backgroundColor,color:getComputedStyle(node).color};}`);
+      assert.equal(drill.background,'rgba(0, 0, 0, 0)');assert.equal(drill.color,metrics.system.color);
+    }
     await command('screenshot','--filename',path.join(output,theme+'.png'));
     for(const position of ['middle','near-bottom','bottom','reverse','top']) {
       const measured=await evaluate(`async () => {const view=document.querySelector('[role=listbox]');const max=view.scrollHeight-view.clientHeight;view.scrollTop=${({middle:'max/2','near-bottom':'max-16',bottom:'max',reverse:'max-32',top:'0'})[position]};view.dispatchEvent(new Event('scroll'));await new Promise(requestAnimationFrame);const frame=view.parentElement;return {top:Number(getComputedStyle(frame,'::before').opacity),bottom:Number(getComputedStyle(frame,'::after').opacity)};}`);
