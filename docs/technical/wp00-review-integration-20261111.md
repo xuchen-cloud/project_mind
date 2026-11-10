@@ -7,7 +7,7 @@
 - 集成分支：`codex/wp00-review-integration-20261111`，从固定基线建立独立 worktree。
 - 交付：接收各包最终提交，维护共享文件契约；在独立分支串行整合，按受影响范围验证组合结果并自行完成 Standards / Spec 检查。
 - 非目标：代写各组修复、重复创建会话、覆盖原 checkout、推送、合并 develop、发布、部署或删除用户数据。
-- 依赖：WP01/02/03/05/07/08/09/10 已派发；WP03 稳定后原协调会话已派发 WP04，WP06 等 WP04 共享恢复入口及 db.rs 稳定后串行安排。WP00 不另建会话。
+- 依赖：十包均由原协调会话派发。WP04 在 WP03 稳定后完成；WP06 随后从 WP04 最终提交串行开始。WP00 不另建会话。
 - 验收：每包有精确提交、发现 ID、验证命令/结果、证据与未验证项；所有收到的提交在组合树上通过必要的接口/受影响验证，缺失包和平台门槛保持可见。
 
 ## 当前接收清单
@@ -19,9 +19,9 @@
 | WP01 | VC-01 | `codex/wp01-todo-workspace-binding` | 已整合 | 源 `32ae379e946d24f93b2a0c0f2766863692a801c4`；组合 `42d2bfb` | 前端组合通过；原生结果见下 |
 | WP02 | Q-AI-01/02、PERF-AI-01 | `codex/wp02-ai-job-lifecycle-20261111` | 已整合 | 源 `52681197421261b2083d62a2e7d58dc6d280ab84`；组合 `22d67a9` | 前端组合及补充回归通过；原生结果见下 |
 | WP03 | ARCH-01/02/03 | `codex/wp03-project-rename-recovery` | 已整合 | 源 `428acbf794aa240dc960b565c7279aeec8d085fd`；组合 `0219957` | 复用最终 23 项与真实 worker 1 项；已有失败另列 |
-| WP04 | ARCH-04 | 原协调会话已派发 | 执行中，会话 `01a1c6cf-1e54-7de1-b813-c738015f44d9` | 基于 WP03 `428acbf`；待最终提交 | 未执行组合验证 |
+| WP04 | ARCH-04 | `codex/wp04-cross-volume-working-save` | 已整合 | 源 `04bb493c882184c1220f59c6d86944075065cca8`；组合 `e433a27` | 组合原生结果见下；真实第二卷未验收 |
 | WP05 | Q1/2/3 | `codex/wp05-todo-editors-20261111` | 已整合 | 源 `fe6797e0f5cf3b18b0dcae20e74da615f95bf3a7`；组合 `19379b3` | 单独组合 168 项及最终前端组合通过 |
-| WP06 | VC-02 | 待派发 | 等 WP04 共享恢复入口及 db.rs 稳定，由原协调会话串行安排 | — | 未执行 |
+| WP06 | VC-02 | 原协调会话已派发 | 执行中，会话 `01a1c6e0-e41d-75a0-b352-bd63c9d1853d` | 基于 WP04 `04bb493`；待最终提交 | 未执行组合验证 |
 | WP07 | SEC-DEP-01/02 | `codex/wp07-security-dependencies` | 已整合 | 源 `54dda267066ba72716035be42375db945bacf7aa`；组合 `d55ab18` | 组合类型、宿主构建和受影响测试通过 |
 | WP08 | PERF-01 | `codex/wp08-file-path-index-20261111` | 已整合 | 源 `519b751e12d22d4c18285cdaa2824a54b99e2f3b`；组合 `a773178` | 受影响前端组合通过 |
 | WP09 | DOC-01/02、STD-01 | `codex/wp09-docs-rules-20261111` | 等待 approval，未收到最终提交 | 待接收 | 未执行组合验证 |
@@ -46,7 +46,7 @@ WP05 应消费这一成功确认撤销原始 hashtag 乐观正文，不以原始
 
 ### WP03 / WP04 / WP06
 
-WP03 已稳定交付改名 intent、恢复入口、精确路径映射及 schema42。后续以组合提交 `0219957` 为串行接入点，保留启动时 Project root → directory → working save 的恢复顺序。原协调会话已从 WP03 源提交派发 WP04：保持 File WorkingSave/WorkingStatus Interface，将 live 卷 stage/backup 与 journal/恢复/清理一起修正，并处理已有 pending journal。WP06 等 WP04 的共享恢复入口及 db.rs 稳定后串行安排，只接续 voice_minutes_apply 的稳定录音开始时间及本地时区后缀。WP00 只读跟进，不代建会话或修改责任组工作树。
+WP03 已稳定交付改名 intent、恢复入口、精确路径映射及 schema42；组合提交 `0219957` 保留启动时 Project root → directory → working save 的恢复顺序。WP04 已保持 File WorkingSave/WorkingStatus Interface，完成 live 卷 stage/backup 与 journal/恢复/清理修正，以及已有 pending journal 的兼容；没有修改 db.rs、恢复入口或 schema，组合提交为 `e433a27`。原协调会话已从 WP04 源提交派发 WP06，只接续 voice_minutes_apply 的稳定录音开始时间后缀并明确时区。WP00 只读跟进，不代建会话或修改责任组工作树。
 
 ## 验证计划与复用
 
@@ -91,6 +91,17 @@ WP00 最终调用链检查补充复现：sync 的 ready promise 已完成，rese
 交付记录：[依赖安全修复](wp07-security-dependencies-20261111.md)。责任组报告：干净安装、96 项针对性测试、类型检查、宿主及 Record/Source worker 构建通过；Vite 8.1.7、markdown-it 14.3.3，默认 loopback、显式 dev:lan；400 KB reference 微测约 3220 → 87 ms。组合类型、宿主构建和受影响测试结果另列于下。
 
 保留未验证项：Windows、多窗口、真实 LAN/Tauri GUI、安装包；其他 11 项 audit 告警不在本包已确认修复范围。
+
+### WP04
+
+[跨卷 working save 交付记录](../implementation/wp04-cross-volume-working-save.md)。5 文件无冲突接收；源与组合 patch ID 一致。只涉及原生 working 保存/恢复及测试，未改变 UI DTO/命令、schema 或不可变历史。
+
+- 新 stage/backup 在 live 的既有父目录，使用排他创建、相同随机 token、父目录物理身份与文件 identity/hash；rename 不覆盖目标、不降级 copy、不吞 EXDEV。journal、状态/BLOB、receipt/outbox 和提交后清理保持各自持久化边界。
+- 升级前没有 `placement` 的 journal 只接受该 File 原 history_dir 下的旧命名；新 journal 只接受 live 父目录下的新命名。父目录替换、symlink、外部 backup/staged 占用保留材料；已提交的 SQL 不因清理失败回滚。
+- 单包完整受影响范围 280 passed、1 failed、17 ignored；唯一新增占用测试把提交后的清理失败误认为 SQL 回滚。保持生产代码与外部字节保护不变，修正 revision 预期；该模块最终 8/8 通过，并补上 moved legacy prepared 的真实启动恢复。没有以放宽权限、覆盖或清理断言解决失败。
+- 普通及真实 A→B owner move 后的 Office working 保存另行明确执行 2 项，每项覆盖 DOCX/XLSX/PPTX 两次保存、重开和单次归档，旧历史元数据/hash/字节不变；实际构建并组装本分支 Office engine/sidecar，未重建未变更的 XLSX GUI renderer。`/private/tmp/wp04-real-office.log` 已核对 2/2。生产 `cargo check --lib` 通过，复用其精确未变更代码证据。
+- 普通/moved 两种布局各 6 时点共 12 次真实 SIGKILL；升级前 4 状态、父目录与占用保护有实际动态证据。EXDEV 回归使用真实 DB/文件/owner move 与 rename 边界注入，不是实际第二卷。
+- **真实第二卷 move→文本/Office 保存→重开仍未验收**：本机只有系统卷。解锁需要同一 Workspace 内合法挂载、历史与 live 的实际设备号不同；不创建/格式化磁盘，不用 symlink 或注入用例替代。GUI 多窗口、Windows/Linux、断电仍未测。既有 forged-scope 错误码失败未改、未重跑，继续保留。
 
 ### WP08
 
@@ -142,13 +153,29 @@ cargo test --manifest-path src-tauri/Cargo.toml --lib --quiet -j2 -- \
 - 修正 fixture 让 runtime 与 manager 复用同一个 binding，不改变生产逻辑或测试断言；同一命令重跑 **7 passed、0 failed、0 ignored**（1884 filtered），日志 `combined-native-tests.log`。4 项真实 AI manager 受控 worker 测试与 3 项真实 SQLite/storage 绑定测试来自完整 crate 测试二进制，补齐 WP02 worker 原先仅 harness 的运行证据。
 - 没有把 1 项 AI 命令 binding harness 算作此次原生 7 项；它仍未通过真实 Tauri IPC 验收。未运行 GUI、全量原生套件或真实 Provider。
 
+### 八包原生组合验证（接入 WP04 后）
+
+接入代码树 `e433a27`；新保存/恢复逻辑与 WP03 根恢复、隔离 working journal 保护有交集，因此在 WP00 独立 target 上定向运行：
+
+```sh
+SHERPA_ONNX_LIB_DIR=/private/tmp/wp03-sherpa-prebuilt/sherpa-onnx-v1.13.8-osx-arm64-static-lib/lib \
+CARGO_TARGET_DIR=/private/tmp/project-mind-wp00-native-target \
+CARGO_PROFILE_DEV_DEBUG=0 CARGO_INCREMENTAL=0 TMPDIR=/private/tmp \
+cargo test --manifest-path src-tauri/Cargo.toml --lib --quiet -j2 -- \
+  --test-threads=1 db::file_working::tests db::project_root_rename_
+```
+
+结果 **41 passed、0 failed、3 ignored**（1857 filtered），22.11 秒，日志 `wp04-combined-native-tests.log`。3 项 ignored 是 working/root 两项由父测试显式调用的崩溃子进程 helper，以及需要固定 runtime 的真实 Record worker；均不计本次通过，Record worker 仍复用 WP03 明确执行的既有证据。
+
+AI/Todo 绑定源码、前端源码/依赖和现有 Office 产物未变化，复用前述 7 项原生绑定/worker、830 项前端、类型、宿主构建与包体检查；Office 服务实测复用 WP04 自己从同一源码构建的证据。没有重复全库验证，也不把注入 EXDEV 当作真实第二卷。
+
 ## Standards / Spec 整合检查
 
-WP00 自行核对七包源提交与组合提交的 patch ID、共享文件 hunk、工作区绑定、异步失效窗口、物理 worker 预算、schema/恢复顺序、精确资源来源、Todo 规范确认、路径索引语义及 Beta CAS。未启动 review 子 agent。七包 cherry-pick 无需人工冲突取舍。
+WP00 自行核对八包源提交与组合提交的 patch ID、共享文件 hunk、工作区绑定、异步失效窗口、物理 worker 预算、schema/恢复顺序、精确资源来源、working journal 新旧布局、Todo 规范确认、路径索引语义及 Beta CAS。未启动 review 子 agent。八包 cherry-pick 无需人工冲突取舍。
 
 整合时修复三类实际问题：`5e08db1` 的 ready/reset enqueue 窗口；`521b364` 的 QueryClient 和消费者 binding 测试适配；原生 fixture 的 manager binding 参数适配。新增行为均有失败或编译失败证据及定向通过结果，没有放宽产品门禁。
 
-当前已接收七包覆盖 14/19 个原始发现的本地修复；WP04、WP06、WP09 的 5 个发现仍未完成接收。七包受影响组合检查通过，但上述已有原生错误分类失败、缺失包和平台验收仍保留，不能据此关闭整轮或进入发布。
+当前已接收八包覆盖 15/19 个原始发现的本地代码修复；WP06、WP09 的 4 个发现仍未完成接收。已有原生错误分类失败、真实第二卷与其他平台验收仍保留，不能据此关闭整轮或进入发布。
 
 ## 工具限制与待决定项
 
