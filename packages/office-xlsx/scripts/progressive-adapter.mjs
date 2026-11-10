@@ -6,6 +6,13 @@ const replace = (source, from, to) => {
 export function adaptProgressiveApp(source) {
   source = replace(source, 'formulaMode: opensInFormulaMode(cellCounts),',
     'formulaMode: !window.__projectMindSheetsHost.isPartialView() && opensInFormulaMode(cellCounts),')
+  source = replace(source, '                params.cellValue,',
+    '                window.__projectMindSheetsHost.journalCellValues(params.cellValue),')
+  source = replace(source, '          const formulas = collectCellFormulaTexts(params?.value ?? params?.cellValue)',
+    `          if (event.id === SET_RANGE_VALUES_MUTATION && params?.subUnitId) {
+            window.__projectMindSheetsHost.captureInputStyles(params.subUnitId, params.cellValue)
+          }
+          const formulas = collectCellFormulaTexts(params?.value ?? params?.cellValue)`)
   return replace(source, '        if (recorded.length === 0) return', `        if (recorded.length === 0) return
         if (window.__projectMindSheetsHost.isPartialView() && !state.flags.preloadComplete &&
             recorded.some((entry) => entry.hasValue || entry.formula !== undefined)) {

@@ -17,6 +17,7 @@ import {snapshotRange, createViewReader} from './view-source'
 import {readView} from './renderer-view'
 import {parseViewResult} from './view-protocol'
 import {formulaClosureRevision, invalidateFormulaClosure, formulasWithEdits, formulaSheetExtent} from './formula-closure-edits'
+import {withoutUnchangedInputStyles} from './input-style-journal'
 
 // Only data and explicit replies cross this frame boundary. No native/path relay is installed.
 type Options = { model: Model; edits: Edit[]; readOnly: boolean; presentationMode: 'preview' | 'edit'; appearance: Record<string,string> }
@@ -32,6 +33,7 @@ const initialCalculation=new InitialCalculationGate()
 let initialCalculationTarget:object
 let calculationReadyMarked=false
 const baseline=new Map<string,string>();let baselineCaptured=false
+const inputStyleJournals=new WeakMap<object,unknown>()
 let outputBusy=false,outputFailure:Error|undefined
 let inputPending=false,pending=false,lastSignature='[]',captured:Edit[]|undefined,restoreStarted=false
 const listeners=new Map<string,Set<Function>>()
@@ -185,6 +187,12 @@ export async function initialize(){options=await new Promise<Options>(resolve=>{
   invalidateFormulaClosure,
   formulasWithEdits,
   formulaSheetExtent,
+  captureInputStyles(sheetId:string,values:unknown){
+   if(!values||typeof values!=='object')return
+   const sheet=context?.univerRef.current?.univerAPI.getActiveWorkbook()?.getSheetBySheetId(sheetId)
+   if(sheet)inputStyleJournals.set(values,withoutUnchangedInputStyles(values,(row,column)=>sheet.getSheet().getCellStyle(row,column),toNeutralStyle))
+  },
+  journalCellValues:(values:unknown)=>values&&typeof values==='object'?inputStyleJournals.get(values)??values:values,
   canCalculate:()=>options.model.coverage?.kind!=='partial'||context?.lazyWorkbookRef.current?.closure.status==='active'||context?.lazyWorkbookRef.current?.flags.preloadComplete===true,
   initialCalculationRequested(state:object){initialCalculationTarget=state;initialCalculation.expect(state);performance.mark('office-xlsx:initial-calculation-requested')},
   initialCalculationStarting(runtime:any){initialCalculation.begin(initialCalculationTarget,runtime.univer.__getInjector().get(FormulaCalculationSessionService).state.id);performance.mark('office-xlsx:initial-calculation-starting')},

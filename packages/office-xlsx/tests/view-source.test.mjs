@@ -8,6 +8,8 @@ import {adaptProgressiveApp,adaptProgressiveSync,adaptProgressiveHold} from '../
 const exports={}
 runInNewContext(ts.transpileModule(readFileSync(new URL('../view-source.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,Map,WeakMap,Promise,Error,JSON})
 const {snapshotRange,createViewReader}=exports
+const inputStyles={}
+runInNewContext(ts.transpileModule(readFileSync(new URL('../input-style-journal.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:inputStyles})
 const closureEdits={}
 runInNewContext(ts.transpileModule(readFileSync(new URL('../formula-closure-edits.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:closureEdits,Map,WeakMap,clearTimeout})
 const area={startRow:3,endRow:3,startColumn:2,endColumn:3}
@@ -125,4 +127,19 @@ test('closure precedents survive eviction while a later range read is suspended'
   assert.equal(state.closure.status,'active')
   assert.equal((grid.get('4999:0')??0)+(grid.get('9999:0')??0)+1,18)
   assert.equal(state.closure.pinned.get('sheet').get('4999:0').v,7)
+})
+
+test('content input journals style changes independently while keeping explicit formatting and resets',()=>{
+  const old={ff:'Calibri',fs:11,cl:{rgb:'#000000'},bl:0}
+  const content=Object.freeze({v:40,s:Object.freeze({ff:'Calibri',fs:11,cl:{rgb:'#000000'},bl:1})})
+  const explicit=Object.freeze({s:{cl:{rgb:'#000000'}}})
+  const reset=Object.freeze({v:null,s:null})
+  const values=Object.freeze({2:Object.freeze({1:content,2:explicit,3:reset})})
+  const result=inputStyles.withoutUnchangedInputStyles(values,()=>old,style=>style)
+  assert.deepEqual(JSON.parse(JSON.stringify(result)),{2:{1:{v:40,s:{bl:1}},2:{s:{cl:{rgb:'#000000'}}},3:{v:null,s:null}}})
+  assert.equal(result[2][2],explicit)
+  assert.equal(result[2][3],reset)
+  assert.equal(content.s.ff,'Calibri')
+  const plain=inputStyles.withoutUnchangedInputStyles({2:{1:{f:'=A1+1',s:old}}},()=>old,style=>style)
+  assert.deepEqual(JSON.parse(JSON.stringify(plain)),{2:{1:{f:'=A1+1'}}})
 })
