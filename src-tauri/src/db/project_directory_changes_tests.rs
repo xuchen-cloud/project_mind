@@ -868,3 +868,522 @@ fn directory_changes_corrupt_working_revision_is_not_replaced_by_archived_versio
         b"working bytes not archived"
     );
 }
+
+fn navigation_prepare(f: &Fixture, relative: &str) -> PreparedNavigationChange {
+    f.db.project_navigation_trash_prepare(&f.binding, f.owner, relative)
+        .unwrap()
+}
+
+#[test]
+fn navigation_trash_unregistered_files_and_folders_for_both_owners() {
+    for project in [false, true] {
+        for kind in [NavigationKind::File, NavigationKind::Directory] {
+            let f = fixture(project);
+            let source = f.root.join("entry");
+            if kind == NavigationKind::File {
+                fs::write(&source, b"unregistered bytes").unwrap();
+                assert_code(
+                    f.db.project_directory_change_prepare(&f.binding, f.owner, "entry"),
+                    "invalid_path",
+                );
+            } else {
+                fs::create_dir(&source).unwrap();
+                fs::write(source.join("unregistered.bin"), b"unregistered bytes").unwrap();
+            }
+            let writes: i64 =
+                f.db.conn
+                    .query_row("SELECT total_changes()", [], |r| r.get(0))
+                    .unwrap();
+            let prepared = navigation_prepare(&f, "entry");
+            assert_eq!(prepared.kind, kind);
+            let json = serde_json::to_value(&prepared).unwrap();
+            assert!(json.get("token").is_some());
+            assert!(json.get("identityToken").is_some());
+            assert_eq!(json["relativePath"], "entry");
+            assert!(json.get("prepared").is_none());
+            assert!(prepared.prepared.files.is_empty());
+            assert_eq!(
+                navigation_prepare(&f, "entry").prepared.token,
+                prepared.prepared.token
+            );
+            assert_eq!(
+                f.db.conn
+                    .query_row("SELECT total_changes()", [], |r| r.get::<_, i64>(0))
+                    .unwrap(),
+                writes
+            );
+            let payload = input(&f, &prepared.prepared, None, "navigation-unregistered");
+            let destination = f.temp.path().join("trash");
+            let result =
+                f.db.project_navigation_trash_with(&payload, |path| {
+                    assert_eq!(path, source);
+                    fs::rename(path, &destination)?;
+                    Ok(())
+                })
+                .unwrap();
+            assert_eq!(
+                result,
+                DirectoryChangeResult {
+                    relative_path: None,
+                    file_ids: vec![]
+                }
+            );
+            assert!(!source.exists());
+            assert_eq!(count(&f, "documents"), 0);
+            // A receipt remains authoritative even if the original path returns.
+            fs::write(&source, b"new occupant").unwrap();
+            assert_eq!(
+                f.db.project_navigation_trash_with(&payload, |_| panic!(
+                    "replay cannot call Trash"
+                ))
+                .unwrap(),
+                result
+            );
+            assert_eq!(fs::read(&source).unwrap(), b"new occupant");
+            let mut changed = payload.clone();
+            changed.confirmed = Some(false);
+            assert!(f
+                .db
+                .project_navigation_trash_with(&changed, |_| panic!("changed replay"))
+                .is_err());
+        }
+    }
+}
+
+#[test]
+fn navigation_trash_registered_file_preserves_ids_versions_working_and_sibling_history() {
+    for project in [false, true] {
+        let mut f = fixture(project);
+        let (object, current) = rich_file(&f);
+        let before_versions = versions(&f, &object);
+        let before_working = working_bytes(&f, &object);
+        let prepared = navigation_prepare(&f, "folder/nested/note.md");
+        assert_eq!(prepared.kind, NavigationKind::File);
+        assert_eq!(
+            prepared.prepared.files,
+            vec![PreparedFile {
+                file_id: object.id.parse().unwrap(),
+                revision: current.revision
+            }]
+        );
+        let source = f.root.join("folder/nested/note.md");
+        let history =
+            f.db.document_record(object.id.parse().unwrap())
+                .unwrap()
+                .history_dir_path;
+        let destination = f.temp.path().join("trash-file");
+        let payload = input(&f, &prepared.prepared, None, "navigation-rich");
+        let result =
+            f.db.project_navigation_trash_with(&payload, |path| {
+                assert_eq!(path, source);
+                assert_eq!(fs::read(path)?, b"working bytes not archived");
+                fs::rename(path, &destination)?;
+                Ok(())
+            })
+            .unwrap();
+        fs::remove_file(destination).unwrap();
+        reopen(&mut f);
+        assert_eq!(result.file_ids, vec![object.id.parse::<i64>().unwrap()]);
+        assert_eq!(count(&f, "documents"), 1);
+        let document = f.db.document_record(object.id.parse().unwrap()).unwrap();
+        assert_eq!(document.project_id, f.owner);
+        assert_eq!(document.health, "missing");
+        assert_eq!(document.current_version_number, 2);
+        assert_eq!(document.history_dir_path, history);
+        assert_eq!(f.db.project_file_resolve(&object).unwrap().state, "missing");
+        assert_eq!(working_bytes(&f, &object), before_working);
+        assert_eq!(versions(&f, &object), before_versions);
+        let recovery =
+            f.db.file_working_recovery_read(&f.request, &f.binding, &object)
+                .unwrap();
+        assert_eq!(recovery.revision, current.revision);
+        assert_eq!(recovery.content_hash, current.content_hash);
+        assert_eq!(
+            STANDARD.decode(recovery.base64).unwrap(),
+            b"working bytes not archived"
+        );
+    }
+}
+
+#[test]
+fn navigation_trash_file_retains_source_backed_version_before_os_call() {
+    let mut f = fixture(true);
+    let object = register(&f, "note.md", b"historical original");
+    let source = f.root.join("note.md");
+    // Legacy versions may refer directly to the business file being removed.
+    f.db.conn
+        .execute(
+            "UPDATE document_versions SET managed_path=?1 WHERE document_id=?2",
+            params![f.db.encode_path_ref(&source), object.id],
+        )
+        .unwrap();
+    let before = versions(&f, &object);
+    let payload = input(
+        &f,
+        &navigation_prepare(&f, "note.md").prepared,
+        None,
+        "source-backed",
+    );
+    f.db.project_navigation_trash_with(&payload, |path| {
+        let retained = f.workspace.join(".project-mind/directory-history");
+        assert!(retained.is_dir());
+        fs::remove_file(path)?;
+        Ok(())
+    })
+    .unwrap();
+    reopen(&mut f);
+    assert_eq!(versions(&f, &object), before);
+    assert_eq!(
+        f.db.document_record(object.id.parse().unwrap())
+            .unwrap()
+            .health,
+        "missing"
+    );
+}
+
+#[test]
+fn navigation_trash_kind_identity_confirmation_and_endpoint_tokens_are_bound() {
+    for replacement in ["file", "directory"] {
+        let f = fixture(true);
+        fs::write(f.root.join("entry"), b"original").unwrap();
+        let prepared = navigation_prepare(&f, "entry");
+        let payload = input(&f, &prepared.prepared, None, "replaced");
+        // Keep the old inode alive to ensure this tests identity replacement.
+        fs::rename(f.root.join("entry"), f.root.join("old-entry")).unwrap();
+        if replacement == "file" {
+            fs::write(f.root.join("entry"), b"replacement").unwrap();
+        } else {
+            fs::create_dir(f.root.join("entry")).unwrap();
+        }
+        assert_code(
+            f.db.project_navigation_trash_with(&payload, |_| panic!("replacement must survive")),
+            "revision_conflict",
+        );
+        assert!(f.root.join("entry").exists());
+    }
+    let f = fixture(true);
+    fs::create_dir(f.root.join("folder")).unwrap();
+    let legacy = input(&f, &prepare(&f, "folder"), None, "legacy-token");
+    assert_code(
+        f.db.project_navigation_trash_with(&legacy, |_| panic!("wrong endpoint token")),
+        "revision_conflict",
+    );
+    let generic = input(
+        &f,
+        &navigation_prepare(&f, "folder").prepared,
+        None,
+        "generic-token",
+    );
+    assert_code(
+        f.db.project_directory_change_with(&generic, |_| panic!("wrong endpoint token")),
+        "revision_conflict",
+    );
+    fs::write(f.root.join("entry"), b"original").unwrap();
+    let mut payload = input(
+        &f,
+        &navigation_prepare(&f, "entry").prepared,
+        None,
+        "confirmation",
+    );
+    payload.confirmed = Some(false);
+    assert_code(
+        f.db.project_navigation_trash_with(&payload, |_| panic!("no confirmation")),
+        "confirmation_required",
+    );
+    payload.name = Some("rename".into());
+    assert_code(
+        f.db.project_navigation_trash_with(&payload, |_| panic!("no rename")),
+        "invalid_path",
+    );
+    assert_eq!(count(&f, "agent_operation_receipts"), 0);
+}
+
+#[test]
+fn navigation_trash_file_sessions_cas_owner_and_pending_saves_block_os() {
+    let f = fixture(true);
+    let (object, _) = rich_file(&f);
+    let before = working_bytes(&f, &object);
+    let receipts_before = count(&f, "agent_operation_receipts");
+    let payload = input(
+        &f,
+        &navigation_prepare(&f, "folder/nested/note.md").prepared,
+        None,
+        "file-cas",
+    );
+    let (session, status) = open(&f, &object);
+    assert_code(
+        f.db.project_navigation_trash_prepare(&f.binding, f.owner, &payload.relative_path),
+        "active_editors",
+    );
+    assert_code(
+        f.db.project_navigation_trash_with(&payload, |_| panic!("active session")),
+        "active_editors",
+    );
+    save(&f, &session, &status, "new working content", "new-revision");
+    close(&f, &session);
+    assert_code(
+        f.db.project_navigation_trash_with(&payload, |_| panic!("stale revision")),
+        "revision_conflict",
+    );
+    let fresh = input(
+        &f,
+        &navigation_prepare(&f, &payload.relative_path).prepared,
+        None,
+        "pending",
+    );
+    f.db.conn
+        .execute(
+            "UPDATE file_working_contents SET journal='{}' WHERE document_id=?1",
+            [&object.id],
+        )
+        .unwrap();
+    assert_code(
+        f.db.project_navigation_trash_with(&fresh, |_| panic!("pending working journal")),
+        "revision_conflict",
+    );
+    f.db.conn
+        .execute(
+            "UPDATE file_working_contents SET journal=NULL WHERE document_id=?1",
+            [&object.id],
+        )
+        .unwrap();
+    f.db.conn
+        .execute(
+            "UPDATE documents SET project_id=NULL WHERE id=?1",
+            [&object.id],
+        )
+        .unwrap();
+    assert_code(
+        f.db.project_navigation_trash_prepare(&f.binding, f.owner, &payload.relative_path),
+        "ownership_mismatch",
+    );
+    assert_code(
+        f.db.project_navigation_trash_with(&fresh, |_| panic!("wrong owner")),
+        "ownership_mismatch",
+    );
+    assert_eq!(
+        count(&f, "agent_operation_receipts"),
+        receipts_before + 1,
+        "only the new working save creates a receipt"
+    );
+    assert_ne!(working_bytes(&f, &object), before);
+    assert_eq!(
+        fs::read(f.root.join(&payload.relative_path)).unwrap(),
+        b"new working content"
+    );
+}
+
+#[test]
+fn navigation_trash_io_failure_and_move_then_error_have_durable_outcomes() {
+    for moved in [false, true] {
+        let f = fixture(true);
+        let object = register(&f, "entry.md", b"original");
+        let before = versions(&f, &object);
+        let payload = input(
+            &f,
+            &navigation_prepare(&f, "entry.md").prepared,
+            None,
+            "io-failure",
+        );
+        let result = f.db.project_navigation_trash_with(&payload, |path| {
+            if moved {
+                fs::remove_file(path)?;
+            }
+            Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "Trash refused").into())
+        });
+        if moved {
+            assert_eq!(
+                result.unwrap().file_ids,
+                vec![object.id.parse::<i64>().unwrap()]
+            );
+            assert_eq!(f.db.project_file_resolve(&object).unwrap().state, "missing");
+            f.db.project_navigation_trash_with(&payload, |_| panic!("durable replay"))
+                .unwrap();
+        } else {
+            assert_code(result, "io_failed");
+            assert!(f.root.join("entry.md").exists());
+            assert_eq!(count(&f, "agent_operation_receipts"), 0);
+            f.db.project_navigation_trash_with(&payload, |path| {
+                fs::remove_file(path)?;
+                Ok(())
+            })
+            .unwrap();
+        }
+        assert_eq!(versions(&f, &object), before);
+        assert!(fs::read_dir(f.workspace.join(JOURNALS))
+            .unwrap()
+            .next()
+            .is_none());
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn navigation_trash_file_rejects_links_special_files_and_non_directory_ancestors() {
+    let f = fixture(true);
+    fs::write(f.root.join("entry"), b"original").unwrap();
+    let payload = input(
+        &f,
+        &navigation_prepare(&f, "entry").prepared,
+        None,
+        "symlink-replaced",
+    );
+    fs::rename(f.root.join("entry"), f.root.join("outside")).unwrap();
+    std::os::unix::fs::symlink(f.root.join("outside"), f.root.join("entry")).unwrap();
+    assert!(f
+        .db
+        .project_navigation_trash_with(&payload, |_| panic!("symlink"))
+        .is_err());
+    assert!(f
+        .db
+        .project_navigation_trash_prepare(&f.binding, f.owner, "outside/child")
+        .is_err());
+    let fifo = f.root.join("fifo");
+    assert!(std::process::Command::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .unwrap()
+        .success());
+    assert_code(
+        f.db.project_navigation_trash_prepare(&f.binding, f.owner, "fifo"),
+        "invalid_path",
+    );
+    assert_eq!(fs::read(f.root.join("outside")).unwrap(), b"original");
+}
+
+#[test]
+#[ignore = "manual OS Trash acceptance; only a uniquely named temporary regular file is trashed"]
+fn navigation_trash_real_os_regular_file_preserves_history_and_working() {
+    let f = fixture(true);
+    let (object, _) = rich_file(&f);
+    let before = versions(&f, &object);
+    let working = working_bytes(&f, &object);
+    let payload = input(
+        &f,
+        &navigation_prepare(&f, "folder/nested/note.md").prepared,
+        None,
+        "real-file-trash",
+    );
+    f.db.project_navigation_trash_with(&payload, |path| {
+        assert_eq!(path, f.root.join("folder/nested/note.md"));
+        trash::delete(path).map_err(|e| anyhow!(e))
+    })
+    .unwrap();
+    assert!(!f.root.join(&payload.relative_path).exists());
+    assert_eq!(versions(&f, &object), before);
+    assert_eq!(working_bytes(&f, &object), working);
+    assert_eq!(f.db.project_file_resolve(&object).unwrap().state, "missing");
+}
+
+#[test]
+fn navigation_trash_file_retention_hash_conflict_preserves_original() {
+    let f = fixture(true);
+    let object = register(&f, "entry.md", b"immutable version");
+    let source = f.root.join("entry.md");
+    f.db.conn
+        .execute(
+            "UPDATE document_versions SET managed_path=?1 WHERE document_id=?2",
+            params![f.db.encode_path_ref(&source), object.id],
+        )
+        .unwrap();
+    let payload = input(
+        &f,
+        &navigation_prepare(&f, "entry.md").prepared,
+        None,
+        "retention-conflict",
+    );
+    fs::write(&source, b"externally modified history").unwrap();
+    assert_code(
+        f.db.project_navigation_trash_with(&payload, |_| {
+            panic!("hash conflict must precede Trash")
+        }),
+        "revision_conflict",
+    );
+    assert_eq!(fs::read(source).unwrap(), b"externally modified history");
+    assert_eq!(
+        f.db.document_record(object.id.parse().unwrap())
+            .unwrap()
+            .health,
+        "normal"
+    );
+    assert_eq!(count(&f, "agent_operation_receipts"), 0);
+}
+
+#[test]
+fn navigation_prepare_file_does_not_recover_or_mutate_pending_evidence() {
+    let f = fixture(true);
+    let object = register(&f, "entry.md", b"original");
+    let before = versions(&f, &object);
+    let snapshot: String =
+        f.db.conn
+            .query_row(
+                "SELECT managed_path FROM document_versions WHERE document_id=?1",
+                [&object.id],
+                |r| r.get(0),
+            )
+            .unwrap();
+    let journal = f
+        .workspace
+        .join(JOURNALS)
+        .join("0123456789abcdef0123456789abcdef");
+    fs::create_dir_all(&journal).unwrap();
+    fs::write(journal.join("intent.json"), b"unreadable recovery evidence").unwrap();
+    let writes: i64 =
+        f.db.conn
+            .query_row("SELECT total_changes()", [], |r| r.get(0))
+            .unwrap();
+    assert!(f
+        .db
+        .project_navigation_trash_prepare(&f.binding, f.owner, "entry.md")
+        .is_err());
+    assert_eq!(
+        fs::read(journal.join("intent.json")).unwrap(),
+        b"unreadable recovery evidence"
+    );
+    assert_eq!(
+        f.db.conn
+            .query_row("SELECT total_changes()", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        writes
+    );
+    assert_eq!(
+        fs::read(f.db.decode_path_ref(&snapshot)).unwrap(),
+        before[0].bytes
+    );
+    assert_eq!(count(&f, "document_versions"), before.len() as i64);
+    assert_eq!(fs::read(f.root.join("entry.md")).unwrap(), b"original");
+}
+
+#[test]
+fn navigation_file_pending_metadata_and_closed_fence_block_os() {
+    let f = fixture(true);
+    let object = register(&f, "entry.md", b"original");
+    let payload = input(
+        &f,
+        &navigation_prepare(&f, "entry.md").prepared,
+        None,
+        "pending-metadata",
+    );
+    f.db.conn
+        .execute(
+            "INSERT INTO project_directory_metadata_intents(document_id,payload) VALUES (?1,'{}')",
+            [&object.id],
+        )
+        .unwrap();
+    assert_code(
+        f.db.project_navigation_trash_with(&payload, |_| panic!("pending metadata")),
+        "revision_conflict",
+    );
+    f.db.conn
+        .execute("DELETE FROM project_directory_metadata_intents", [])
+        .unwrap();
+    let result = f.db.project_navigation_trash_fenced_with(
+        &payload,
+        |_| panic!("closed fence"),
+        || -> Result<()> { bail!("Workspace is closed") },
+    );
+    assert!(result.is_err());
+    assert!(f.root.join("entry.md").exists());
+    assert!(!f.workspace.join(JOURNALS).exists());
+    assert_eq!(count(&f, "agent_operation_receipts"), 0);
+}

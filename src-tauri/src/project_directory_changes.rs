@@ -8,6 +8,7 @@ use crate::{
     db::{
         project_directory_changes::{
             DirectoryChangeInput, DirectoryChangeResult, PreparedDirectoryChange,
+            PreparedNavigationChange,
         },
         project_directory_files::FileServiceError,
     },
@@ -62,9 +63,30 @@ pub(crate) async fn project_directory_change_prepare(
         message: e.to_string(),
     })?
 }
+#[tauri::command]
+pub(crate) async fn project_navigation_trash_prepare(
+    caller: Webview,
+    binding: WorkspaceBinding,
+    project_id: Option<i64>,
+    relative_path: String,
+) -> Result<PreparedNavigationChange, FileServiceError> {
+    let host = host(&caller, &binding, project_id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let db = host.database().map_err(service_error)?;
+        let _permit = host.fence().enter().map_err(service_error)?;
+        db.project_navigation_trash_prepare(&binding, project_id, &relative_path)
+            .map_err(FileServiceError::from_error)
+    })
+    .await
+    .map_err(|e| FileServiceError {
+        code: "io_failed",
+        message: e.to_string(),
+    })?
+}
 async fn change(
     caller: Webview,
     input: DirectoryChangeInput,
+    navigation: bool,
 ) -> Result<DirectoryChangeResult, FileServiceError> {
     let host = host(&caller, &input.binding, input.project_id)?;
     let app = caller.app_handle().clone();
@@ -81,16 +103,16 @@ async fn change(
                 &input.request_id,
                 || {
                     // Preserve the structured GUI error, including active_editors.
-                    Ok(db
-                        .project_directory_change_fenced_with(
-                            &input,
-                            |path| {
-                                trash::delete(path)
-                                    .map_err(|e| anyhow::anyhow!("无法移入系统回收站：{e}"))
-                            },
-                            || host.fence().enter().map_err(|e| anyhow::anyhow!(e.message)),
-                        )
-                        .map_err(FileServiceError::from_error))
+                    let trash = |path: &std::path::Path| {
+                        trash::delete(path).map_err(|e| anyhow::anyhow!("无法移入系统回收站：{e}"))
+                    };
+                    let enter = || host.fence().enter().map_err(|e| anyhow::anyhow!(e.message));
+                    Ok(if navigation {
+                        db.project_navigation_trash_fenced_with(&input, trash, enter)
+                    } else {
+                        db.project_directory_change_fenced_with(&input, trash, enter)
+                    }
+                    .map_err(FileServiceError::from_error))
                 },
             )
             .map_err(service_error)?
@@ -137,6 +159,7 @@ pub(crate) async fn project_directory_rename(
             confirmed: None,
             request_id,
         },
+        false,
     )
     .await
 }
@@ -161,6 +184,33 @@ pub(crate) async fn project_directory_delete(
             confirmed: Some(confirmed),
             request_id,
         },
+        false,
+    )
+    .await
+}
+
+#[tauri::command]
+pub(crate) async fn project_navigation_trash(
+    caller: Webview,
+    binding: WorkspaceBinding,
+    project_id: Option<i64>,
+    relative_path: String,
+    token: String,
+    confirmed: bool,
+    request_id: String,
+) -> Result<DirectoryChangeResult, FileServiceError> {
+    change(
+        caller,
+        DirectoryChangeInput {
+            binding,
+            project_id,
+            relative_path,
+            token,
+            name: None,
+            confirmed: Some(confirmed),
+            request_id,
+        },
+        true,
     )
     .await
 }
