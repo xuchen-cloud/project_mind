@@ -177,3 +177,7 @@ visible during the run: later hidden/RAF failures still invalidate the sample. N
 RAF substitute or hidden-render bypass is used. Bare binaries on macOS may be absent
 from application inventories; a locally packaged measurement app can be raised for
 inspection without changing its embedded binary or isolated app-data.
+
+## Working-protocol native verification (2026-11-10)
+
+[Archived native reports](../../docs/technical/review-20261110/verification/observer/README.md) show DOCX and Markdown simple fixtures passing all current-working edit/save/close/readback, explicit archive and history checks on macOS arm64 embedded-debug. Boundary tests pass46/46. The DOCX cold-open sample exceeds the1000ms budget; no release/p95 or Windows result is claimed. This verifies the observer protocol against actual native persistence, not the later Office engine changes.

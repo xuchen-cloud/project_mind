@@ -1,0 +1,22 @@
+[
+  {
+    "path": "docx-simple-1.json",
+    "sha256": "df993d38a2970bd74233f5604ecd39c55b4f86acc1c0557ba11af257c028c150",
+    "bytes": 134948
+  },
+  {
+    "path": "docx-simple-1.log",
+    "sha256": "ba26268e5a43c044991abf431cffe7fe6745eb927e3db946d4a1f7bc3e3383d5",
+    "bytes": 3172
+  },
+  {
+    "path": "md-simple-1.json",
+    "sha256": "924be520cf530bc92e84114cd76a4392e62f3a2119f4f247d5cc62ccdaff0385",
+    "bytes": 114476
+  },
+  {
+    "path": "md-simple-1.log",
+    "sha256": "b7679c7323028b74f725a4eef8d5d9f1a027c141095bac72cda9c2ac9e47a1c0",
+    "bytes": 105
+  }
+]
