@@ -32,7 +32,7 @@
 - `src/lib/record-document-html.test.ts`：从原 review probe 迁入 7 个实际 Tiptap Editor fixture，`ts` 在转换前后明确断言。
 - `src/lib/record-document-html.node.test.ts`：ts/typescript/mermaid/未知/无语言、HTML 空白和首元素语义、显式状态独立保存。
 
-### 语言验证（已定稿，可独立提交）
+### 语言验证（已定稿并独立提交）
 
 基线 `fe9fe9c188f05c23bae369074446e38c0859a0c8`。全部使用 `with-build-lock.py` 串行、`--maxWorkers=1`：
 
@@ -68,7 +68,7 @@
 
 - 排版红灯：只运行 `StableRecordBlocks.test.ts`，**7 failed / 14 passed**；覆盖列表/引用/表格/代码 mount 与 remount 无额外空段、显式空段保留、普通事务后的尾段继续输入。
 - 排版绿灯：同文件加两个 HTML 回归文件，**3 files / 40 tests passed**，2.18s。来源 `spacing-red.log` / `spacing-green.log`。
-- 用户插入新表格/代码、同时需要 ID 修复的额外边界：针对新用例运行（结果见最终状态），不重复全部已通过用例。
+- 用户插入新表格/代码、同时需要 ID 修复的额外边界：`StableRecordBlocks.test.ts -t 'repairs new IDs in a user insertion' --maxWorkers=1`，**2 passed / 21 skipped**，0.504s；复用上一轮已通过的其余 21 项。日志 `user-insertion-validation.log`。因此当前 HTML/稳定块相关 42 项均已有对应通过记录（40 + 2），产品源码未再变化。
 
 修复后 `computed-style-after.json` 与 `spacing-summary.json`：
 
@@ -90,7 +90,7 @@
 - `spacing.html` / `spacing.ts` / `vite.config.mts`：独立入口、实际应用 CSS 和扩展、独立 Vite 缓存。首次使用克隆缓存遇到的 504 日志也保留，成功测量使用独立缓存。
 - `measure.js`：等待字体和两帧布局后，采集 computed style、相对矩形、行框和完整 HTML。
 - `computed-style-before.json` / `computed-style-after.json`：修复前后原始采集，包含浏览器版本、viewport 和设置变量。
-- `spacing-summary.json`：逐对比较结果和测量时源码 SHA-256。
+- `spacing-summary.json`：逐对比较结果和测量时源码 SHA-256。`evidence-manifest.json` 另记录前后实现与证据文件 SHA-256。
 - `language-red.log` / `language-green.log` / `spacing-red.log` / `spacing-green.log` / `user-insertion-validation.log`：测试原始日志。
 
 浏览器命令使用 Playwright CLI 的 headless 默认模式；没有启动可见浏览器/Tauri GUI。重型测试均由共享 `with-build-lock.py` 串行执行，worker 为 1。语言提交为主会话创建的 `b847562f0094b1c25dc77dc64cff339720b6c87a`；本子包没有创建或 amend 提交。最终整体 Standards/Spec review 由主会话执行。
