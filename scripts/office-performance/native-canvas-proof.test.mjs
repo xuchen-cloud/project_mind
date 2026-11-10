@@ -8,6 +8,7 @@ import { test } from 'node:test';
 import vm from 'node:vm';
 import { createRequire } from 'node:module';
 import ts from 'typescript';
+import {NativeOfficeObserver} from './native-office-observer.ts';
 const { format: formatNumber } = createRequire(import.meta.url)('../../packages/office-xlsx/node_modules/numfmt');
 
 const entry = new URL(process.env.OFFICE_CANVAS_PROOF_ENTRY ?? './native-page.tsx', import.meta.url);
@@ -31,7 +32,7 @@ const compiled = ts.transpileModule(selected.join('\n'), {
 }).outputText;
 
 function harness() {
-  const context = vm.createContext({ performance, console, formatNumber });
+  const context = vm.createContext({ performance, console, formatNumber, models: new NativeOfficeObserver() });
   vm.runInContext(compiled, context, { filename: `${entry.pathname}:actual-tracing-helpers` });
   const api = vm.runInContext('({ observeSheetCanvas, sheetComposition, sheetNavigationPaint, watchContinuity, canvasPaint, errorMessage })', context);
   function realm() {
@@ -108,7 +109,7 @@ function navigatedFixture() {
   r.document.querySelectorAll = () => [r.main]; r.main.isConnected = true;
   const frame = Object.assign(new r.Canvas('iframe'), { isConnected: true, contentDocument: r.document });
   Object.assign(h.context, { liveSheet: () => live, rendererDocument: () => r.document, rendererFrame: () => frame,
-    config: { format: 'xlsx' }, displayedFile: { object: { id: 'fixture' } }, models: new Map([['fixture', { ...model, format: 'xlsx' }]]),
+    config: { format: 'xlsx' }, displayedFile: { object: { id: 'fixture' } }, models: {get: () => ({...model, format: 'xlsx'}), view: model => new NativeOfficeObserver().view(model)},
     viewState: () => ({ mode: 'preview', sheetId: selected.sheetId, row: selected.startRow, column: selected.startColumn, zoom: 1.1 }),
     contentNodes: () => [r.main], loading: () => false, rootElement: {}, requestAnimationFrame: () => 1, cancelAnimationFrame() {},
     MutationObserver: class { observe() {} disconnect() {} takeRecords() { return []; } } });

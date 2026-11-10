@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import vm from 'node:vm';
 import ts from 'typescript';
+import {fixture as observerFixture, object, opened, payload, envelope} from './native-observer-fixture.mjs';
 import { installXlsxVisualProbe } from './probes.mjs';
 const source = readFileSync(new URL('./native-page.tsx', import.meta.url), 'utf8');
 const ast = ts.createSourceFile('native-page.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -39,7 +40,7 @@ function fixture(width = 980) {
     getRange: (row, column) => ({ getCellRect: () => bounds(30 + column * 70, row * 25, 70, 25) }) };
   const workbook = { getActiveSheet: () => sheet, getScrollStateBySheetId: () => ({ sheetViewStartRow: 0, sheetViewStartColumn: 0, offsetX: 0, offsetY: 0 }) };
   const anchor = (row, toRow, toColumn) => ({ fromColumn: 4, fromRow: row, fromColumnOffset: 0, fromRowOffset: 0, toColumn, toRow, toColumnOffset: 0, toRowOffset: 0 });
-  const model = { activeSheetId: 'sheet1', sheets: [{ id: 'sheet1', name: '明细' }],
+  const model = { format: 'xlsx', activeSheetId: 'sheet1', sheets: [{ id: 'sheet1', name: '明细' }],
     ranges: { sheet1: { cells: [{ row: 2, column: 1, value: 10 }, { row: 3, column: 1, value: 20 }] } },
     visuals: [{ id: 'visual-1', sheetId: 'sheet1', kind: 'chart', anchor: anchor(1, 13, 12),
       chart: { chartTypes: ['barChart'], barDirection: 'col', title: '未编辑金额图', series: [{ values: [], valuesRef: "'明细'!$B$3:$B$4" }] } },
@@ -74,6 +75,55 @@ test('expected native image must match source, decode, and have actual visible p
   assert.match(f.check().reason, /decoded visible pixels/);
   finish(); await Promise.resolve(); assert.equal(f.check().ready, true);
   f.image.naturalWidth = 0; assert.equal(f.check().ready, false);
+});
+
+test('partial XLSX missing asynchronous native media remains unready', () => {
+  const f = fixture();
+  f.model.coverage = {kind: 'partial', sourceHash: 'source-hash'};
+  f.model.rendererData.media = {};
+  assert.match(f.check().reason, /media witness/);
+  assert.equal(f.check().ready, false);
+});
+
+test('progressive visual proof consumes only the actual matching media and range responses', async () => {
+  for (const protocol of ['working', 'version']) {
+    const f = fixture();
+    f.model.coverage = {kind: 'partial', sourceHash: 'source-hash'};
+    f.model.rendererData.media = {};
+    f.model.ranges = {};
+    const original = JSON.stringify(f.model), pending = [];
+    const observer = observerFixture(() => new Promise(resolve => pending.push(resolve)));
+    const fixed = {versionNumber: 1, expectedContentHash: 'sha256:source-hash'};
+    const invoke = async (name, data, response) => {
+      const promise = observer.desktopApi.command(name, payload(data));
+      pending.at(-1)(response); assert.equal(await promise, response);
+    };
+    await invoke(protocol === 'working' ? 'file_working_open' : 'file_office_view', protocol === 'working' ? {} : {...fixed, read: null},
+      envelope(protocol === 'working' ? {...opened, contentHash: fixed.expectedContentHash, model: f.model} : {model: f.model}));
+    const check = () => nativeCheck(f.model, f.doc, f.workbook, f.decoded, observer.models.view(f.model));
+    assert.match(check().reason, /range witness/);
+    const read = async (request, result, source = {}) => invoke(protocol === 'working' ? 'file_working_read_view' : 'file_office_view',
+      {...(protocol === 'working' ? {sessionId: opened.sessionId} : fixed), ...source, read: request},
+      envelope(protocol === 'working' ? result : {result}));
+    const area = {startRow: 2, endRow: 3, startColumn: 1, endColumn: 1};
+    await read({kind: 'range', sheetId: 'sheet1', range: area}, {area, rangeReady: true,
+      cells: [{row: 2, column: 1, value: 10}, {row: 3, column: 1, value: 20}]});
+    assert.match(check().reason, /media witness/);
+    await read({kind: 'media', visualId: 'visual-2'}, {mediaType: 'image/png', base64: 'REAL'},
+      protocol === 'working' ? {sessionId: 'foreign-session'} : {versionNumber: 2});
+    assert.match(check().reason, /media witness/);
+    await read({kind: 'media', visualId: 'visual-2'}, {mediaType: 'image/png', base64: 'WRONG'});
+    assert.match(check().reason, /source differs/);
+    await read({kind: 'media', visualId: 'visual-2'}, {mediaType: 'image/png', base64: 'REAL'});
+    assert.match(check().reason, /decoded visible pixels/);
+    await Promise.resolve(); assert.equal(check().ready, true);
+    f.bars[1].getAttribute = key => key === 'height' ? '80' : '20';
+    assert.match(check().reason, /series bars/, 'progressive evidence does not relax chart accuracy');
+    f.bars[1].getAttribute = key => key === 'height' ? '160' : '20';
+    f.image.naturalWidth = 0; assert.equal(check().ready, false);
+    assert.equal(JSON.stringify(f.model), original);
+    assert.equal(observer.models.get(object), f.model);
+  }
 });
 
 test('image decode errors are explicit failures', async () => {
