@@ -36,7 +36,7 @@ function fixture({ continuityFails = true, resetFails = false, checkpointFails =
     controlStatus: controls, rootElement: {}, document: { visibilityState: 'visible' },
     config: { format: 'xlsx', acceptance: true }, first: file, other: { name: 'simple.xlsx', object: { id: '2' } },
     projectContext: { projectId: 1, binding: {} }, project: { id: 1 }, displayedFile: file,
-    models: new Map([['1', { format: 'xlsx', activeSheetId: 's', ranges: { s: { cells: [{ value: 'native original witness' }] } } }]]),
+    models: new Map([[file.object, { format: 'xlsx', activeSheetId: 's', ranges: { s: { cells: [{ value: 'native original witness' }] } } }]]),
     currentMode: () => 'edit', deadline: promise => promise, diagnostics: () => ({}), resources: () => [],
     checkpoint: async name => { trace.push(`checkpoint:${name}`); if (checkpointFails) throw transportError; },
     applyMode: async mode => { trace.push(`mode:${mode}`); }, navigateAndZoom: async () => { trace.push('navigate'); return {}; },

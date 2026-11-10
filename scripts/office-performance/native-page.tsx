@@ -4,7 +4,7 @@
  * Acceptance: real content + renderer readiness + stable painted viewport; 1s budget.
  * Verification here is static only; the native runner owns execution/visual evidence.
  */
-import React, { Component, type ReactNode } from 'react';
+import { Component, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import { QueryClientProvider } from '@tanstack/react-query';
@@ -16,6 +16,7 @@ import { projectFileApi } from '../../src/services/projectFileApi';
 import { recordDocumentApi } from '../../src/services/recordDocumentApi';
 import { fileWorkingApi, type FileWorkingOpen, type FileWorkingSaved, type FileWorkingStatus } from '../../src/services/fileWorkingApi';
 import { officePreviewCache } from '../../src/lib/office-preview-cache';
+import { NativeOfficeObserver, type NativeOfficeView } from './native-office-observer';
 import { NativeRaceObserver, runPendingFileRace } from './native-races';
 import { runNativeHistoryAcceptance } from './native-history';
 import { waitForNativeVisibility } from './native-visibility';
@@ -52,9 +53,9 @@ const raceObserver = config.races ? new NativeRaceObserver() : undefined;
 const rootElement = document.getElementById('root')!;
 const root = createRoot(rootElement);
 const queryClient = createProjectMindQueryClient();
-const commands: { api: string; name: string; startTime: number; duration?: number; error?: string }[] = [];
+const commands: { api: string; name: string; requestId?: string; startTime: number; duration?: number; error?: string }[] = [];
 const errors: string[] = [];
-const models = new Map<string, OfficeModel>();
+const models = new NativeOfficeObserver();
 const textSources = new Map<string, string>();
 const workingStates = new Map<string, FileWorkingStatus>();
 const sourceRefs = new Map<string, AgentSourceRef | null>();
@@ -99,23 +100,24 @@ function errorMessage(error: unknown): string {
   }
   return typeof error === 'string' ? error : JSON.stringify(error);
 }
-// Preserve both fulfilled values and native rejection objects. Observe inspect's existing
-// result to check source-specific content without introducing an extra native read.
+// Preserve fulfilled values and native rejection objects. Observe existing model/view
+// responses to check source-specific content without introducing extra native reads.
 for (const api of ['command', 'fileCommand'] as const) {
   const original = desktopApi[api].bind(desktopApi);
   desktopApi[api] = (async (name: string, payload?: Record<string, unknown>) => {
-    const record = { api, name, startTime: performance.now() } as typeof commands[number];
+    const record = { api, name, requestId: (payload?.input as {requestId?: string} | undefined)?.requestId, startTime: performance.now() } as typeof commands[number];
     commands.push(record);
+    const officeObservation = models.started(name, payload);
     const raceToken = raceObserver?.commandStarted(name, payload) ?? null;
     try {
       const result = await original(name, payload!);
+      models.settled(officeObservation, result);
       const response = result as { apiVersion?: number; requestId?: string; ok?: boolean; data?: Partial<FileWorkingOpen & FileWorkingSaved> & { text?: string; startChar?: number; receipt?: Extract<Commit, {protocol: 'version'}>['receipt']; commit?: { receipt: Extract<Commit, {protocol: 'version'}>['receipt'] } }; error?: unknown };
       if (response?.ok === false) record.error = errorMessage(response.error);
       const input = payload?.input as { requestId?: string; data?: { object?: { id: string }; text?: string } } | undefined;
       // Match callAgentCommand's envelope gate before admitting success evidence.
       if (response?.ok === true && response.apiVersion === 1 && response.requestId === input?.requestId && input?.data?.object) {
         const fileId = input.data.object.id, data = response.data;
-        if (['file_office_inspect', 'file_office_save', 'file_working_open'].includes(name) && data?.model) models.set(fileId, data.model);
         if (name === 'file_source_read' && data?.startChar === 0 && typeof data.text === 'string') textSources.set(fileId, data.text);
         if (name === 'file_working_open' && data) {
           workingStates.set(fileId, data as FileWorkingOpen);
@@ -642,7 +644,8 @@ function diagnostics(): Record<string, unknown> {
   };
 }
 function sheetVisualState(model: XlsxModel, doc: Document, workbook: any,
-  decoded: WeakMap<HTMLImageElement, { source: string; status: string; error?: string }>): { ready: boolean; reason?: string; visuals: Record<string, any>[] } {
+  decoded: WeakMap<HTMLImageElement, { source: string; status: string; error?: string }>,
+  nativeView?: Pick<NativeOfficeView, 'cells' | 'media'>): { ready: boolean; reason?: string; visuals: Record<string, any>[] } {
   const sheet = workbook.getActiveSheet();
   const visuals = (model.visuals as any[]).filter(visual => visual.sheetId === sheet.getSheetId() && ['chart', 'image'].includes(visual.kind));
   const evidence: Record<string, any>[] = [];
@@ -706,7 +709,8 @@ function sheetVisualState(model: XlsxModel, doc: Document, workbook: any,
       item.title = titleText; item.expectedTitle = chart?.title;
       if (!chart || !svg || !title || titleText !== chart.title || !box(svg).width || !box(svg).height || !box(title).height) return pending(`chart ${visual.id} SVG/title not ready`);
       // Fixture charts are clustered positive bars. Resolve uncached series
-      // refs from native inspected cells, just as the real chart hydrates them.
+      // refs from observed native cells, just as the real chart hydrates them.
+      let missingSeries = false;
       const vectors: number[][] = chart.series.map((series: any) => {
         if (series.values.length) return series.values;
         const ref = /^(?:'((?:[^']|'')+)'|([^!]+))!\$?([A-Z]+)\$?(\d+):\$?([A-Z]+)\$?(\d+)$/u.exec(series.valuesRef ?? '');
@@ -715,12 +719,14 @@ function sheetVisualState(model: XlsxModel, doc: Document, workbook: any,
         const col = (letters: string) => [...letters].reduce((n, c) => n * 26 + c.charCodeAt(0) - 64, 0) - 1;
         const values: number[] = [];
         for (let row = Number(ref[4]) - 1; row < Number(ref[6]); row++) for (let column = col(ref[3]); column <= col(ref[5]); column++) {
-          const cell = sourceSheet && model.ranges[sourceSheet.id]?.cells.find(cell => cell.row === row && cell.column === column);
+          const cell = sourceSheet && (nativeView?.cells[sourceSheet.id] ?? model.ranges[sourceSheet.id]?.cells)?.find(cell => cell.row === row && cell.column === column);
+          if (!cell && model.coverage?.kind === 'partial') { missingSeries = true; continue; }
           if (typeof cell?.value !== 'number') throw Error(`Chart ${visual.id} native series cell missing/non-numeric: ${row}:${column}`);
           values.push(cell.value);
         }
         return values;
       });
+      if (missingSeries) return pending(`chart ${visual.id} native series range witness not observed`);
       if (!chart.chartTypes.includes('barChart') || vectors.some(vector => vector.some(value => value < 0))) throw Error(`Unsupported first-screen chart proof: ${visual.id}`);
       const expectedBars = Array.from({ length: Math.max(0, ...vectors.map(vector => vector.length)) }, (_, index) => vectors.map(vector => vector[index] ?? 0)).flat().filter(value => value > 0);
       const bars = [...svg.querySelectorAll('g rect')].filter(bar => Number(bar.getAttribute('width')) > 0 && Number(bar.getAttribute('height')) > 0);
@@ -730,8 +736,11 @@ function sheetVisualState(model: XlsxModel, doc: Document, workbook: any,
       if (!expectedBars.length || bars.length !== expectedBars.length || !Number.isFinite(scale) || scale <= 0 || lengths.some((length, index) => Math.abs(length / scale - expectedBars[index]) > 0.001) || bars.some(bar => !box(bar).width || !box(bar).height || view.getComputedStyle(bar).visibility === 'hidden' || view.getComputedStyle(bar).fill === 'none' || view.getComputedStyle(bar).fillOpacity === '0' || view.getComputedStyle(bar).opacity === '0')) return pending(`chart ${visual.id} actual series bars not ready`);
       item.geometry.push(box(svg), box(title), ...bars.map(box));
     } else {
-      const image = node.querySelector<HTMLImageElement>('img'), media = model.rendererData?.media[visual.id] as { mediaType: string; base64: string } | undefined;
-      if (!media) throw Error(`Native image ${visual.id} has no inspected media witness`);
+      const image = node.querySelector<HTMLImageElement>('img'), media = (nativeView?.media[visual.id] ?? model.rendererData?.media[visual.id]) as { mediaType: string; base64: string } | undefined;
+      if (!media) {
+        if (model.coverage?.kind === 'partial') return pending(`image ${visual.id} native media witness not observed`);
+        throw Error(`Native image ${visual.id} has no inspected media witness`);
+      }
       if (!image) return pending(`image ${visual.id} not installed`);
       const source = image.currentSrc || image.src;
       item.sourceMatches = source === `data:${media.mediaType};base64,${media.base64}`;
@@ -752,7 +761,7 @@ function sheetVisualState(model: XlsxModel, doc: Document, workbook: any,
   return { ready: true, visuals: evidence };
 }
 const sheetVisualDecodes = new WeakMap<HTMLImageElement, { source: string; status: string; error?: string }>();
-function sheetState(model: XlsxModel): Record<string, unknown> | undefined {
+function sheetState(model: XlsxModel, activeSheetId = model.activeSheetId): Record<string, unknown> | undefined {
   const pending = (reason: string, details: Record<string, unknown> = {}) => { lastSheetCheck = { reason, ...details }; return undefined; };
   const frame = rootElement.querySelector<HTMLIFrameElement>('iframe[title="Excel 完整编辑器"]');
   const observation = frame?.contentWindow && sheets.get(frame.contentWindow);
@@ -763,23 +772,24 @@ function sheetState(model: XlsxModel): Record<string, unknown> | undefined {
   const calc = observation.calculation;
   if (context.openingWorkbook || calc.pending || lazy.flags.preloadRunning || lazy.closure.status === 'pending' || api.getCurrentLifecycleStage() < 3) return pending('opening/calculation/preload/lifecycle not settled');
   if (!(lazy.flags.preloadComplete || (!lazy.formulaMode && lazy.loadedRanges.size > 0))) return pending('initial native range not loaded');
-  if (sheet.getSheetId() !== model.activeSheetId) throw Error('XLSX active sheet differs from native inspect');
-  const range = model.ranges[model.activeSheetId];
-  const expected = range.cells.filter(cell => cell.value !== null && cell.row < 20 && cell.column < 12).slice(0, 8);
+  if (sheet.getSheetId() !== activeSheetId) throw Error('XLSX active sheet differs from native inspect');
+  const nativeView = models.view(model), cells = nativeView.cells[activeSheetId];
+  if (!cells) return pending('native range witness not observed');
+  const expected = cells.filter(cell => cell.value !== null && cell.row < 20 && cell.column < 12).slice(0, 8);
   if (!expected.length) throw Error('Native XLSX first viewport contains no sample values to verify');
-  const cellWitness = (cell: typeof range.cells[number]) => {
+  const cellWitness = (cell: XlsxModel['ranges'][string]['cells'][number]) => {
     const facade = sheet.getRange(cell.row, cell.column, 1, 1), actual = facade.getCellData();
     const numberFormat = model.styles[cell.styleIndex ?? 0]?.numberFormat ?? 'General';
     const formatted = typeof cell.value === 'number' ? formatNumber(numberFormat, cell.value) : String(cell.value ?? '');
     const actualValue = actual?.v ?? null;
     return { row: cell.row, column: cell.column, expected: cell.value, numberFormat, formatted,
       actualValue, displayedValue: facade.getValue(), formula: cell.formula,
-      actualFormula: actual?.f || lazy.formulaText.get(model.activeSheetId)?.get(`${cell.row}:${cell.column}`),
+      actualFormula: actual?.f || lazy.formulaText.get(activeSheetId)?.get(`${cell.row}:${cell.column}`),
       matches: Object.is(actualValue, cell.value) || (typeof cell.value === 'number' && actualValue === formatted) };
   };
   const samples = expected.map(cellWitness);
   if (samples.some(cell => !cell.matches || (cell.formula && cell.actualFormula !== cell.formula))) return pending('sample value/formula mismatch', { samples });
-  const formulas = range.cells.filter(cell => cell.formula).slice(0, 3).map(cellWitness);
+  const formulas = cells.filter(cell => cell.formula).slice(0, 3).map(cellWitness);
   if (lazy.formulaMode && formulas.length && calc.applied === 0) return pending('natural formula results not applied', { formulas });
   if (formulas.some(cell => cell.actualFormula !== cell.formula || !cell.matches)) return pending('formula witness mismatch', { formulas });
   const witness = expected.find(cell => typeof cell.value === 'string' && cell.value.trim())?.value as string | undefined;
@@ -789,10 +799,10 @@ function sheetState(model: XlsxModel): Record<string, unknown> | undefined {
   if (!canvasWitness) return pending('renderer canvas has not painted native text witness', { witness, paintedText: observation.painted.slice(0, 40) });
   const tabs = [...frame!.contentDocument!.querySelectorAll('[data-u-comp="slide-tab-item"]')].filter(visible);
   if (!tabs.length || !tabs.some(tab => tab.textContent?.includes(sheet.getSheetName()))) return pending('active sheet navigation not visible');
-  const visuals = sheetVisualState(model, frame!.contentDocument!, workbook, sheetVisualDecodes);
+  const visuals = sheetVisualState(model, frame!.contentDocument!, workbook, sheetVisualDecodes, nativeView);
   if (!visuals.ready) return pending(visuals.reason!, { visuals: visuals.visuals });
   lastSheetCheck = { reason: 'ready', witness, canvasWitness, visuals: visuals.visuals };
-  return { sheetId: sheet.getSheetId(), sheetName: sheet.getSheetName(), samples, formulas, witness, canvasWitness, visuals: visuals.visuals,
+  return { nativeSource: nativeView.source, nativeReads: nativeView.reads, sheetId: sheet.getSheetId(), sheetName: sheet.getSheetName(), samples, formulas, witness, canvasWitness, visuals: visuals.visuals,
     calculation: { ...calc, closure: lazy.closure.status, manual: context.calcManual, formulaMode: lazy.formulaMode,
       preloadComplete: lazy.flags.preloadComplete, loadedRanges: lazy.loadedRanges.size, lifecycle: api.getCurrentLifecycleStage(), forcedCalculation: false },
     navigation: tabs.map(tab => tab.textContent?.trim()) };
@@ -801,7 +811,7 @@ async function ready(file: ProjectDirectoryFile, source: boolean, editing: boole
   // Existing loading API is the first gate; content and paint are separate gates.
   await until(() => !loading() && contentNodes(config.format, source).length > 0, 'renderer readiness', start);
   let evidence: Record<string, unknown> = {};
-  const nativeModel = models.get(file.object.id);
+  const nativeModel = models.get(file.object, sourceRefs.get(file.object.id));
   const canvasImages: HTMLImageElement[] = [];
   if (config.format === 'pptx') {
     const frame = rootElement.querySelector<HTMLIFrameElement>('iframe[title="PPTX 幻灯片编辑画布"]');
@@ -830,7 +840,7 @@ async function ready(file: ProjectDirectoryFile, source: boolean, editing: boole
     if (loading()) return false;
     const nodes = contentNodes(config.format, source);
     if (!nodes.length) return false;
-    const model = models.get(file.object.id);
+    const model = models.get(file.object, sourceRefs.get(file.object.id));
     if (config.format === 'xlsx') {
       if (model?.format !== 'xlsx') return false;
       const state = sheetState(model); if (!state) return false; evidence = state;
@@ -1022,7 +1032,7 @@ function sheetNavigationPaint(model: XlsxModel): Record<string, unknown> | undef
   const selected = workbook.getActiveRange()?.getRange(), sheetId = sheet.getSheetId();
   if (!selected || selected.sheetId !== sheetId) return;
   const row = selected.startRow, column = selected.startColumn;
-  const cell = model.ranges[sheetId]?.cells.find(cell => cell.row === row && cell.column === column);
+  const cell = models.view(model).cells[sheetId]?.find(cell => cell.row === row && cell.column === column);
   if (!cell || cell.value === null) return;
   const facade = sheet.getRange(row, column, 1, 1), actual = facade.getCellData();
   const numberFormat = model.styles[cell.styleIndex ?? 0]?.numberFormat ?? 'General';
@@ -1050,7 +1060,7 @@ function watchContinuity() {
   if (!frame || !doc) throw Error('Mode continuity requires the existing Office iframe');
   const initialSurface = contentNodes(config.format, false).find(node => node.ownerDocument === doc);
   if (!initialSurface) throw Error('No initial Office surface for continuity observation');
-  const sheetModel = config.format === 'xlsx' && displayedFile ? models.get(displayedFile.object.id) : undefined;
+  const sheetModel = config.format === 'xlsx' && displayedFile ? models.get(displayedFile.object) : undefined;
   const sheetView = config.format === 'xlsx' ? viewState() : undefined;
   if (config.format === 'xlsx' && sheetModel?.format !== 'xlsx') throw Error('Native XLSX model unavailable for continuity');
   const samples: Record<string, unknown>[] = [];
@@ -1098,9 +1108,9 @@ async function navigateAndZoom(): Promise<Record<string, unknown>> {
     target.setActiveRange(target.getRange('B3')); target.scrollToCell(2, 1, 0);
     target.zoom(Math.min(4, target.getZoom() + 0.1));
     await until(() => workbook.getActiveSheet().getSheetId() === target.getSheetId() && workbook.getActiveRange()?.getRange().startRow === 2, 'real worksheet navigation', performance.now());
-    const model = displayedFile && models.get(displayedFile.object.id);
+    const model = displayedFile && models.get(displayedFile.object);
     if (model?.format !== 'xlsx') throw Error('Native model unavailable for navigated sheet paint');
-    await until(() => !!sheetState({...model, activeSheetId: target.getSheetId()}), 'navigated native sheet content and canvas witness', performance.now());
+    await until(() => !!sheetState(model, target.getSheetId()), 'navigated native sheet content and canvas witness', performance.now());
     await until(() => !!sheetNavigationPaint(model), 'selected native cell composited in navigated viewport', performance.now());
   } else {
     if (config.format === 'pptx') {
@@ -1120,7 +1130,7 @@ async function navigateAndZoom(): Promise<Record<string, unknown>> {
 }
 async function resetNavigation() {
   if (config.format === 'xlsx') {
-    const model = displayedFile && models.get(displayedFile.object.id);
+    const model = displayedFile && models.get(displayedFile.object);
     if (!model || model.format !== 'xlsx') throw Error('Native XLSX model unavailable');
     const { workbook } = liveSheet(); workbook.setActiveSheet(model.activeSheetId);
     const sheet = workbook.getActiveSheet(); sheet.setActiveRange(sheet.getRange('A1')); sheet.scrollToCell(0, 0, 0);
@@ -1150,7 +1160,7 @@ async function mutate(file: ProjectDirectoryFile, marker: string): Promise<Mutat
     await until(() => range.getValue() === marker, 'worksheet mutation applied', performance.now());
     return { marker, method: 'real FRange.setValue(D20)', sheetId: sheet.getSheetId(), row: 19, column: 3 };
   }
-  const model = models.get(file.object.id);
+  const model = models.get(file.object);
   if (model?.format !== 'pptx') throw Error('PPTX native edit model unavailable');
   const text = model.textElements.find(item => item.slideIndex === 0 && item.editable && item.originalRichText.paragraphs[0]?.runs.length);
   if (!text) throw Error('No supported editable first-slide PPTX text target');
@@ -1222,7 +1232,7 @@ async function acceptance(first: ProjectDirectoryFile) {
   if (!projectContext) throw Error('Workspace context is unavailable');
   const { projectId, binding } = projectContext;
   await navigationAcceptance(first);
-  const originalModel = models.get(first.object.id);
+  const originalModel = models.get(first.object);
   const contentWitness = config.format === 'md' ? textSources.get(first.object.id)?.split(/\r?\n/u).find(line => line.trim())?.trim()
     : originalModel?.format === 'docx' ? originalModel.nodes.find(node => node.text.trim())?.text.trim()
     : originalModel?.format === 'pptx' ? originalModel.textElements.find(node => node.slideIndex === 0 && node.text.trim())?.text.trim()
@@ -1237,7 +1247,7 @@ async function acceptance(first: ProjectDirectoryFile) {
     witness = await mutate(first, `NATIVE${config.format}${config.run}${crypto.randomUUID().slice(0, 8)}`);
     await until(() => {
       receipt = commits.slice(offset).find((commit): commit is Extract<Commit, {protocol: 'working'}> => commit.protocol === 'working' && commit.fileId === first.object.id && !commit.receipt.noChange && commit.receipt.revision > baseline.revision && commit.receipt.contentHash !== baseline.contentHash);
-      return !!receipt && rootElement.querySelector('.office-file-content__status')?.textContent?.trim().startsWith('已保存');
+      return !!receipt && !!rootElement.querySelector('.office-file-content__status')?.textContent?.trim().startsWith('已保存');
     }, 'real autosave receipt and saved UI status', mutationStarted);
     const persisted = await deadline(fileWorkingApi.tick(binding, first.object), 15000, 'native post-autosave working status');
     if (persisted.revision !== receipt!.receipt.revision || persisted.contentHash !== receipt!.receipt.contentHash) throw Error('Native working status does not match autosave receipt');

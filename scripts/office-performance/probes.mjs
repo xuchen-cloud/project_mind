@@ -1,5 +1,5 @@
 export function installXlsxVisualProbe(model) {
-function sheetVisualState(model, doc, workbook, decoded) {
+function sheetVisualState(model, doc, workbook, decoded, nativeView) {
     const sheet = workbook.getActiveSheet();
     const visuals = model.visuals.filter(visual => visual.sheetId === sheet.getSheetId() && ['chart', 'image'].includes(visual.kind));
     const evidence = [];
@@ -73,7 +73,8 @@ function sheetVisualState(model, doc, workbook, decoded) {
             if (!chart || !svg || !title || titleText !== chart.title || !box(svg).width || !box(svg).height || !box(title).height)
                 return pending(`chart ${visual.id} SVG/title not ready`);
             // Fixture charts are clustered positive bars. Resolve uncached series
-            // refs from native inspected cells, just as the real chart hydrates them.
+            // refs from observed native cells, just as the real chart hydrates them.
+            let missingSeries = false;
             const vectors = chart.series.map((series) => {
                 if (series.values.length)
                     return series.values;
@@ -85,13 +86,19 @@ function sheetVisualState(model, doc, workbook, decoded) {
                 const values = [];
                 for (let row = Number(ref[4]) - 1; row < Number(ref[6]); row++)
                     for (let column = col(ref[3]); column <= col(ref[5]); column++) {
-                        const cell = sourceSheet && model.ranges[sourceSheet.id]?.cells.find(cell => cell.row === row && cell.column === column);
+                        const cell = sourceSheet && (nativeView?.cells[sourceSheet.id] ?? model.ranges[sourceSheet.id]?.cells)?.find(cell => cell.row === row && cell.column === column);
+                        if (!cell && model.coverage?.kind === 'partial') {
+                            missingSeries = true;
+                            continue;
+                        }
                         if (typeof cell?.value !== 'number')
                             throw Error(`Chart ${visual.id} native series cell missing/non-numeric: ${row}:${column}`);
                         values.push(cell.value);
                     }
                 return values;
             });
+            if (missingSeries)
+                return pending(`chart ${visual.id} native series range witness not observed`);
             if (!chart.chartTypes.includes('barChart') || vectors.some(vector => vector.some(value => value < 0)))
                 throw Error(`Unsupported first-screen chart proof: ${visual.id}`);
             const expectedBars = Array.from({ length: Math.max(0, ...vectors.map(vector => vector.length)) }, (_, index) => vectors.map(vector => vector[index] ?? 0)).flat().filter(value => value > 0);
@@ -105,9 +112,12 @@ function sheetVisualState(model, doc, workbook, decoded) {
             item.geometry.push(box(svg), box(title), ...bars.map(box));
         }
         else {
-            const image = node.querySelector('img'), media = model.rendererData?.media[visual.id];
-            if (!media)
+            const image = node.querySelector('img'), media = (nativeView?.media[visual.id] ?? model.rendererData?.media[visual.id]);
+            if (!media) {
+                if (model.coverage?.kind === 'partial')
+                    return pending(`image ${visual.id} native media witness not observed`);
                 throw Error(`Native image ${visual.id} has no inspected media witness`);
+            }
             if (!image)
                 return pending(`image ${visual.id} not installed`);
             const source = image.currentSrc || image.src;

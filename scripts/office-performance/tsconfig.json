@@ -1,0 +1,7 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": { "composite": false, "lib": ["ES2022", "DOM", "DOM.Iterable"] },
+  "include": ["native-page.tsx", "../../src"],
+  "exclude": ["../../src/**/*.test.ts", "../../src/**/*.test.tsx"],
+  "references": []
+}

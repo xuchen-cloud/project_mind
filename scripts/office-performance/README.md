@@ -108,6 +108,15 @@ The `office-performance` Cargo feature enables the native entry. Normal applicat
 
 The report scope is `native ProjectFileContent shell (not full application startup)`. It uses the real ProjectFileContent component, file/version commands, Office worker and installed renderers. The sequence is `cold_open`, `first_other_file`, `close_reopen`, `switch_file`, then `preview_to_edit`; Markdown instead records `rich_to_source` and `source_to_rich`. Optional cycles add close/open repetitions. `--acceptance=1` adds real edit/autosave/receipt/close/native-readback operations with a separate acceptance kind. Performance records carry a 1000 ms budget; `over_budget` is separate from readiness failure. Absent optional large fixtures are skipped after a directory scan; unreadable fixtures or scan failures remain errors.
 
+Progressive Office observations also consume the existing `file_office_view`
+model/read replies and `file_working_read_view` replies. Model selection follows
+request dispatch order and the actual selected source; XLSX media/range witnesses
+are isolated by scoped File, binding generation, fixed version/hash or working
+session baseline. Reports retain `nativeSource`, `nativeReads` and command
+`requestId` for attribution. No extra inspect/read is issued. See the
+[compatibility verification](PROGRESSIVE-OBSERVER.md) for boundaries and pending
+native acceptance.
+
 Current-content observations use `file_working_open` and `file_working_save_office/text`. A working save is proved by its revision/hash and persisted working status; its `archivedVersionNumber` can remain unchanged. Reports tag working and immutable-version receipts with separate `protocol` values. Acceptance closes and rereads the saved working content first, then explicitly archives it in `acceptance_native_archive_boundary` before testing history. This archive is a disclosed fixture operation, not evidence that autosave creates a File Version. Command-wrapper and orchestration tests use boundary doubles; only a recorded native run proves actual persistence/renderer behavior. The old observer's missing working-open witness timeout is not an Office open duration.
 
 For an authorized serial matrix, set `OFFICE_NATIVE_BINARY` to the absolute path of the prepared measurement binary, `OFFICE_NATIVE_OUTPUT` to a unique absolute output directory, and `OFFICE_NATIVE_WORKSPACE` to the prepared isolated Workspace. The declared mode must match the binary; this command does not build or provision it:
