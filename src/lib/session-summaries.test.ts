@@ -1,6 +1,6 @@
 import { QueryClient } from "@tanstack/react-query";
 import { beforeEach, expect, it, vi } from "vitest";
-import { sessionSummariesQueryOptions } from "./session-summaries";
+import { refreshSessionSummaries, sessionSummariesQueryOptions } from "./session-summaries";
 
 const native = vi.hoisted(() => ({ command: vi.fn() }));
 vi.mock("../services/desktopApi", () => ({ desktopApi: native }));
@@ -41,5 +41,26 @@ it("keeps Project and Workspace summary requests distinct", async () => {
   const client = new QueryClient();
   await Promise.all([client.fetchQuery(sessionSummariesQueryOptions(binding, null)), client.fetchQuery(sessionSummariesQueryOptions(binding, 7))]);
   expect(native.command.mock.calls.map(call => call[1].projectId)).toEqual([null, 7]);
+  client.clear();
+});
+
+
+it("coalesces one change notification and supersedes a read after a later mutation", async () => {
+  const client = new QueryClient();
+  const options = sessionSummariesQueryOptions(binding, 7);
+  await client.fetchQuery(options);
+  let finish!: (result: typeof page) => void;
+  native.command.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  const first = refreshSessionSummaries(client, binding, 7);
+  expect(refreshSessionSummaries(client, binding, 7)).toBe(first);
+  await vi.waitFor(() => expect(native.command).toHaveBeenCalledTimes(2));
+  const newer = { ...page, revision: "r2", items: [{ ...page.items[0], title: "After second rename" }] };
+  native.command.mockResolvedValueOnce(newer);
+  const later = refreshSessionSummaries(client, binding, 7);
+  await later;
+  expect(native.command).toHaveBeenCalledTimes(3);
+  finish(page);
+  await first;
+  expect(client.getQueryData(options.queryKey)).toEqual(newer);
   client.clear();
 });

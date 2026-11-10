@@ -51,6 +51,7 @@ const INVALID_READY: &str = "助手启动返回了无效地址，请重试";
 pub(crate) struct DshAssistantState {
     stopping: AtomicBool,
     boot: boot::BootControl,
+    history_preparation: history::Preparation,
     // Serializes runtime identity changes and authenticated carrier mutations.
     inner: Mutex<ScopedRuntimes>,
     requests: std::sync::Mutex<HashMap<String, PendingRequest>>,
@@ -1506,6 +1507,30 @@ impl Drop for ShutdownLease<'_> {
 }
 
 impl DshAssistantState {
+    // A history host may be preparing privately. Lifecycle-dependent commands
+    // await its publication without pinning the global runtime state mutex.
+    async fn lock_runtimes(&self) -> tokio::sync::MutexGuard<'_, ScopedRuntimes> {
+        let mut preparing = self.history_preparation.changed.subscribe();
+        loop {
+            let busy = *preparing.borrow_and_update();
+            if busy {
+                let _ = preparing.changed().await;
+                continue;
+            }
+            let guard = self.inner.lock().await;
+            let busy = *preparing.borrow();
+            if !busy { return guard; }
+        }
+    }
+
+    async fn runtime_status(&self) -> Result<usize, String> {
+        let mut runtimes = self.inner.lock().await;
+        if *self.history_preparation.changed.borrow() {
+            return Ok(self.history_preparation.active_count.load(Ordering::SeqCst));
+        }
+        runtimes.active_count()
+    }
+
     // Keep the mutation lock through the native workspace transition, so a
     // concurrent start cannot reuse old credentials between stop and lock/switch.
     pub(crate) async fn invalidate<T, F: std::future::Future<Output = Result<T, String>>>(
@@ -1514,7 +1539,7 @@ impl DshAssistantState {
         change: impl FnOnce() -> F,
     ) -> Result<T, String> {
         let _transition = self.boot.transition();
-        let mut inner = self.inner.lock().await;
+        let mut inner = self.lock_runtimes().await;
         if self.stopping.load(Ordering::SeqCst) {
             return Err("应用正在退出".into());
         }
@@ -1527,8 +1552,8 @@ impl DshAssistantState {
         self.stopping.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
             .map_err(|_| "应用正在退出")?;
         let lease = ShutdownLease { stopping: &self.stopping, committed: false };
-        self.boot.cancel();
-        self.inner.lock().await.stop().await?;
+        let _transition = self.boot.transition();
+        self.lock_runtimes().await.stop().await?;
         Ok(lease)
     }
 
@@ -1548,7 +1573,7 @@ impl DshAssistantState {
                     }
                 }
             }
-            let mut runtimes = state.inner.lock().await;
+            let mut runtimes = state.lock_runtimes().await;
             for inner in runtimes.scopes.values_mut() {
                 let ids: Vec<_> = inner.connections.iter()
                     .filter(|(_, connection)| connection.owner == owner)
@@ -1584,7 +1609,7 @@ pub(crate) async fn dsh_assistant_runtime_status(
     state: State<'_, DshAssistantState>,
 ) -> Result<usize, String> {
     authorize_caller(&caller)?;
-    state.inner.lock().await.active_count()
+    state.runtime_status().await
 }
 
 #[tauri::command]
@@ -1595,7 +1620,7 @@ pub(crate) async fn dsh_assistant_start(
 ) -> Result<(), String> {
     authorize_caller(&caller)?;
     authorize_scope_label(caller.label(), project_id)?;
-    let mut runtimes = state.inner.lock().await;
+    let mut runtimes = state.lock_runtimes().await;
     if state.stopping.load(Ordering::SeqCst) {
         return Err("应用正在退出".into());
     }
@@ -1611,7 +1636,7 @@ pub(crate) async fn dsh_assistant_sessions(
 ) -> Result<Vec<AssistantSession>, String> {
     authorize_caller(&caller)?;
     authorize_scope_label(caller.label(), project_id)?;
-    let mut runtimes = state.inner.lock().await;
+    let mut runtimes = state.lock_runtimes().await;
     if state.stopping.load(Ordering::SeqCst) { return Err("应用正在退出".into()); }
     let pending = !crate::lock_mutex(&state.requests).is_empty();
     let inner = runtimes.ensure_scope(caller.app_handle(), project_id, pending).await?;
@@ -1648,7 +1673,7 @@ pub(crate) async fn dsh_assistant_select_session(
 ) -> Result<String, String> {
     authorize_caller(&caller)?;
     authorize_scope_label(caller.label(), project_id)?;
-    let mut runtimes = state.inner.lock().await;
+    let mut runtimes = state.lock_runtimes().await;
     if state.stopping.load(Ordering::SeqCst) { return Err("应用正在退出".into()); }
     let pending = !crate::lock_mutex(&state.requests).is_empty();
     let inner = runtimes.ensure_scope(caller.app_handle(), project_id, pending).await?;
@@ -2258,7 +2283,7 @@ pub(crate) async fn dsh_assistant_fetch(
         }
         let (endpoint, payload, _) = carrier_path(&path, &method, &body)?;
         let (url, client, cookie, generation, mut runtime_closed, sensitive) = {
-            let mut runtimes = state.inner.lock().await;
+            let mut runtimes = state.lock_runtimes().await;
             let inner = runtimes.scope_mut(project_id)?;
             inner.authorize_scope(caller.label(), project_id)?;
             inner.ensure_current_scope(&caller).await?;
@@ -2351,7 +2376,7 @@ pub(crate) async fn dsh_assistant_fetch(
             output = fetch_bytes(&client, url, cookie, &method, body, endpoint == "session/uploadFileBinary", &sensitive) => output?,
             _ = runtime_closed.changed() => return Err("助手范围已变化，请重新打开助手".into()),
         };
-        let mut runtimes = state.inner.lock().await;
+        let mut runtimes = state.lock_runtimes().await;
         let inner = runtimes.scope_mut(project_id)?;
         inner.authorize_scope(caller.label(), project_id)?;
         if inner.generation != generation {
@@ -2396,7 +2421,7 @@ pub(crate) async fn dsh_assistant_connect(
     on_frame: tauri::ipc::Channel<CarrierOutput>,
 ) -> Result<String, String> {
     authorize_caller(&caller)?;
-    let mut runtimes = state.inner.lock().await;
+    let mut runtimes = state.lock_runtimes().await;
     let inner = runtimes.scope_mut(project_id)?;
     inner.authorize_scope(caller.label(), project_id)?;
     inner.ensure_current_scope(&caller).await?;
@@ -2443,7 +2468,7 @@ pub(crate) async fn dsh_assistant_send(
 ) -> Result<(), String> {
     use tokio_tungstenite::tungstenite::Message;
     authorize_caller(&caller)?;
-    let mut runtimes = state.inner.lock().await;
+    let mut runtimes = state.lock_runtimes().await;
     let inner = runtimes.scope_mut(project_id)?;
     inner.authorize_scope(caller.label(), project_id)?;
     inner.ensure_current_scope(&caller).await?;
@@ -2519,7 +2544,7 @@ pub(crate) async fn dsh_assistant_disconnect(
 ) -> Result<(), String> {
     authorize_caller(&caller)?;
     authorize_scope_label(caller.label(), project_id)?;
-    let mut runtimes = state.inner.lock().await;
+    let mut runtimes = state.lock_runtimes().await;
     let Some(inner) = runtimes.scopes.get_mut(&project_id) else { return Ok(()); };
     if let Some(connection) = inner.connections.get(&connection_id) {
         if connection.owner != caller.label() || connection.project_id != project_id {
@@ -2544,7 +2569,7 @@ pub(crate) async fn dsh_assistant_create_session(
 ) -> Result<String, String> {
     authorize_caller(&caller)?;
     authorize_scope_label(caller.label(), project_id)?;
-    let mut runtimes = state.inner.lock().await;
+    let mut runtimes = state.lock_runtimes().await;
     if state.stopping.load(Ordering::SeqCst) { return Err("应用正在退出".into()); }
     let pending = !crate::lock_mutex(&state.requests).is_empty();
     let inner = runtimes.ensure_scope(caller.app_handle(), project_id, pending).await?;
@@ -2572,7 +2597,7 @@ pub(crate) async fn dsh_assistant_manage_session(
 ) -> Result<Option<String>, String> {
     authorize_caller(&caller)?;
     authorize_scope_label(caller.label(), project_id)?;
-    let mut runtimes = state.inner.lock().await;
+    let mut runtimes = state.lock_runtimes().await;
     if state.stopping.load(Ordering::SeqCst) { return Err("应用正在退出".into()); }
     let pending = !crate::lock_mutex(&state.requests).is_empty();
     let inner = runtimes.ensure_scope(caller.app_handle(), project_id, pending).await?;
@@ -2620,7 +2645,7 @@ pub(crate) async fn dsh_assistant_delete_session(
 ) -> Result<(), String> {
     authorize_caller(&caller)?;
     authorize_scope_label(caller.label(), project_id)?;
-    let mut runtimes = state.inner.lock().await;
+    let mut runtimes = state.lock_runtimes().await;
     if state.stopping.load(Ordering::SeqCst) { return Err("应用正在退出".into()); }
     let pending = !crate::lock_mutex(&state.requests).is_empty();
     let inner = runtimes.ensure_scope(caller.app_handle(), project_id, pending).await?;
@@ -2776,7 +2801,7 @@ mod tests {
         let connection = NativeConnection { owner:"fixture".into(), project_id:None, writes, close, task };
         let mut runtime = RuntimeState::default();
         runtime.connections.insert("fixture".into(), connection);
-        state.inner.lock().await.scopes.insert(None, runtime);
+        state.lock_runtimes().await.scopes.insert(None, runtime);
         assert!(state.shutdown().await.is_err());
         assert!(!state.stopping.load(Ordering::SeqCst), "failed exit must admit subsequent requests");
         let closing = state.shutdown().await.unwrap();
@@ -2790,7 +2815,7 @@ mod tests {
     #[tokio::test]
     async fn dsh_process_cancelled_shutdown_restores_admission() {
         let state = Arc::new(DshAssistantState::default());
-        let inner = state.inner.lock().await;
+        let inner = state.lock_runtimes().await;
         let closing = state.clone();
         let task = tokio::spawn(async move { closing.shutdown().await.unwrap().commit(); });
         while !state.stopping.load(Ordering::SeqCst) { tokio::task::yield_now().await; }
@@ -4788,7 +4813,7 @@ pub(crate) async fn cli_session_inventory(app: &tauri::AppHandle, binding: &crat
     let unavailable = |message:String| AgentError::new(ErrorCode::RuntimeUnavailable,message);
     let project = match input.scope {crate::agent::models::Scope::Workspace=>None,crate::agent::models::Scope::Project {project_id}=>Some(project_id)};
     let state=app.state::<DshAssistantState>();
-    let mut runtimes=state.inner.lock().await;
+    let mut runtimes=state.lock_runtimes().await;
     if state.stopping.load(Ordering::SeqCst) { return Err(unavailable("Assistant is stopping".into())); }
     // Starting a headless runtime restores its durable Session catalog without opening UI.
     let pending = !crate::lock_mutex(&state.requests).is_empty();

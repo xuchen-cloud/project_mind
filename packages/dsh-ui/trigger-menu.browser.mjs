@@ -12,7 +12,7 @@ import { createServer } from 'vite';
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const output = path.join(root, 'output/playwright/assistant-menu');
 await mkdir(output, { recursive: true });
-await writeFile(path.join(output, 'index.html'), '<div id="root"></div><script type="module" src="./fixture.tsx"></script>');
+await writeFile(path.join(output, 'index.html'), '<!doctype html><div id="root"></div><script type="module" src="./fixture.tsx"></script>');
 await writeFile(path.join(output, 'fixture.tsx'), `
 import React from 'react';
 import {createRoot} from 'react-dom/client';
@@ -35,7 +35,7 @@ if (!cli) throw new Error('Set PLAYWRIGHT_CLI to the installed playwright-cli.js
 const run = promisify(execFile);
 const session = `assistant-menu-${process.pid}`;
 const command = async (...args) => {
-  const { stdout } = await run(process.execPath, [cli, '-s=' + session, ...args], { cwd: root, maxBuffer: 4 * 1024 * 1024 });
+  const { stdout } = await run(process.execPath, [cli, '-s=' + session, ...args], { cwd: root, maxBuffer: 4 * 1024 * 1024, timeout: 120000 });
   return stdout;
 };
 const evaluate = async code => {
@@ -57,11 +57,11 @@ try {
     await command('goto',url+'?theme='+(theme==='dark'?'dark':'light'));
     await command('snapshot');
     await command('run-code',"async page => { await page.locator('[data-trigger-menu] [role=listbox]').waitFor(); }");
-    const metrics = await evaluate(`() => {const menu=document.querySelector('[data-trigger-menu]');const view=menu.querySelector('[role=listbox]');const frame=view.parentElement;const material=menu.firstElementChild;return {background:getComputedStyle(material).backgroundColor,backdrop:getComputedStyle(material).backdropFilter,outline:getComputedStyle(menu).outlineStyle,top:Number(getComputedStyle(frame,'::before').opacity),bottom:Number(getComputedStyle(frame,'::after').opacity),max:view.scrollHeight-view.clientHeight,focus:document.activeElement?.tagName};}`);
+    const metrics = await evaluate(`() => {const menu=document.querySelector('[data-trigger-menu]');const view=menu.querySelector('[role=listbox]');const frame=view.parentElement;const material=menu.firstElementChild;return {background:getComputedStyle(material).backgroundColor,backdrop:getComputedStyle(material).backdropFilter,outline:getComputedStyle(menu).outlineStyle,top:Number(getComputedStyle(frame,'::before').opacity),bottom:Number(getComputedStyle(frame,'::after').opacity),max:view.scrollHeight-view.clientHeight,focus:document.activeElement?.tagName,selection:getComputedStyle(menu.querySelector('[aria-selected=true]')).backgroundColor,selectionInk:getComputedStyle(menu.querySelector('[aria-selected=true]')).color,system:(()=>{const probe=document.createElement('span');probe.style.cssText='background:Highlight;color:HighlightText';document.body.append(probe);const colors={background:getComputedStyle(probe).backgroundColor,color:getComputedStyle(probe).color};probe.remove();return colors;})()};}`);
     assert.ok(!metrics.background.includes('rgba'),theme+' must have an opaque material');
     assert.equal(metrics.backdrop,'none');
     assert.equal(metrics.top,0); assert.equal(metrics.bottom,1); assert.ok(metrics.max>64);
-    if(theme==='forced') assert.equal(metrics.outline,'solid');
+    if(theme==='forced') { assert.equal(metrics.outline,'solid'); assert.equal(metrics.selection,metrics.system.background); assert.equal(metrics.selectionInk,metrics.system.color); assert.notEqual(metrics.selection,metrics.background); }
     await command('screenshot','--filename',path.join(output,theme+'.png'));
     for(const position of ['middle','near-bottom','bottom','reverse','top']) {
       const measured=await evaluate(`async () => {const view=document.querySelector('[role=listbox]');const max=view.scrollHeight-view.clientHeight;view.scrollTop=${({middle:'max/2','near-bottom':'max-16',bottom:'max',reverse:'max-32',top:'0'})[position]};view.dispatchEvent(new Event('scroll'));await new Promise(requestAnimationFrame);const frame=view.parentElement;return {top:Number(getComputedStyle(frame,'::before').opacity),bottom:Number(getComputedStyle(frame,'::after').opacity)};}`);

@@ -33,7 +33,7 @@ export function sessionSummariesQueryOptions(binding: AgentWorkspaceBinding, pro
 
 const refreshes = new WeakMap<QueryClient, Map<string, Promise<void>>>();
 
-/** Coalesce sidebars handling the same event; later mutations replace older reads. */
+/** Coalesce sidebars handling one notification; a later mutation replaces older reads. */
 export function refreshSessionSummaries(client: QueryClient, binding: AgentWorkspaceBinding, projectId: number | null) {
   const options = sessionSummariesQueryOptions(binding, projectId);
   const pending = refreshes.get(client) ?? new Map<string, Promise<void>>();
@@ -52,7 +52,8 @@ export function refreshSessionSummaries(client: QueryClient, binding: AgentWorks
     await client.fetchQuery({ ...options, staleTime: 0 }).catch(() => {});
   })();
   pending.set(key, refresh);
-  const clear = () => { if (pending.get(key) === refresh) pending.delete(key); };
-  void refresh.then(clear, clear);
+  // All sidebars receive one window event synchronously. A subsequent event
+  // can represent another committed mutation and must supersede this snapshot.
+  queueMicrotask(() => { if (pending.get(key) === refresh) pending.delete(key); });
   return refresh;
 }

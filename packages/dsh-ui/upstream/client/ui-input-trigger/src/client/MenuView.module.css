@@ -33,13 +33,6 @@
   box-shadow: var(--dsw-elevation-prominent);
 }
 
-@media (forced-colors: active) {
-  .menu {
-    --dsw-menu-surface-fill: Canvas;
-    outline: 1px solid CanvasText;
-    box-shadow: none;
-  }
-}
 
 .viewportFrame {
   position: relative;
@@ -302,4 +295,21 @@
   flex: none;
   display: inline-flex;
   color: var(--dsw-alias-menu-icon);
+}
+
+@media (forced-colors: active) {
+  .menu {
+    --dsw-menu-surface-fill: Canvas;
+    outline: 1px solid CanvasText;
+    box-shadow: none;
+  }
+
+  .item.active {
+    background: Highlight;
+    color: HighlightText;
+  }
+
+  .item.active :is(.itemAlias, .itemDescription, .itemIcon, .drill, .drillHintText, .drillHint) {
+    color: HighlightText;
+  }
 }

@@ -1,6 +1,29 @@
 //! Read-only Session summaries share the Workspace host without preparing a model or CLI.
 use super::*;
 
+// Preparation owns the host lifecycle, while the shared state mutex remains
+// available for status and cancellation. One RAII notification releases waiters.
+pub(super) struct Preparation {
+    serial: Mutex<()>,
+    pub(super) changed: watch::Sender<bool>,
+    pub(super) active_count: std::sync::atomic::AtomicUsize,
+}
+impl Default for Preparation {
+    fn default() -> Self {
+        Self {
+            serial: Mutex::new(()),
+            changed: watch::channel(false).0,
+            active_count: std::sync::atomic::AtomicUsize::new(0),
+        }
+    }
+}
+struct Preparing<'a>(&'a watch::Sender<bool>);
+impl Drop for Preparing<'_> {
+    fn drop(&mut self) {
+        self.0.send_replace(false);
+    }
+}
+
 const HISTORY_FINGERPRINT: &str = "history-only";
 
 fn resolve(app: &tauri::AppHandle, project_id: Option<i64>) -> Result<Identity, String> {
@@ -169,7 +192,8 @@ pub(crate) async fn dsh_assistant_session_summaries(
     authorize_caller(&caller)?;
     authorize_scope_label(caller.label(), project_id)?;
     let (identity, generation, url, client, mut cookie, mut closed) = {
-        let mut runtimes = state.inner.lock().await;
+        let _serial = state.history_preparation.serial.lock().await;
+        let mut runtimes = state.lock_runtimes().await;
         if state.stopping.load(Ordering::SeqCst) {
             return Err("应用正在退出".into());
         }
@@ -177,28 +201,57 @@ pub(crate) async fn dsh_assistant_session_summaries(
         if !current.matches_workspace(&expected_binding, &current.root) {
             return Err("工作区已变化，请重试".into());
         }
-        let scope = runtimes
-            .ensure_history(caller.app_handle(), project_id)
-            .await?;
-        let identity = scope.identity.clone().ok_or(TRANSPORT_ERROR)?;
-        if !identity.matches_workspace(&expected_binding, &identity.root) {
-            return Err("工作区已变化，请重试".into());
-        }
-        let process = scope.process.as_mut().ok_or(TRANSPORT_ERROR)?;
-        authenticate(
-            &process.url,
-            &process.session_http,
-            &mut process.session_cookie,
-        )
-        .await?;
-        (
-            identity,
-            scope.generation,
-            process.url.clone(),
-            process.session_http.clone(),
-            process.session_cookie.clone(),
-            process.closed.subscribe(),
-        )
+        // Retain a monotonic publication generation even if this task is
+        // cancelled and its privately owned process is dropped before publish.
+        state
+            .history_preparation
+            .active_count
+            .store(runtimes.active_count()?, Ordering::SeqCst);
+        let generation = runtimes.generation + 1;
+        let mut preparing = std::mem::replace(
+            &mut *runtimes,
+            ScopedRuntimes {
+                generation,
+                ..Default::default()
+            },
+        );
+        state.history_preparation.changed.send_replace(true);
+        let publication = Preparing(&state.history_preparation.changed);
+        drop(runtimes);
+        let result = state
+            .boot
+            .run(async {
+                let scope = preparing
+                    .ensure_history(caller.app_handle(), project_id)
+                    .await?;
+                let identity = scope.identity.clone().ok_or(TRANSPORT_ERROR)?;
+                if !identity.matches_workspace(&expected_binding, &identity.root) {
+                    return Err("工作区已变化，请重试".into());
+                }
+                let process = scope.process.as_mut().ok_or(TRANSPORT_ERROR)?;
+                authenticate(
+                    &process.url,
+                    &process.session_http,
+                    &mut process.session_cookie,
+                )
+                .await?;
+                validate(caller.app_handle(), &identity)?;
+                Ok((
+                    identity,
+                    scope.generation,
+                    process.url.clone(),
+                    process.session_http.clone(),
+                    process.session_cookie.clone(),
+                    process.closed.subscribe(),
+                ))
+            })
+            .await;
+        let mut runtimes = state.inner.lock().await;
+        preparing.generation = preparing.generation.max(generation);
+        *runtimes = preparing;
+        drop(runtimes);
+        drop(publication);
+        result?
     };
     let value = tokio::select! {
         biased;
@@ -208,7 +261,7 @@ pub(crate) async fn dsh_assistant_session_summaries(
         }) => result?,
     };
     validate(caller.app_handle(), &identity)?;
-    let runtimes = state.inner.lock().await;
+    let runtimes = state.lock_runtimes().await;
     let scope = runtimes.scopes.get(&project_id).ok_or(TRANSPORT_ERROR)?;
     if state.stopping.load(Ordering::SeqCst)
         || scope.generation != generation
@@ -231,6 +284,69 @@ pub(crate) async fn dsh_assistant_session_summaries(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn history_preparation_leaves_state_available_and_shutdown_cancels_waiters() {
+        let state = Arc::new(DshAssistantState::default());
+        let preparing = state.clone();
+        let (started, ready) = oneshot::channel();
+        let (subscribe, wait_to_subscribe) = oneshot::channel();
+        let worker = tokio::spawn(async move {
+            let _serial = preparing.history_preparation.serial.lock().await;
+            preparing
+                .history_preparation
+                .active_count
+                .store(1, Ordering::SeqCst);
+            preparing.history_preparation.changed.send_replace(true);
+            let _publication = Preparing(&preparing.history_preparation.changed);
+            started.send(()).unwrap();
+            wait_to_subscribe.await.unwrap();
+            preparing
+                .boot
+                .run(std::future::pending::<Result<(), String>>())
+                .await
+        });
+        ready.await.unwrap();
+        let raw = tokio::time::timeout(Duration::from_secs(1), state.inner.lock())
+            .await
+            .expect("preparation must not pin the runtime state mutex");
+        drop(raw);
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(1), state.runtime_status())
+                .await
+                .unwrap()
+                .unwrap(),
+            1,
+            "status must return the preparation snapshot without waiting for readiness"
+        );
+        assert!(
+            tokio::time::timeout(Duration::from_millis(20), state.lock_runtimes())
+                .await
+                .is_err(),
+            "lifecycle-dependent commands must await publication"
+        );
+        // Force shutdown's cancellation to happen before boot subscribes. The
+        // transition guard must reject this queued preparation as well.
+        let (lease, ()) = tokio::time::timeout(Duration::from_secs(1), async {
+            tokio::join!(state.shutdown(), async {
+                while !state.stopping.load(Ordering::SeqCst) {
+                    tokio::task::yield_now().await;
+                }
+                subscribe.send(()).unwrap();
+            })
+        })
+        .await
+        .expect("shutdown must reject preparation subscribing after cancellation");
+        let lease = lease.unwrap();
+        assert!(worker.await.unwrap().is_err());
+        drop(lease);
+        assert!(!state.stopping.load(Ordering::SeqCst));
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), state.lock_runtimes())
+                .await
+                .is_ok()
+        );
+    }
 
     #[tokio::test]
     async fn history_transport_reads_without_provider_or_cli_and_enforces_scope() {

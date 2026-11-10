@@ -1889,3 +1889,45 @@ test('scratch policy reaches real new and restored Project and Workspace tool st
   }
   t.diagnostic(JSON.stringify({ integration: 'real DSH runtime and shell, deterministic local provider', measured }));
 });
+
+test('summary latency covers first A/B, revisit, focus and rapid A/B/A on one real host', { timeout: 60000 }, async t => {
+  const base = await realpath(await mkdtemp(path.join(tmpdir(), 'mind-summary-cost-')));
+  const provider = await startLocalProvider();
+  let runtime;
+  t.after(async () => { try { await runtime?.stop(); } finally { await provider.close(); await rm(base, { recursive: true, force: true }); } });
+  const a = { kind: 'project', id: 1, name: 'A', directory: path.join(base, 'A') };
+  const b = { kind: 'project', id: 2, name: 'B', directory: path.join(base, 'B') };
+  await mkdir(a.directory); await mkdir(b.directory);
+  const shared = { name: 'Summary cost fixture', modelId: 'local-test-model', baseUrl: provider.url, apiKey: 'local-integration-key', supportsImage: false };
+  const data = path.join(base, 'history');
+  runtime = await launch(data, undefined, shared, a, undefined, undefined, undefined, undefined, [a, b]);
+  const sessions = [];
+  for (const context of [a, b]) {
+    const { sessionId } = await runtime.rpc('mind/session/create', { context });
+    await runtime.rpc('session/rename', { sessionId, title: context.name });
+    sessions.push(sessionId);
+  }
+  await runtime.stop();
+  const start = performance.now();
+  runtime = await launch(data, undefined, { historyOnly: true }, a);
+  const hostReadyMs = +(performance.now() - start).toFixed(2);
+  const pid = runtime.child.pid;
+  const measured = [];
+  const measure = async (name, context, expected) => {
+    const begin = performance.now();
+    const value = await runtime.rpc('mind/session/summaries', { context });
+    assert.deepEqual(value.items.map(row => row.sessionId), [expected]);
+    measured.push({ name, ms: +(performance.now() - begin).toFixed(2), rows: value.items.length });
+  };
+  await measure('first-A', a, sessions[0]);
+  const admission = performance.now();
+  await runtime.rpc('mind/context', { context: b });
+  const registerBMs = +(performance.now() - admission).toFixed(2);
+  await measure('first-B', b, sessions[1]);
+  await measure('revisit-A', a, sessions[0]);
+  await measure('focus-A-backend-if-stale', a, sessions[0]);
+  await Promise.all([measure('rapid-A-1', a, sessions[0]), measure('rapid-B', b, sessions[1]), measure('rapid-A-2', a, sessions[0])]);
+  assert.equal(runtime.child.pid, pid, 'admitting another Project must retain the same host');
+  assert.equal(provider.requests.length, 0, 'summary/history preparation must not contact the provider');
+  t.diagnostic(JSON.stringify({ platform: process.platform, node: process.version, boundary: 'real Node HTTP metadata (frontend cache behavior tested separately)', hostReadyMs, registerBMs, measured }));
+});

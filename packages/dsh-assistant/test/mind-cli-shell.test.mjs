@@ -30,7 +30,7 @@ const workspaces = [
 function promptParts(executable, workspace, platform) {
   const prompt = bindingPrompt({ executable, workspace, connection, projectId: null }, platform);
   const flags = /Binding flags: ([\s\S]*?)\. Operation scope/.exec(prompt)?.[1];
-  const command = /Bundled executable: ([\s\S]*?) \(also available as mind/.exec(prompt)?.[1];
+  const command = /Bundled executable: ([\s\S]*?)\. Binding flags:/.exec(prompt)?.[1];
   assert.ok(flags, 'the real prompt must expose binding flags before Operation scope');
   assert.ok(command, 'the real prompt must expose the bundled executable');
   return { flags, command };
