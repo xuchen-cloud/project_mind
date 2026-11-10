@@ -2,6 +2,9 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { listen } from "@tauri-apps/api/event";
 import { registerCanonicalRecordEditor } from "./record-editor-registration";
 import { recordDocumentApi } from "../services/recordDocumentApi";
+import { prepareContentOwnerMove } from "./project-content-lifecycle";
+
+vi.mock("./project-content-lifecycle", () => ({ prepareContentOwnerMove: vi.fn(async (_binding, _source, _operation, save) => save()) }));
 
 vi.mock("../services/recordDocumentApi", () => ({ recordDocumentApi: {
   editorRegister: vi.fn(async () => null), editorUnregister: vi.fn(async () => null), editorFlushReply: vi.fn(async () => null),
@@ -48,5 +51,17 @@ it("acknowledges pending review or failed saving without reporting success", asy
   deliver({ payload: { binding, target, editorId: "a".repeat(32), flushId: "flush-2" } });
   await vi.waitFor(() => expect(recordDocumentApi.editorFlushReply).toHaveBeenCalledTimes(2));
   expect(vi.mocked(recordDocumentApi.editorFlushReply).mock.calls.map((call) => call[1].outcome)).toEqual(["review_pending", "busy"]);
+  dispose();
+});
+it("holds only this Record's view until an owner move ends while ordinary flushes stay unfrozen", async () => {
+  const flush = vi.fn(async () => "saved" as const);
+  const dispose = await registerCanonicalRecordEditor({ binding, target, editorId: "e", flush });
+  deliver({ payload: { binding, target, editorId: "e", flushId: "ordinary" } });
+  await vi.waitFor(() => expect(recordDocumentApi.editorFlushReply).toHaveBeenCalledTimes(1));
+  expect(prepareContentOwnerMove).not.toHaveBeenCalled();
+  deliver({ payload: { binding, target, editorId: "e", flushId: "move", ownerMoveRequestId: "operation" } });
+  await vi.waitFor(() => expect(recordDocumentApi.editorFlushReply).toHaveBeenCalledTimes(2));
+  expect(prepareContentOwnerMove).toHaveBeenCalledExactlyOnceWith(binding,
+    { workspaceId: binding.workspaceId, scope: target.scope, kind: "record", id: "7" }, "operation", flush);
   dispose();
 });

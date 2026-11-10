@@ -1,3 +1,4 @@
+import { FileDropSurface } from "./components/document/FileDropSurface";
 import { getErrorMessage } from "./lib/errors";
 import { ProjectContentWorkspace, contentTabRoute } from "./components/project/ProjectContentWorkspace";
 import { openProjectContent, PROJECT_CONTENT_OPEN_EVENT, type ProjectContentOpenResult } from "./services/projectContentApi";
@@ -1614,6 +1615,8 @@ export function WorkspaceLayout({
 
         <div className={`workspace-content-shell${agentPanelVisible ? " workspace-content-shell--agent" : ""}${agentPanelVisible && agentPanelExpanded ? " workspace-content-shell--expanded" : ""}`}>
           <main className="workspace-content-main" inert={agentPanelVisible && agentPanelExpanded}>
+            {workspaceActive || showProjectSidebarShell ? <FileDropSurface key={`${currentWorkspace.rootPath}:${activeProjectId}`}
+              workspaceRoot={currentWorkspace.rootPath} fileRootPath={activeProject?.rootPath ?? `${currentWorkspace.rootPath.replace(/[\\/]+$/, "")}/files`} projectId={activeProjectId} main /> : null}
             <div className="h-full min-h-0 overflow-hidden">
               {cachedWorkspaceResidentShell}
               {cachedProjectResidentShells}

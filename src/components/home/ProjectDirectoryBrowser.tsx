@@ -109,12 +109,16 @@ function DirectoryBranch({ projectId, workspaceRoot, binding, rootPath, relative
     {directory.isError ? <div className="project-directory__message" style={indentation} role="alert">{getErrorMessage(directory.error, "无法读取项目目录")}<button type="button" onClick={() => void directory.refetch()}>重试读取目录</button></div> : null}
     {directory.data?.length === 0 ? <p className="project-directory__message" style={indentation}>此目录为空</p> : null}
     {directory.data?.map(entry => {
+      const dropDocument = entry.kind === "file" ? documents.find(item => projectFilePathMatches(item.managedPath, rootPath, entry.relativePath)) : undefined;
       const starred = entry.kind === "file" && documents.some(document => document.isStarred && projectFilePathMatches(document.managedPath, rootPath, entry.relativePath));
       const renameInput = entry.kind === "file" ? renderRenameInput?.(entry.relativePath) : null;
       return <div key={entry.relativePath}>
       {renameInput ? <div className="project-directory__entry" style={indentation}>
         <FileIcon name={entry.name} size={12} />{renameInput}{starred ? <ListPinIndicator label="标星" /> : null}
       </div> : <button type="button" className={`project-directory__entry ${entry.kind === "file" && entry.relativePath === activeRelativePath ? "is-active" : ""}`} style={indentation}
+        data-file-drop-target={dropDocument ? JSON.stringify({ id: dropDocument.id, name: dropDocument.name,
+          documentId: dropDocument.id, projectId: dropDocument.projectId, managedPath: dropDocument.managedPath,
+          expectedVersionNumber: dropDocument.currentVersionNumber }) : undefined}
         aria-label={entry.name}
         aria-current={entry.kind === "file" && entry.relativePath === activeRelativePath ? "true" : undefined}
         aria-expanded={entry.kind === "directory" ? expanded.has(entry.relativePath) : undefined}

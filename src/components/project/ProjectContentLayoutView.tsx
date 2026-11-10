@@ -19,7 +19,7 @@ export interface ContentPageProps {
   tab: ContentTab;
   visible: boolean;
   focused: boolean;
-  registerCloseGuard: (guard: () => Promise<void>) => () => void;
+  registerCloseGuard: (close: () => Promise<void>, strictSave?: () => Promise<void>) => () => void;
 }
 
 interface TabDragZone {
@@ -331,8 +331,8 @@ export function ProjectContentLayoutView({ scope, layout, active, renderPage, re
   const narrow = contentWidth > 0 && contentWidth < 720;
   const [error, setError] = useState<string | null>(null);
   const [closing, setClosing] = useState<string | null>(null);
-  const guards = useRef(new Map<string, () => Promise<void>>());
-  const movingIds = useRef(new Set<string>());
+  const guards = useRef(new Map<string, { close: () => Promise<void>; strictSave?: () => Promise<void> }>());
+  const movingIds = useRef(new Map<string, number>());
   const moveStates = useRef(new Map<string, { committed: boolean; nativeSessionsClosed?: boolean }>());
   const [moving, setMoving] = useState<ReadonlySet<string>>(new Set());
   const registrars = useRef(new Map<string, ContentPageProps["registerCloseGuard"]>());
@@ -349,21 +349,27 @@ export function ProjectContentLayoutView({ scope, layout, active, renderPage, re
     for (const tab of currentTabs.current) {
       if (tab.object.kind !== "record" && tab.object.kind !== "file") continue;
       if (object && (tab.object.kind !== object.kind || tab.object.id !== object.id)) continue;
-      await guards.current.get(tab.id)?.();
+      const guard = guards.current.get(tab.id);
+      if (object) await guard?.strictSave?.();
+      else await guard?.close();
     }
   }, object => {
     const tab = currentTabs.current.find(item => item.object.kind === object.kind && item.object.id === object.id);
     if (!tab) return () => {};
-    if (movingIds.current.has(tab.id)) throw new Error("该内容正在移动，请等待完成");
-    movingIds.current.add(tab.id);
+    movingIds.current.set(tab.id, (movingIds.current.get(tab.id) ?? 0) + 1);
     // Apply before awaiting capture, so input cannot race React's next commit.
     const page = document.getElementById(`content-page-${tab.id}`);
     if (page) page.inert = true;
-    setMoving(new Set(movingIds.current));
+    setMoving(new Set(movingIds.current.keys()));
+    let released = false;
     return () => {
-      movingIds.current.delete(tab.id);
-      if (page) page.inert = page.hidden;
-      if (root.current) setMoving(new Set(movingIds.current));
+      if (released) return;
+      released = true;
+      const remaining = (movingIds.current.get(tab.id) ?? 1) - 1;
+      if (remaining) movingIds.current.set(tab.id, remaining);
+      else movingIds.current.delete(tab.id);
+      if (page) page.inert = page.hidden || movingIds.current.has(tab.id);
+      if (root.current) setMoving(new Set(movingIds.current.keys()));
     };
   }, (object, nativeSessionsClosed) => {
     const tab = currentTabs.current.find(item => item.object.kind === object.kind && item.object.id === object.id);
@@ -410,14 +416,18 @@ export function ProjectContentLayoutView({ scope, layout, active, renderPage, re
   async function close(id: string) {
     if (closing || movingIds.current.has(id)) return;
     setClosing(id); setError(null);
-    try { await onClose(id, guards.current.get(id)); }
+    try { await onClose(id, guards.current.get(id)?.close); }
     catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setClosing(null); }
   }
   function registrar(id: string) {
     let value = registrars.current.get(id);
     if (!value) {
-      value = guard => { guards.current.set(id, guard); return () => { if (guards.current.get(id) === guard) guards.current.delete(id); }; };
+      value = (close, strictSave) => {
+        const guard = { close, strictSave };
+        guards.current.set(id, guard);
+        return () => { if (guards.current.get(id) === guard) guards.current.delete(id); };
+      };
       registrars.current.set(id, value);
     }
     return value;

@@ -13,7 +13,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type DragEvent,
   type KeyboardEvent,
   type MouseEvent,
   type ReactNode,
@@ -32,14 +31,12 @@ import {
   PinOff,
   Plus,
   Trash2,
-  Upload,
 } from "lucide-react";
 
 import type { DocumentRecord, DocumentTagRecord, TagColorKey, WorkspaceStatusSnapshot } from "../../lib/types";
-import { extractDroppedFilePaths } from "../../lib/document-drop";
 import { useDocumentMutations } from "../../hooks/useDocumentMutations";
 import { useDocumentImportFlow } from "../../hooks/useDocumentImportFlow";
-import { useWindowFileDrop } from "../../hooks/useWindowFileDrop";
+import { FileDropSurface } from "../document/FileDropSurface";
 import { desktopApi } from "../../services/desktopApi";
 import { useFeedbackStore } from "../../state/feedback-store";
 import {
@@ -156,7 +153,6 @@ interface RecordContextMenuState {
   y: number;
 }
 
-const DRAG_DEACTIVATE_DELAY_MS = 80;
 const PROJECT_SIDEBAR_TABS = [
   { value: "records", label: "记录" },
   { value: "files", label: "文件" },
@@ -245,7 +241,6 @@ export function ProjectSidebar({
   const documentTagId = fileFilter ? fileFilter.tagId : (ownerId === null ? workspaceFileTagId : projectFileFilters[ownerId]?.tagId) ?? null;
   const setFileQuery = (query: string) => ownerId === null ? setWorkspaceFileQuery(query) : setProjectFileQuery(ownerId, query);
   const setDocumentTagId = (tagId: number | null) => ownerId === null ? setWorkspaceFileTagId(tagId) : setProjectDocumentTagId(ownerId, tagId);
-  const [dragActive, setDragActive] = useState(false);
 
   // Document editing state
   const [editingDocument, setEditingDocument] = useState<ProjectSidebarDocumentItem | null>(null);
@@ -264,10 +259,8 @@ export function ProjectSidebar({
     onActiveRecordTagIdChange ?? setLocalActiveRecordTagId;
 
   const openTimerRef = useRef<number | null>(null);
-  const dragDeactivateTimerRef = useRef<number | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
-  const dragActiveRef = useRef(false);
 
   const projectTagLookup = useMemo(
     () =>
@@ -383,9 +376,6 @@ export function ProjectSidebar({
       if (openTimerRef.current !== null) {
         window.clearTimeout(openTimerRef.current);
       }
-      if (dragDeactivateTimerRef.current !== null) {
-        window.clearTimeout(dragDeactivateTimerRef.current);
-      }
     },
     [],
   );
@@ -468,98 +458,9 @@ export function ProjectSidebar({
     }
   };
 
-  const setDragActiveStable = useCallback((nextActive: boolean) => {
-    if (dragActiveRef.current === nextActive) {
-      return;
-    }
-
-    dragActiveRef.current = nextActive;
-    setDragActive(nextActive);
-  }, []);
-
-  const clearPendingDragDeactivate = useCallback(() => {
-    if (dragDeactivateTimerRef.current !== null) {
-      window.clearTimeout(dragDeactivateTimerRef.current);
-      dragDeactivateTimerRef.current = null;
-    }
-  }, []);
-
-  const activateFileDropTarget = useCallback(() => {
-    clearPendingDragDeactivate();
-    setActiveTab("files");
-    setDragActiveStable(true);
-  }, [clearPendingDragDeactivate, setDragActiveStable]);
-
-  const deactivateFileDropTarget = useCallback(() => {
-    if (dragDeactivateTimerRef.current !== null) {
-      return;
-    }
-
-    dragDeactivateTimerRef.current = window.setTimeout(() => {
-      dragDeactivateTimerRef.current = null;
-      setDragActiveStable(false);
-    }, DRAG_DEACTIVATE_DELAY_MS);
-  }, [setDragActiveStable]);
-
   const handleImportPaths = useCallback(async (paths: string[]) => {
     await requestImportPaths(paths);
   }, [requestImportPaths]);
-
-  const handleDroppedPaths = useCallback(
-    async (paths: string[]) => {
-      clearPendingDragDeactivate();
-      setDragActiveStable(false);
-
-      if (paths.length === 0) {
-        pushToast({
-          tone: "error",
-          title: "无法读取拖拽文件",
-          detail: "请确保拖拽的是本地文件。",
-        });
-        return;
-      }
-
-      await handleImportPaths(paths);
-    },
-    [clearPendingDragDeactivate, handleImportPaths, pushToast, setDragActiveStable],
-  );
-
-  const isSidebarPointWithin = useCallback((x: number, y: number) => {
-    const rect = rootRef.current?.getBoundingClientRect();
-    if (!rect) {
-      return false;
-    }
-
-    return x >= rect.left && x < rect.right && y >= rect.top && y < rect.bottom;
-  }, []);
-
-  const { nativeWindowFileDrop } = useWindowFileDrop({
-    enabled: true,
-    isPositionActive: ({ x, y }) => isSidebarPointWithin(x, y),
-    onHoverChange: (active) => {
-      if (active) {
-        activateFileDropTarget();
-        return;
-      }
-
-      deactivateFileDropTarget();
-    },
-    onDrop: handleDroppedPaths,
-  });
-
-  const acceptsDraggedFiles = (dataTransfer: DataTransfer) =>
-    Array.from(dataTransfer.types).some((type) => type === "Files" || type === "text/uri-list") ||
-    dataTransfer.files.length > 0;
-
-  const handleDrop = (event: DragEvent<HTMLElement>) => {
-    if (nativeWindowFileDrop) {
-      return;
-    }
-
-    event.preventDefault();
-    event.stopPropagation();
-    void handleDroppedPaths(extractDroppedFilePaths(event.dataTransfer));
-  };
 
   const openDocument = (document: ProjectSidebarDocumentItem) => {
     if (openPreview(document)) return;
@@ -789,46 +690,18 @@ export function ProjectSidebar({
   return (
     <aside
       ref={rootRef}
+      data-file-drop-sidebar
       data-files-only={filesOnly || undefined}
       className={cn(
         "relative flex h-full shrink-0 flex-col border-r border-border bg-[color-mix(in_srgb,var(--color-bg-subtle)_88%,var(--color-bg))]",
-        dragActive && "bg-[color-mix(in_srgb,var(--color-accent)_6%,var(--color-bg-subtle))]",
       )}
       style={{
         width: filesOnly ? "100%" : `${projectSidebarWidthPx}px`,
       }}
       aria-label={filesOnly ? (ownerId === null ? "工作区文件" : "项目文件") : "项目导航侧边栏"}
-      onDragOver={(event) => {
-        if (nativeWindowFileDrop || !acceptsDraggedFiles(event.dataTransfer)) {
-          return;
-        }
-
-        event.preventDefault();
-        event.stopPropagation();
-        activateFileDropTarget();
-      }}
-      onDragEnter={(event) => {
-        if (nativeWindowFileDrop || !acceptsDraggedFiles(event.dataTransfer)) {
-          return;
-        }
-
-        event.preventDefault();
-        event.stopPropagation();
-        activateFileDropTarget();
-      }}
-      onDragLeave={(event) => {
-        if (nativeWindowFileDrop) {
-          return;
-        }
-
-        event.preventDefault();
-        event.stopPropagation();
-        if (!isSidebarPointWithin(event.clientX, event.clientY)) {
-          deactivateFileDropTarget();
-        }
-      }}
-      onDrop={handleDrop}
     >
+      <FileDropSurface workspaceRoot={moveWorkspaceRoot} fileRootPath={owner.rootPath} projectId={ownerId} elementRef={rootRef}
+        onActiveChange={active => { if (active && !filesOnly) setActiveTab("files"); }} />
       {!filesOnly ? <>
       <ResizeHandle
         label="调整项目侧边栏宽度"
@@ -1053,15 +926,8 @@ export function ProjectSidebar({
               <div
                 className={cn(
                   "project-sidebar__file-list grid gap-1.5 rounded-[var(--radius-8)] transition-colors",
-                  dragActive && "bg-[color-mix(in_srgb,var(--color-accent)_8%,var(--color-bg))]",
                 )}
               >
-                {dragActive ? (
-                  <div className="flex items-center gap-2 rounded-[var(--radius-8)] border border-[color-mix(in_srgb,var(--color-accent)_20%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-accent)_10%,var(--color-bg))] px-3 py-2 text-ui text-text shadow-[var(--shadow-sm)]">
-                    <Upload size={13} />
-                    <span>松手即可导入文件</span>
-                  </div>
-                ) : null}
                 {filteredDocuments.length > 0 ? (
                   filteredDocuments.map((document) => {
                     const isEditing = editingDocumentId === document.id;
@@ -1083,6 +949,8 @@ export function ProjectSidebar({
                               : "border-transparent hover:border-border hover:bg-bg",
                         )}
                         aria-current={document.id === activeFileId ? "true" : undefined}
+                        data-file-drop-target={JSON.stringify({ id: document.id, name: document.name, documentId: document.id,
+                          projectId: document.projectId, managedPath: document.managedPath, expectedVersionNumber: document.currentVersionNumber })}
                         data-health={document.health}
                         data-context-open={isContextOpen || undefined}
                         tabIndex={0}

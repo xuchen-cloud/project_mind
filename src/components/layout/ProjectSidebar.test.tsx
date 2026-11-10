@@ -21,6 +21,7 @@ const documentMutationMocks = vi.hoisted(() => ({
 }));
 
 const desktopApiMocks = vi.hoisted(() => ({
+  fileCommand: vi.fn(),
   pickFiles: vi.fn<(input?: unknown) => Promise<string[]>>(async () => []),
   openFile: vi.fn(async () => undefined),
   revealInExplorer: vi.fn(async () => undefined),
@@ -40,6 +41,7 @@ vi.mock("../../hooks/useDocumentMutations", () => ({
 
 vi.mock("../../services/desktopApi", () => ({
   desktopApi: {
+    fileCommand: desktopApiMocks.fileCommand,
     pickFiles: desktopApiMocks.pickFiles,
     openFile: desktopApiMocks.openFile,
     revealInExplorer: desktopApiMocks.revealInExplorer,
@@ -131,6 +133,7 @@ describe("ProjectSidebar", () => {
     documentMutationMocks.documentAddVersionMutation.mutate.mockReset();
     documentMutationMocks.documentAddVersionMutation.mutateAsync.mockReset();
     documentMutationMocks.documentDeleteMutation.mutate.mockReset();
+    desktopApiMocks.fileCommand.mockReset().mockImplementation(async command => command === "file_drop_prepare" ? { intentId: "intent" } : { documentId: 21, versionNumber: 1, contentHash: "h", noChange: false, cleanupWarning: null });
     desktopApiMocks.pickFiles.mockReset();
     desktopApiMocks.openFile.mockReset();
     desktopApiMocks.revealInExplorer.mockReset();
@@ -415,16 +418,16 @@ describe("ProjectSidebar", () => {
     fireEvent.dragEnter(sidebar, { dataTransfer });
 
     expect(screen.getByRole("tab", { name: "文件" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByText("松手即可导入文件")).toBeInTheDocument();
+    expect(screen.getByText("松手移入文件，成功后原文件移至回收站")).toBeInTheDocument();
 
     fireEvent.drop(sidebar, { dataTransfer });
 
     await waitFor(() => {
-      expect(projectMindApiMocks.documentImport).toHaveBeenCalledWith({
-        projectId: 1,
-        sourcePath: "/tmp/alpha-project/brief.pdf",
-        isStarred: false,
+      expect(desktopApiMocks.fileCommand).toHaveBeenCalledWith("file_drop_prepare", {
+        binding: { workspaceId: "w", generation: "g" }, requestId: expect.any(String),
+        sourcePath: "/tmp/alpha-project/brief.pdf", target: { kind: "new", owner: 1, name: "brief.pdf" },
       });
+      expect(projectMindApiMocks.documentImport).not.toHaveBeenCalled();
     });
   });
 
@@ -451,7 +454,7 @@ describe("ProjectSidebar", () => {
 
     const sidebar = screen.getByLabelText("项目导航侧边栏");
     fireEvent.dragEnter(sidebar, { dataTransfer });
-    expect(screen.getByText("松手即可导入文件")).toBeInTheDocument();
+    expect(screen.getByText("松手移入文件，成功后原文件移至回收站")).toBeInTheDocument();
 
     fireEvent.dragLeave(sidebar, {
       clientX: -1,
@@ -461,7 +464,7 @@ describe("ProjectSidebar", () => {
     fireEvent.dragEnter(sidebar, { dataTransfer });
     vi.advanceTimersByTime(100);
 
-    expect(screen.getByText("松手即可导入文件")).toBeInTheDocument();
+    expect(screen.getByText("松手移入文件，成功后原文件移至回收站")).toBeInTheDocument();
   });
 
   it("shows add actions beside search and hides tab counts", async () => {

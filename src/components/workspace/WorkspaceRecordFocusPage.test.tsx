@@ -24,6 +24,7 @@ import { RecordSaveFailure, RecordSaveCoordinator, type CommittedRecordSnapshot,
 import { RecordSaveCoordinatorProvider } from "../../lib/record-save-runtime";
 import { RecordFocusResidentPages } from "../record/RecordFocusResidentPages";
 import { WorkspaceRecordFocusPage } from "./WorkspaceRecordFocusPage";
+import { ProjectContentLayoutView } from "../project/ProjectContentLayoutView";
 
 vi.mock("../voice/VoiceRecordPanel", () => ({
   VoiceRecordPanel: ({ onMinutesCommitted }: { onMinutesCommitted?: () => void }) =>
@@ -456,6 +457,34 @@ describe("WorkspaceRecordFocusPage record switching", () => {
     recordMocks.editorGet.mockRejectedValue(new AgentApiError({ code: "NOT_FOUND", message: "record deleted", retryable: false }));
     return { view, coordinator, persist };
   }
+
+  it.each(["NOT_FOUND", "OBJECT_WITHDRAWN"] as const)("keeps a Workspace Record draft without confirm or discard when move saving fails with %s", async code => {
+    const persist = vi.fn(async () => { throw new RecordSaveFailure("Record cannot be saved", { code, retryable: false }); });
+    const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: { persist } });
+    const discard = vi.spyOn(coordinator, "discard");
+    const tab = { id: "moving-workspace-record", object: { kind: "record" as const, id: 7, title: "目标记录" }, view: {} };
+    renderPage(<RecordSaveCoordinatorProvider coordinator={coordinator}>
+      <ProjectContentLayoutView scope={{ workspaceId: "fixture-workspace", projectId: null }} active
+        layout={{ tabs: [tab], panes: [{ id: "left", tabIds: [tab.id], selectedTabId: tab.id }], focusedPaneId: "left", ratio: 0.5 }}
+        onOverview={() => undefined} onSelect={() => undefined} onClose={async () => undefined}
+        registerLeaveGuard={(prepare, lockObject, moved) => contentLifecycle.registerProjectContentCloseGuard({
+          workspaceRoot: "/strict-workspace-page", projectId: null, prepare, lockObject, moved,
+        })} renderPage={props => <WorkspaceRecordFocusPage recordIdOverride={7} embedded registerCloseGuard={props.registerCloseGuard} />} />
+    </RecordSaveCoordinatorProvider>);
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
+    recordExportMocks.committedValue = "必须保留的 Workspace 草稿";
+    recordMocks.editorGet.mockRejectedValue(new AgentApiError({ code, message: "Record unavailable", retryable: false }));
+    recordMocks.confirm.mockResolvedValue(true);
+    const move = vi.fn(async () => undefined);
+    await act(async () => {
+      await expect(contentLifecycle.withProjectContentMove("/strict-workspace-page", null, { kind: "record", id: 7 }, move)).rejects.toThrow("Record cannot be saved");
+    });
+    expect(move).not.toHaveBeenCalled();
+    expect(recordMocks.confirm).not.toHaveBeenCalled();
+    expect(discard).not.toHaveBeenCalled();
+    expect(coordinator.getLatestSnapshot("workspace:7")?.committedContent.markdown).toBe("必须保留的 Workspace 草稿");
+    expect(screen.getByRole("tab", { name: "目标记录" })).toBeInTheDocument();
+  });
 
   it("confirms a deleted record, clears its queue, and does not resubmit on navigation or unmount", async () => {
     const { view, coordinator, persist } = await renderDeletedRecord();

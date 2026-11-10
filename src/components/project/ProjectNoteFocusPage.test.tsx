@@ -19,6 +19,8 @@ import { RecordFocusResidentPages } from "../record/RecordFocusResidentPages";
 import { ProjectNoteFocusPage } from "./ProjectNoteFocusPage";
 import { ProjectContentMoveContext } from "../../lib/project-content-move-context";
 import { recordDocumentApi } from "../../services/recordDocumentApi";
+import { ProjectContentLayoutView } from "./ProjectContentLayoutView";
+import { registerProjectContentCloseGuard, withProjectContentMove } from "../../lib/project-content-lifecycle";
 
 vi.mock("../voice/VoiceRecordPanel", () => ({
   VoiceRecordPanel: ({ onMinutesCommitted }: { onMinutesCommitted?: () => void }) =>
@@ -760,6 +762,37 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
       await expect(closing).rejects.toThrow("记录状态已变化");
     });
     expect(screen.getByLabelText("正文编辑器")).toHaveValue("Newer draft during close");
+  });
+
+  it.each(["NOT_FOUND", "OBJECT_WITHDRAWN"] as const)("keeps a Project Record draft without confirm or discard when move saving fails with %s", async code => {
+    const failure = new RecordSaveFailure("Record cannot be saved", { code, retryable: false });
+    const persist = vi.fn(async () => { throw failure; });
+    const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: { persist } });
+    const discard = vi.spyOn(coordinator, "discard");
+    const tab = { id: "moving-record", object: { kind: "record" as const, id: 7, title: "目标记录" }, view: {} };
+    render(<RecordSaveCoordinatorProvider coordinator={coordinator}>
+      <ProjectContentLayoutView scope={{ workspaceId: "fixture-workspace", projectId: 1 }} active
+        layout={{ tabs: [tab], panes: [{ id: "left", tabIds: [tab.id], selectedTabId: tab.id }], focusedPaneId: "left", ratio: 0.5 }}
+        onOverview={() => undefined} onSelect={() => undefined} onClose={async () => undefined}
+        registerLeaveGuard={(prepare, lockObject, moved) => registerProjectContentCloseGuard({
+          workspaceRoot: "/strict-project-page", projectId: 1, prepare, lockObject, moved,
+        })} renderPage={props => <ProjectNoteFocusPage embedded registerCloseGuard={props.registerCloseGuard} />} />
+    </RecordSaveCoordinatorProvider>);
+    await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toBeEnabled());
+    const editor = screen.getByLabelText("正文编辑器");
+    fireEvent.change(editor, { target: { value: "必须保留的草稿" } });
+    recordMocks.editorGet.mockRejectedValue(new AgentApiError({ code, message: "Record unavailable", retryable: false }));
+    vi.mocked(desktopApi.confirm).mockResolvedValue(true);
+    const move = vi.fn(async () => undefined);
+    await act(async () => {
+      await expect(withProjectContentMove("/strict-project-page", 1, { kind: "record", id: 7 }, move)).rejects.toThrow("Record cannot be saved");
+    });
+    expect(move).not.toHaveBeenCalled();
+    expect(desktopApi.confirm).not.toHaveBeenCalled();
+    expect(discard).not.toHaveBeenCalled();
+    expect(coordinator.getLatestSnapshot("project:1:7")?.committedContent.markdown).toBe("必须保留的草稿");
+    expect(editor).toHaveValue("必须保留的草稿");
+    expect(screen.getByRole("tab", { name: "目标记录" })).toBeInTheDocument();
   });
 
   it("confirms discarding a deleted Record before close and does not resubmit it on leave", async () => {

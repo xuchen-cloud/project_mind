@@ -82,7 +82,7 @@ export function WorkspaceRecordFocusPage({
   embedded?: boolean;
   searchParamsOverride?: URLSearchParams;
   onBack?: () => void;
-  registerCloseGuard?: (guard: () => Promise<void>) => () => void;
+  registerCloseGuard?: (close: () => Promise<void>, strictSave?: () => Promise<void>) => () => void;
 } = {}) {
   const navigate = useNavigate();
   const params = useParams();
@@ -338,7 +338,7 @@ export function WorkspaceRecordFocusPage({
 
   useEffect(() => {
     if (recordId === null) return;
-    const prepare = () => prepareClose(async () => {
+    const strictSave = async () => {
         if (!draftReady) return;
         const recordKey = workspaceRecordSaveKey(recordId);
         const current = canonicalRef.current;
@@ -369,8 +369,9 @@ export function WorkspaceRecordFocusPage({
         if (editor.isBusy() || editor.getPendingAiReviewCount() > 0 || getDraftSignature() !== before) {
           throw new Error("记录仍在编辑，草稿已保留，请稍后再关闭");
         }
-      });
-    return registerCloseGuard ? registerCloseGuard(prepare) : registerWorkspaceRecordCloseGuard({
+      };
+    const prepare = () => prepareClose(strictSave);
+    return registerCloseGuard ? registerCloseGuard(prepare, strictSave) : registerWorkspaceRecordCloseGuard({
       workspaceRoot: saveCoordinator.workspaceKey ?? currentWorkspace?.rootPath ?? "", recordId, prepare,
     });
   }, [registerCloseGuard, recordId, saveCoordinator, currentWorkspace?.rootPath, prepareClose, draftReady,
