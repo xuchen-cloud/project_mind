@@ -15,8 +15,10 @@ const ownerMoveMocks = vi.hoisted(() => ({ move: vi.fn(), projects: vi.fn() }));
 vi.mock("../../services/contentOwnerMoveApi", () => ({ moveContentOwner: ownerMoveMocks.move }));
 vi.mock("../../services/recordDocumentApi",()=>({recordDocumentApi:{bindingGet:nativeVersionMocks.binding}}));
 vi.mock("../../services/fileDocumentApi",()=>({fileDocumentApi:{versionsList:nativeVersionMocks.list}}));
-const fileOpenMocks = vi.hoisted(() => ({ open: vi.fn(async () => undefined) }));
-vi.mock("../../services/projectFileApi", () => ({ projectFileApi: { openLocal: fileOpenMocks.open } }));
+const fileOpenMocks = vi.hoisted(() => ({ open: vi.fn(async () => undefined), resolve: vi.fn() }));
+vi.mock("../../services/projectFileApi", () => ({ projectFileApi: { openLocal: fileOpenMocks.open, resolve: fileOpenMocks.resolve } }));
+const trashMocks = vi.hoisted(() => ({ prepare: vi.fn(), trash: vi.fn() }));
+vi.mock("../../services/projectDirectoryApi", () => ({ projectDirectoryApi: { prepareTrash: trashMocks.prepare, trash: trashMocks.trash } }));
 const documentMutationMocks = vi.hoisted(() => ({
   documentMetaMutation: { mutate: vi.fn(), isPending: false },
   documentAddVersionMutation: { mutate: vi.fn(), mutateAsync: vi.fn(), isPending: false },
@@ -28,6 +30,7 @@ const desktopApiMocks = vi.hoisted(() => ({
   pickFiles: vi.fn<(input?: unknown) => Promise<string[]>>(async () => []),
   openFile: vi.fn(async () => undefined),
   revealInExplorer: vi.fn(async () => undefined),
+  confirm: vi.fn(async () => true),
 }));
 
 const projectMindApiMocks = vi.hoisted(() => ({
@@ -48,6 +51,7 @@ vi.mock("../../services/desktopApi", () => ({
     pickFiles: desktopApiMocks.pickFiles,
     openFile: desktopApiMocks.openFile,
     revealInExplorer: desktopApiMocks.revealInExplorer,
+    confirm: desktopApiMocks.confirm,
   },
 }));
 
@@ -69,7 +73,7 @@ function renderWithProviders(ui: React.ReactElement) {
   });
 
   queryClient.setQueryData(queryKeys.workspaceStatus, { currentWorkspace: { rootPath: "/tmp/workspace" } });
-  return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
+  return render(ui, { wrapper: ({ children }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider> });
 }
 
 describe("ProjectSidebar", () => {
@@ -89,6 +93,105 @@ describe("ProjectSidebar", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "移动文件" })).not.toBeInTheDocument());
     expect(desktopApiMocks.openFile).not.toHaveBeenCalled();
   });
+  it("observes a list mounted after initial expansion so filtered selections cannot return", async () => {
+    useUiStore.setState({ projectSidebarCollapsed: true, projectSidebarTab: "files" });
+    const documents = [1, 2, 3].map(id => buildDocument({ id, name: `file-${id}.txt`, baseName: `file-${id}.txt`, managedPath: `/files/file-${id}.txt` }));
+    const component = (query: string) => <ProjectSidebar project={{ id: 1, name: "Alpha", rootPath: "/files" }}
+      documents={documents} fileFilter={{ query, tagId: null }} onOpenProject={() => undefined} />;
+    const view = renderWithProviders(component(""));
+    expect(screen.queryByRole("button", { name: /^file-1.txt/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "展开项目侧边栏" }));
+    const first = screen.getByRole("button", { name: /^file-1.txt/ });
+    const second = screen.getByRole("button", { name: /^file-2.txt/ });
+    fireEvent.click(first, { ctrlKey: true });fireEvent.click(second, { ctrlKey: true });
+    expect(first).toHaveAttribute("aria-pressed", "true");
+    expect(second).toHaveAttribute("aria-pressed", "true");
+    view.rerender(component("file-3"));
+    await waitFor(() => expect(screen.queryByRole("button", { name: /^file-1.txt/ })).not.toBeInTheDocument());
+    view.rerender(component(""));
+    expect(screen.getByRole("button", { name: /^file-1.txt/ })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: /^file-2.txt/ })).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it.each([1, null])("selects a visible range and toggles individual Files before one Trash confirmation (owner=%s)", async owner => {
+    const documents = [1, 2, 3, 4].map(id => buildDocument({ id, projectId: owner, name: `file-${id}.txt`, baseName: `file-${id}.txt`, managedPath: `/files/file-${id}.txt` }));
+    fileOpenMocks.resolve.mockImplementation(async (_binding, object) => ({ state: "ready", relativePath: `file-${object.id}.txt` }));
+    trashMocks.prepare.mockImplementation(async ({ relativePath }) => ({ kind: "file", relativePath, token: relativePath, identityToken: relativePath,
+      files: [{ fileId: Number(relativePath.match(/\d+/)?.[0]), revision: 1 }] }));
+    trashMocks.trash.mockResolvedValue({ relativePath: null, fileIds: [] });
+    renderWithProviders(<ProjectSidebar filesOnly fileScope={{ workspaceRoot: "/tmp/workspace", projectId: owner, name: "Files", rootPath: "/files" }} documents={documents} onOpenProject={() => undefined} />);
+    const rows = within(screen.getByRole("region", { name: owner === null ? "工作区文件列表" : "项目文件列表" })).getAllByRole("button", { name: /^file-/ });
+    fireEvent.click(rows[0]);
+    fireEvent.click(rows[2], { shiftKey: true });
+    expect(rows.map(row => row.getAttribute("aria-pressed"))).toEqual(["true", "true", "true", "false"]);
+    fireEvent.click(rows[1], { ctrlKey: true });
+    fireEvent.click(rows[3], { metaKey: true });
+    expect(rows.map(row => row.getAttribute("aria-pressed"))).toEqual(["true", "false", "true", "true"]);
+    fireEvent.contextMenu(rows[2]);
+    const action = await screen.findByRole("menuitem", { name: "删除所选 3 项" });
+    expect(screen.queryByRole("menuitem", { name: "重命名" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "使用系统默认应用打开" })).not.toBeInTheDocument();
+    fireEvent.click(action);
+    await waitFor(() => expect(trashMocks.trash).toHaveBeenCalledTimes(3));
+    expect(desktopApiMocks.confirm).toHaveBeenCalledOnce();
+    expect(trashMocks.prepare).toHaveBeenCalledTimes(6);
+    expect(trashMocks.trash.mock.calls.map(([input]) => input.relativePath)).toEqual([rows[0], rows[2], rows[3]].map(row => row.dataset.fileSelectionPath));
+    for (const [input] of trashMocks.trash.mock.calls) expect(input).toMatchObject({ binding: { workspaceId: "w", generation: "g" }, projectId: owner, confirmed: true });
+    await waitFor(() => expect(rows.every(row => row.getAttribute("aria-pressed") === "false")).toBe(true));
+    expect(documentMutationMocks.documentDeleteMutation.mutate).not.toHaveBeenCalled();
+    expect(useFilePreviewStore.getState().request).toBeNull();
+  });
+
+  it("handles macOS Control primary contextmenu without opening a menu or toggling twice", async () => {
+    renderWithProviders(<ProjectSidebar filesOnly project={{ id: 1, name: "Alpha", rootPath: "/files" }}
+      documents={[1, 2].map(id => buildDocument({ id, name: `file-${id}.txt`, baseName: `file-${id}.txt`, managedPath: `/files/file-${id}.txt` }))} onOpenProject={() => undefined} />);
+    const rows = screen.getAllByRole("button", { name: /^file-/ });
+    for (const row of rows) {
+      fireEvent.mouseDown(row, { button: 0, ctrlKey: true });
+      fireEvent.contextMenu(row, { button: 2, ctrlKey: true });
+      fireEvent.click(row, { ctrlKey: true });
+    }
+    expect(rows.every(row => row.getAttribute("aria-pressed") === "true")).toBe(true);
+    expect(screen.queryByRole("menuitem")).not.toBeInTheDocument();
+    fireEvent.mouseDown(rows[0], { button: 2, ctrlKey: true });
+    fireEvent.contextMenu(rows[0], { button: 2, ctrlKey: true });
+    expect(await screen.findByRole("menuitem", { name: "删除所选 2 项" })).toBeVisible();
+    expect(useFilePreviewStore.getState().request).toBeNull();
+  });
+
+  it("keeps only failed Files selected after a partial Trash result", async () => {
+    fileOpenMocks.resolve.mockImplementation(async (_binding, object) => ({ state: "ready", relativePath: `file-${object.id}.txt` }));
+    trashMocks.prepare.mockImplementation(async ({ relativePath }) => ({ kind: "file", relativePath, token: relativePath, identityToken: relativePath,
+      files: [{ fileId: Number(relativePath.match(/\d+/)?.[0]), revision: 1 }] }));
+    trashMocks.trash.mockImplementation(async ({ relativePath }) => { if (relativePath === "file-2.txt") throw new Error("文件正在使用"); return { relativePath: null, fileIds: [1] }; });
+    renderWithProviders(<ProjectSidebar filesOnly project={{ id: 1, name: "Alpha", rootPath: "/files" }}
+      documents={[1, 2].map(id => buildDocument({ id, name: `file-${id}.txt`, baseName: `file-${id}.txt`, managedPath: `/files/file-${id}.txt` }))} onOpenProject={() => undefined} />);
+    const first = screen.getByRole("button", { name: /^file-1.txt/ });
+    const second = screen.getByRole("button", { name: /^file-2.txt/ });
+    fireEvent.click(first, { ctrlKey: true });fireEvent.click(second, { ctrlKey: true });
+    fireEvent.contextMenu(first);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "删除所选 2 项" }));
+    await waitFor(() => expect(first).toHaveAttribute("aria-pressed", "false"));
+    expect(second).toHaveAttribute("aria-pressed", "true");
+    expect(useFeedbackStore.getState().toasts).toEqual([expect.objectContaining({ title: "已移入回收站 1 项，1 项未删除", detail: expect.stringContaining("文件正在使用") })]);
+  });
+
+  it("prunes filtered selections and replaces the group when right clicking an unselected File", async () => {
+    const documents = [1, 2, 3].map(id => buildDocument({ id, name: `file-${id}.txt`, baseName: `file-${id}.txt`, managedPath: `/files/file-${id}.txt` }));
+    const component = (query: string) => <ProjectSidebar filesOnly project={{ id: 1, name: "Alpha", rootPath: "/files" }}
+      documents={documents} fileFilter={{ query, tagId: null }} onOpenProject={() => undefined} />;
+    const view = renderWithProviders(component(""));
+    const rows = screen.getAllByRole("button", { name: /^file-/ });
+    fireEvent.click(rows[0], { ctrlKey: true });fireEvent.click(rows[1], { ctrlKey: true });
+    fireEvent.contextMenu(rows[2]);
+    expect(await screen.findByRole("menuitem", { name: "删除" })).toBeVisible();
+    expect(rows.map(row => row.getAttribute("aria-pressed"))).toEqual(["false", "false", "true"]);
+    view.rerender(component("file-1"));
+    await waitFor(() => expect(screen.queryByRole("menuitem")).not.toBeInTheDocument());
+    view.rerender(component(""));
+    expect(screen.getAllByRole("button", { name: /^file-/ }).every(row => row.getAttribute("aria-pressed") === "false")).toBe(true);
+  });
+
   it.each([1, null].flatMap(owner => [false, true].map(tree => ({ owner, tree }))))(
     "opens the current original by native File identity from the shared menu (owner=$owner, tree=$tree)", async ({ owner, tree }) => {
       const document = buildDocument({ id: 29, projectId: owner, managedPath: "/stale/brief.pdf", historyDirPath: "/history/v1" });
@@ -190,6 +293,9 @@ describe("ProjectSidebar", () => {
     closeFilePreview();
     nativeVersionMocks.binding.mockReset();nativeVersionMocks.binding.mockResolvedValue({workspaceId:"w",generation:"g"});nativeVersionMocks.list.mockReset();
     fileOpenMocks.open.mockReset();fileOpenMocks.open.mockResolvedValue(undefined);
+    fileOpenMocks.resolve.mockReset();
+    trashMocks.prepare.mockReset();trashMocks.trash.mockReset();
+    desktopApiMocks.confirm.mockReset();desktopApiMocks.confirm.mockResolvedValue(true);
     useFeedbackStore.setState({ toasts: [] });
     documentMutationMocks.documentMetaMutation.mutate.mockReset();
     documentMutationMocks.documentAddVersionMutation.mutate.mockReset();

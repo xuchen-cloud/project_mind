@@ -38,6 +38,11 @@
 .project-navigation__files .project-directory__entry { min-height:26px; padding-block:4px; border-radius:7px; }
 .project-navigation__files .project-directory__entry:hover { background:var(--home-nav-hover); }
 
+.project-navigation__files .project-sidebar__file-row.is-selected,
+.project-navigation__files .project-sidebar__file-row.is-selected:is(:hover,:focus-within,[data-context-open="true"]) {
+  background:var(--color-accent-ring);
+}
+
 /* Focused content keeps the same accent surface across navigation presentations. */
 .project-navigation .home-side__item.is-active,
 .project-navigation .home-side__item.is-active:hover,

@@ -1,4 +1,4 @@
-//! Whole-directory GUI mutations. IDs, history and working recovery bytes survive.
+//! Directory changes and navigation Trash. IDs, history and working bytes survive.
 //! The owner lease covers membership/session checks through filesystem and SQL.
 use super::{file_versions as files, project_directory_files::FileServiceError, Database};
 use crate::agent::models::{ObjectKind, ObjectRef, WorkspaceBinding};
@@ -72,6 +72,77 @@ pub(crate) struct PreparedDirectoryChange {
     pub relative_path: String,
     pub files: Vec<PreparedFile>,
 }
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum NavigationKind {
+    File,
+    #[default]
+    Directory,
+}
+impl NavigationKind {
+    fn identity(self, path: &Path) -> Result<files::FileIdentity> {
+        match self {
+            Self::Directory => directory_identity(path),
+            Self::File => {
+                let metadata = fs::symlink_metadata(path)?;
+                if !metadata.is_file() || metadata.file_type().is_symlink() {
+                    return Err(failure("invalid_path", "导航项必须是普通文件"));
+                }
+                let mut options = OpenOptions::new();
+                options.read(true);
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::OpenOptionsExt;
+                    options.custom_flags(
+                        (rustix::fs::OFlags::NOFOLLOW
+                            | rustix::fs::OFlags::NONBLOCK
+                            | rustix::fs::OFlags::CLOEXEC)
+                            .bits() as i32,
+                    );
+                }
+                #[cfg(windows)]
+                {
+                    use std::os::windows::fs::OpenOptionsExt;
+                    options.custom_flags(
+                        windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT,
+                    );
+                }
+                let file = options.open(path)?;
+                for metadata in [metadata, file.metadata()?] {
+                    if !metadata.is_file() || metadata.file_type().is_symlink() {
+                        return Err(failure("invalid_path", "导航项必须是普通文件"));
+                    }
+                    #[cfg(windows)]
+                    {
+                        use std::os::windows::fs::MetadataExt;
+                        if metadata.file_attributes()
+                            & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT
+                            != 0
+                        {
+                            return Err(failure("invalid_path", "导航项不能是重解析点"));
+                        }
+                    }
+                }
+                files::identity(&file)
+            }
+        }
+    }
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PreparedNavigationChange {
+    #[serde(flatten)]
+    pub prepared: PreparedDirectoryChange,
+    pub kind: NavigationKind,
+}
+// Preserve the original token shape for existing directory journals and APIs.
+fn navigation_token(token: String, kind: NavigationKind, navigation: bool) -> Result<String> {
+    if navigation {
+        digest(&("navigation-trash", kind, token))
+    } else {
+        Ok(token)
+    }
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct DirectoryChangeInput {
@@ -111,6 +182,10 @@ struct MemberVersion {
 #[serde(deny_unknown_fields)]
 struct Intent {
     input: DirectoryChangeInput,
+    #[serde(default)]
+    source_kind: NavigationKind,
+    #[serde(default)]
+    navigation_trash: bool,
     source: String,
     target: Option<String>,
     root: String,
@@ -121,7 +196,9 @@ struct Intent {
 }
 impl Intent {
     fn operation(&self) -> &'static str {
-        if self.target.is_some() {
+        if self.navigation_trash {
+            "file.navigation.trash"
+        } else if self.target.is_some() {
             "file.directory.rename"
         } else {
             "file.directory.delete"
@@ -430,6 +507,16 @@ impl Database {
         project: Option<i64>,
         relative: &str,
     ) -> Result<(PathBuf, PathBuf)> {
+        let (root, source, _) = self.navigation_change_source(binding, project, relative, false)?;
+        Ok((root, source))
+    }
+    fn navigation_change_source(
+        &self,
+        binding: &WorkspaceBinding,
+        project: Option<i64>,
+        relative: &str,
+        navigation: bool,
+    ) -> Result<(PathBuf, PathBuf, NavigationKind)> {
         if self.native_workspace_id.as_deref() != Some(&binding.workspace_id) {
             return Err(failure("ownership_mismatch", "Workspace 已变更"));
         }
@@ -455,7 +542,12 @@ impl Database {
         if super::project_directory_files::excluded_project_path(&root, &source)? {
             return Err(failure("invalid_path", "不能修改隐藏或系统目录"));
         }
-        directory_identity(&source).map_err(|e| {
+        let kind = if navigation && fs::symlink_metadata(&source).is_ok_and(|m| m.is_file()) {
+            NavigationKind::File
+        } else {
+            NavigationKind::Directory
+        };
+        kind.identity(&source).map_err(|e| {
             if e.downcast_ref::<std::io::Error>()
                 .is_some_and(|e| e.kind() == std::io::ErrorKind::NotFound)
             {
@@ -464,7 +556,7 @@ impl Database {
                 e
             }
         })?;
-        Ok((root, source))
+        Ok((root, source, kind))
     }
     // SQL selects path metadata only, never content or recovery BLOBs. Include
     // legacy path refs too; their decoded paths obey the same owner boundary.
@@ -567,9 +659,11 @@ impl Database {
         binding: &WorkspaceBinding,
         project: Option<i64>,
         relative: &str,
-    ) -> Result<(PreparedDirectoryChange, Vec<Member>, PathBuf, PathBuf)> {
-        let (root, source) = self.directory_change_source(binding, project, relative)?;
-        let before = directory_identity(&source)?;
+        navigation: bool,
+    ) -> Result<(PreparedNavigationChange, Vec<Member>, PathBuf, PathBuf)> {
+        let (root, source, kind) =
+            self.navigation_change_source(binding, project, relative, navigation)?;
+        let before = kind.identity(&source)?;
         let members = self.directory_members(&source, project)?;
         // A moved object's immutable history/resources may still live here.
         // Validate current member ownership first; then protect retained paths
@@ -578,7 +672,7 @@ impl Database {
         self.record_owner_require_unshared_root(&source, project)?;
         self.directory_require_closed(&members, &binding.generation)?;
         files::relative(&self.workspace_root, &source)?;
-        if directory_identity(&source)? != before {
+        if kind.identity(&source)? != before {
             return Err(failure("revision_conflict", "目录身份已变化，请重新确认"));
         }
         let root_identity = directory_identity(&root)?;
@@ -593,6 +687,7 @@ impl Database {
             &before,
             &members,
         ))?;
+        let token = navigation_token(token, kind, navigation)?;
         let files = members
             .iter()
             .map(|m| {
@@ -609,11 +704,14 @@ impl Database {
             })
             .collect::<Result<Vec<_>>>()?;
         Ok((
-            PreparedDirectoryChange {
-                token,
-                identity_token,
-                relative_path: relative.into(),
-                files,
+            PreparedNavigationChange {
+                prepared: PreparedDirectoryChange {
+                    token,
+                    identity_token,
+                    relative_path: relative.into(),
+                    files,
+                },
+                kind,
             },
             members,
             root,
@@ -630,12 +728,35 @@ impl Database {
         let (_, source) = self.directory_change_source(binding, project, relative)?;
         self.directory_require_no_pending(&source, project)?;
         Ok(self
-            .directory_prepared_locked(binding, project, relative)?
+            .directory_prepared_locked(binding, project, relative, false)?
+            .0
+            .prepared)
+    }
+    pub(crate) fn project_navigation_trash_prepare(
+        &self,
+        binding: &WorkspaceBinding,
+        project: Option<i64>,
+        relative: &str,
+    ) -> Result<PreparedNavigationChange> {
+        let _owner = self.directory_owner_lease(project)?;
+        let (_, source, _) = self.navigation_change_source(binding, project, relative, true)?;
+        self.directory_require_no_pending(&source, project)?;
+        Ok(self
+            .directory_prepared_locked(binding, project, relative, true)?
             .0)
     }
     // Do not follow links in the tree. A symlink entry moves with its parent,
     // whereas a symlink source/ancestor is rejected by relative()/identity().
-    fn directory_check_tree(&self, source: &Path, members: &[Member]) -> Result<()> {
+    fn directory_check_tree(
+        &self,
+        source: &Path,
+        members: &[Member],
+        kind: NavigationKind,
+    ) -> Result<()> {
+        if kind == NavigationKind::File {
+            kind.identity(source)?;
+            return Ok(());
+        }
         let histories: HashSet<PathBuf> = members
             .iter()
             .map(|m| self.decode_path_ref(&m.history))
@@ -734,15 +855,21 @@ impl Database {
                 .members
                 .windows(2)
                 .any(|pair| pair[0].id >= pair[1].id)
-            || digest(&(
-                &intent.input.binding,
-                intent.input.project_id,
-                &intent.input.relative_path,
-                &intent.root_identity,
-                &intent.parent_identity,
-                &intent.identity,
-                &intent.members,
-            ))? != intent.input.token
+            || navigation_token(
+                digest(&(
+                    &intent.input.binding,
+                    intent.input.project_id,
+                    &intent.input.relative_path,
+                    &intent.root_identity,
+                    &intent.parent_identity,
+                    &intent.identity,
+                    &intent.members,
+                ))?,
+                intent.source_kind,
+                intent.navigation_trash,
+            )? != intent.input.token
+            || (intent.source_kind == NavigationKind::File && !intent.navigation_trash)
+            || (intent.navigation_trash && (intent.target.is_some() || intent.input.name.is_some()))
             || (intent.target.is_none() && intent.input.confirmed != Some(true))
         {
             bail!("Invalid directory intent ownership or token");
@@ -750,7 +877,10 @@ impl Database {
         files::relative(&self.workspace_root, &root)?;
         // The final entry may legitimately be missing after rename or Trash.
         if present(&source)? {
-            directory_identity(&source).map_err(recovery_path_error)?;
+            intent
+                .source_kind
+                .identity(&source)
+                .map_err(recovery_path_error)?;
         }
         files::relative(&root, &source)?;
         if source != root.join(&intent.input.relative_path)
@@ -886,7 +1016,10 @@ impl Database {
         if let Some(target) = target {
             match (present(&source)?, present(&target)?) {
                 (true, false)
-                    if directory_identity(&source).map_err(recovery_path_error)?
+                    if intent
+                        .source_kind
+                        .identity(&source)
+                        .map_err(recovery_path_error)?
                         == intent.identity =>
                 {
                     ()
@@ -906,7 +1039,12 @@ impl Database {
             }
         } else {
             if present(&source)? {
-                if directory_identity(&source).map_err(recovery_path_error)? != intent.identity {
+                if intent
+                    .source_kind
+                    .identity(&source)
+                    .map_err(recovery_path_error)?
+                    != intent.identity
+                {
                     return Err(failure(
                         "revision_conflict",
                         "删除后的路径被其他目录占用，恢复材料已保留",
@@ -1000,10 +1138,40 @@ impl Database {
         trash: impl FnOnce(&Path) -> Result<()>,
         enter_fence: impl FnOnce() -> Result<G>,
     ) -> Result<DirectoryChangeResult> {
+        self.navigation_change_fenced_with(input, false, trash, enter_fence)
+    }
+    #[cfg(test)]
+    pub(crate) fn project_navigation_trash_with(
+        &self,
+        input: &DirectoryChangeInput,
+        trash: impl FnOnce(&Path) -> Result<()>,
+    ) -> Result<DirectoryChangeResult> {
+        self.project_navigation_trash_fenced_with(input, trash, || Ok(()))
+    }
+    pub(crate) fn project_navigation_trash_fenced_with<G>(
+        &self,
+        input: &DirectoryChangeInput,
+        trash: impl FnOnce(&Path) -> Result<()>,
+        enter_fence: impl FnOnce() -> Result<G>,
+    ) -> Result<DirectoryChangeResult> {
+        if input.name.is_some() {
+            return Err(failure("invalid_path", "导航项回收不能指定新名称"));
+        }
+        self.navigation_change_fenced_with(input, true, trash, enter_fence)
+    }
+    fn navigation_change_fenced_with<G>(
+        &self,
+        input: &DirectoryChangeInput,
+        navigation: bool,
+        trash: impl FnOnce(&Path) -> Result<()>,
+        enter_fence: impl FnOnce() -> Result<G>,
+    ) -> Result<DirectoryChangeResult> {
         if input.request_id.is_empty() || input.request_id.len() > 128 {
             return Err(failure("invalid_path", "无效请求标识"));
         }
-        let operation = if input.name.is_some() {
+        let operation = if navigation {
+            "file.navigation.trash"
+        } else if input.name.is_some() {
             "file.directory.rename"
         } else {
             "file.directory.delete"
@@ -1022,16 +1190,24 @@ impl Database {
         {
             return Ok(result);
         }
-        let (_, source) =
-            self.directory_change_source(&input.binding, input.project_id, &input.relative_path)?;
+        let (_, source, _) = self.navigation_change_source(
+            &input.binding,
+            input.project_id,
+            &input.relative_path,
+            navigation,
+        )?;
         self.directory_require_no_pending(&source, input.project_id)?;
-        let (prepared, members, root, source) =
-            self.directory_prepared_locked(&input.binding, input.project_id, &input.relative_path)?;
+        let (prepared, members, root, source) = self.directory_prepared_locked(
+            &input.binding,
+            input.project_id,
+            &input.relative_path,
+            navigation,
+        )?;
         let _files = self.directory_member_leases(&members)?;
         // Recovery and all storage leases precede lifecycle admission. Closing
         // a Workspace can drain admitted writers without waiting on its fence.
         let _permit = enter_fence()?;
-        if prepared.token != input.token {
+        if prepared.prepared.token != input.token {
             return Err(failure(
                 "revision_conflict",
                 "目录身份或文件集合已变化，请重新确认",
@@ -1063,11 +1239,15 @@ impl Database {
             }
             None
         };
-        self.directory_check_tree(&source, &members)?;
+        self.directory_check_tree(&source, &members, prepared.kind)?;
         // The tree walk is external I/O: recheck the source and all CAS metadata.
-        let fresh =
-            self.directory_prepared_locked(&input.binding, input.project_id, &input.relative_path)?;
-        if fresh.0.token != input.token {
+        let fresh = self.directory_prepared_locked(
+            &input.binding,
+            input.project_id,
+            &input.relative_path,
+            navigation,
+        )?;
+        if fresh.0.prepared.token != input.token {
             return Err(failure(
                 "revision_conflict",
                 "目录在操作前发生变化，请重新确认",
@@ -1075,12 +1255,14 @@ impl Database {
         }
         let intent = Intent {
             input: input.clone(),
+            source_kind: prepared.kind,
+            navigation_trash: navigation,
             source: self.encode_path_ref(&source),
             target: target.as_ref().map(|p| self.encode_path_ref(p)),
             root: self.encode_path_ref(&root),
             root_identity: directory_identity(&root)?,
             parent_identity: directory_identity(source.parent().unwrap())?,
-            identity: directory_identity(&source)?,
+            identity: prepared.kind.identity(&source)?,
             members,
         };
         let directory = self.directory_persist_intent(&intent)?;
@@ -1094,7 +1276,7 @@ impl Database {
             // Retaining history crosses filesystem I/O; its ancestor path may
             // have changed while the original directory identity stayed equal.
             self.directory_validate_intent(&intent)?;
-            if directory_identity(&source)? != intent.identity {
+            if intent.source_kind.identity(&source)? != intent.identity {
                 return Err(failure("revision_conflict", "目录身份已变化"));
             }
             if let Some(target) = &target {

@@ -1,4 +1,4 @@
-import { directoryQueryRelativePath, matchesDirectoryQueryBinding } from "../../lib/project-directory-query";
+import { refreshDirectoryMutation } from "../../lib/project-directory-query";
 import { useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Pencil, Trash2 } from "lucide-react";
@@ -7,7 +7,6 @@ import { ActionContextMenu } from "../../ui/components/ActionContextMenu";
 import { desktopApi } from "../../services/desktopApi";
 import { recordDocumentApi } from "../../services/recordDocumentApi";
 import { projectDirectoryApi, type DirectoryChangeTarget, type PreparedDirectoryChange } from "../../services/projectDirectoryApi";
-import { queryKeys } from "../../lib/queryKeys";
 import { getErrorMessage } from "../../lib/errors";
 import type { AgentWorkspaceBinding } from "../../lib/agent-types";
 
@@ -61,28 +60,8 @@ export function useDirectoryActions({ projectId, rootPath, workspaceRoot, bindin
     }
     return after;
   };
-  const refresh = async (current: () => boolean, sourcePath: string) => {
-    const directoryKey = ["project-directory", rootPath, projectId];
-    const pageKey = projectId === null ? queryKeys.workspacePage : queryKeys.projectPage(projectId);
-    const matchesBinding = (key: readonly unknown[]) => matchesDirectoryQueryBinding(key, workspaceRoot, binding);
-    const isSource = (key: readonly unknown[]) => {
-      const path = directoryQueryRelativePath(key);
-      return path === sourcePath || path.startsWith(`${sourcePath}/`);
-    };
-    // A pre-commit native read cannot satisfy the post-commit reconciliation.
-    await Promise.allSettled([...client.getQueryCache().findAll({ queryKey: directoryKey,
-      predicate: query => matchesBinding(query.queryKey) }),
-      ...client.getQueryCache().findAll({ queryKey: pageKey })]
-      .filter(query => query.state.fetchStatus !== "idle").map(query => query.promise));
-    if (!current()) return;
-    await Promise.all([
-      // The commit moved this subtree. Retire its snapshot without reading the
-      // old paths while the refreshed parent removes their mounted observers.
-      client.invalidateQueries({ queryKey: directoryKey, predicate: query => matchesBinding(query.queryKey) && isSource(query.queryKey), refetchType: "none" }),
-      client.invalidateQueries({ queryKey: directoryKey, predicate: query => matchesBinding(query.queryKey) && !isSource(query.queryKey) }, { cancelRefetch: false, throwOnError: true }),
-      client.invalidateQueries({ queryKey: pageKey }, { cancelRefetch: false, throwOnError: true }),
-    ]);
-  };
+  const refresh = (current: () => boolean, sourcePath: string) => refreshDirectoryMutation(client,
+    { rootPath, projectId, workspaceRoot, binding }, [sourcePath], current);
   const beginRename = (path: string) => void run(async current => {
     const value = await prepare(path, current);
     if (!current() || !value) return;
@@ -136,5 +115,5 @@ export function useDirectoryActions({ projectId, rootPath, workspaceRoot, bindin
     { key: "rename", label: "重命名", icon: Pencil, onSelect: () => beginRename(menu.path) },
     { key: "trash", label: "移入回收站", icon: Trash2, tone: "danger", onSelect: () => trash(menu.path) },
   ]} />, document.body) : null;
-  return { openMenu, renderRenameInput, panel, error, busy };
+  return { openMenu, renderRenameInput, panel, error, busy, renaming: editing !== null };
 }

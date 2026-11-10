@@ -2065,6 +2065,8 @@ pub fn run() {
             dsh_assistant::dsh_assistant_delete_session,
             project_directory::project_directory_list,
             project_directory_changes::project_directory_change_prepare,
+            project_directory_changes::project_navigation_trash_prepare,
+            project_directory_changes::project_navigation_trash,
             project_directory_changes::project_directory_rename,
             project_directory_changes::project_directory_delete,
             project_directory::project_directory_preview,
