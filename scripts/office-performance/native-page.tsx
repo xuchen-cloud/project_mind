@@ -14,8 +14,7 @@ import { desktopApi } from '../../src/services/desktopApi';
 import { projectMindApi } from '../../src/services/projectMindApi';
 import { projectFileApi } from '../../src/services/projectFileApi';
 import { recordDocumentApi } from '../../src/services/recordDocumentApi';
-import { officeFileApi } from '../../src/services/officeFileApi';
-import { fileDocumentApi } from '../../src/services/fileDocumentApi';
+import { fileWorkingApi, type FileWorkingOpen, type FileWorkingSaved, type FileWorkingStatus } from '../../src/services/fileWorkingApi';
 import { officePreviewCache } from '../../src/lib/office-preview-cache';
 import { NativeRaceObserver, runPendingFileRace } from './native-races';
 import { runNativeHistoryAcceptance } from './native-history';
@@ -56,9 +55,12 @@ const commands: { api: string; name: string; startTime: number; duration?: numbe
 const errors: string[] = [];
 const models = new Map<string, OfficeModel>();
 const textSources = new Map<string, string>();
+const workingStates = new Map<string, FileWorkingStatus>();
 const sourceRefs = new Map<string, AgentSourceRef | null>();
 const measurements: Record<string, unknown>[] = [];
-interface Commit { fileId: string; command: string; receipt: { versionNumber: number; contentHash: string; noChange: boolean }; time: number }
+type Commit = { fileId: string; command: string; time: number } & (
+  { protocol: 'working'; receipt: FileWorkingSaved } |
+  { protocol: 'version'; receipt: { versionNumber: number; contentHash: string; noChange: boolean } });
 const commits: Commit[] = [];
 const fileViews = new Map<string, ProjectFileView>();
 let projectContext: { projectId: number; binding: AgentWorkspaceBinding } | undefined;
@@ -105,16 +107,32 @@ for (const api of ['command', 'fileCommand'] as const) {
     const raceToken = raceObserver?.commandStarted(name, payload) ?? null;
     try {
       const result = await original(name, payload!);
-      const response = result as { ok?: boolean; data?: { model?: OfficeModel; text?: string; startChar?: number; receipt?: Commit["receipt"]; commit?: { receipt: Commit["receipt"] } }; error?: unknown };
+      const response = result as { apiVersion?: number; requestId?: string; ok?: boolean; data?: Partial<FileWorkingOpen & FileWorkingSaved> & { text?: string; startChar?: number; receipt?: Extract<Commit, {protocol: 'version'}>['receipt']; commit?: { receipt: Extract<Commit, {protocol: 'version'}>['receipt'] } }; error?: unknown };
       if (response?.ok === false) record.error = errorMessage(response.error);
-      const model = response?.data?.model;
-      const input = payload?.input as { data?: { object?: { id: string }; text?: string } } | undefined;
-      if (['file_office_inspect', 'file_office_save'].includes(name) && model && input?.data?.object) models.set(input.data.object.id, model);
-      if (name === 'file_source_read' && input?.data?.object && response.data?.startChar === 0 && typeof response.data.text === 'string') textSources.set(input.data.object.id, response.data.text);
-      if (response?.ok === true && input?.data?.object && ['file_office_save', 'file_text_save'].includes(name)) {
-        const receipt = response.data?.commit?.receipt ?? response.data?.receipt;
-        if (receipt) commits.push({ fileId: input.data.object.id, command: name, receipt, time: performance.now() });
-        if (name === 'file_text_save' && typeof input.data.text === 'string') textSources.set(input.data.object.id, input.data.text);
+      const input = payload?.input as { requestId?: string; data?: { object?: { id: string }; text?: string } } | undefined;
+      // Match callAgentCommand's envelope gate before admitting success evidence.
+      if (response?.ok === true && response.apiVersion === 1 && response.requestId === input?.requestId && input?.data?.object) {
+        const fileId = input.data.object.id, data = response.data;
+        if (['file_office_inspect', 'file_office_save', 'file_working_open'].includes(name) && data?.model) models.set(fileId, data.model);
+        if (name === 'file_source_read' && data?.startChar === 0 && typeof data.text === 'string') textSources.set(fileId, data.text);
+        if (name === 'file_working_open' && data) {
+          workingStates.set(fileId, data as FileWorkingOpen);
+          if (!data.model && typeof data.base64 === 'string') {
+            try { textSources.set(fileId, new TextDecoder().decode(Uint8Array.from(atob(data.base64), char => char.charCodeAt(0)))); }
+            catch (error) { record.error = `Observer text decode: ${errorMessage(error)}`; }
+          }
+        }
+        if (['file_working_save_office', 'file_working_save_text'].includes(name) && data) {
+          const receipt = data as FileWorkingSaved;
+          workingStates.set(fileId, receipt);
+          commits.push({ fileId, command: name, protocol: 'working', receipt, time: performance.now() });
+          if (name === 'file_working_save_text' && typeof input.data.text === 'string') textSources.set(fileId, input.data.text);
+        }
+        if (['file_office_save', 'file_text_save'].includes(name)) {
+          const receipt = data?.commit?.receipt ?? data?.receipt;
+          if (receipt) commits.push({ fileId, command: name, protocol: 'version', receipt, time: performance.now() });
+          if (name === 'file_text_save' && typeof input.data.text === 'string') textSources.set(fileId, input.data.text);
+        }
       }
       return result;
     } catch (error) { record.error = errorMessage(error); throw error; }
@@ -1208,32 +1226,40 @@ async function acceptance(first: ProjectDirectoryFile) {
     : originalModel?.format === 'pptx' ? originalModel.textElements.find(node => node.slideIndex === 0 && node.text.trim())?.text.trim()
     : originalModel?.ranges[originalModel.activeSheetId].cells.find(cell => typeof cell.value === 'string' && cell.value.trim())?.value as string | undefined;
   if (!contentWitness) throw Error('History acceptance requires original native content witness');
-  let witness: MutationWitness | undefined, receipt: Commit | undefined, latest = first;
+  let witness: MutationWitness | undefined, receipt: Extract<Commit, {protocol: 'working'}> | undefined, latest = first;
   await operation('acceptance_real_mutation_autosave', first, async () => {
     await applyMode(config.format === 'md' ? 'rich' : 'edit');
-    const baseline = await deadline(projectFileApi.resolve(binding, first.object), 15000, 'native pre-edit version');
+    const baseline = workingStates.get(first.object.id);
+    if (!baseline) throw Error('Native working-open status is missing');
     const offset = commits.length, mutationStarted = performance.now();
     witness = await mutate(first, `NATIVE${config.format}${config.run}${crypto.randomUUID().slice(0, 8)}`);
     await until(() => {
-      receipt = commits.slice(offset).find(commit => commit.fileId === first.object.id && !commit.receipt.noChange && commit.receipt.versionNumber > baseline.versionNumber);
-      return !!receipt && rootElement.querySelector('.office-file-content__status')?.textContent?.trim() === '已保存';
+      receipt = commits.slice(offset).find((commit): commit is Extract<Commit, {protocol: 'working'}> => commit.protocol === 'working' && commit.fileId === first.object.id && !commit.receipt.noChange && commit.receipt.revision > baseline.revision && commit.receipt.contentHash !== baseline.contentHash);
+      return !!receipt && rootElement.querySelector('.office-file-content__status')?.textContent?.trim().startsWith('已保存');
     }, 'real autosave receipt and saved UI status', mutationStarted);
-    latest = await deadline(projectFileApi.resolve(binding, first.object), 15000, 'native post-autosave version');
-    if (latest.versionNumber !== receipt!.receipt.versionNumber || latest.contentHash !== receipt!.receipt.contentHash) throw Error('Native live version does not match autosave receipt');
-    return { witness, baselineVersion: baseline.versionNumber, receipt, latestVersion: latest.versionNumber, autosaveMs: performance.now() - mutationStarted, explicitSaveInvoked: false };
+    const persisted = await deadline(fileWorkingApi.tick(binding, first.object), 15000, 'native post-autosave working status');
+    if (persisted.revision !== receipt!.receipt.revision || persisted.contentHash !== receipt!.receipt.contentHash) throw Error('Native working status does not match autosave receipt');
+    return { witness, baselineRevision: baseline.revision, receipt, persisted, autosaveMs: performance.now() - mutationStarted, explicitSaveInvoked: false };
   });
   await operation('acceptance_close_and_native_readback', latest, async () => {
-    if (!witness || !receipt || !latest.contentHash) throw Error('No completed real mutation receipt');
+    if (!witness || !receipt) throw Error('No completed real mutation receipt');
     await closeDisplay();
-    const baseline = { object: latest.object, versionNumber: latest.versionNumber, expectedContentHash: latest.contentHash };
-    if (config.format === 'md') {
-      const source = await deadline(fileDocumentApi.sourceRead(binding, { ...baseline, budgetChars: 16000 }), 15000, 'native saved Markdown source');
-      if (!source.text.includes(witness.marker)) throw Error('Native saved Markdown source lost the accepted edit');
-    } else {
-      const result = await deadline(officeFileApi.inspect(binding, baseline), 30000, 'native saved Office readback');
-      if (!modelHasMutation(result.model, witness)) throw Error('Native saved Office bytes lost the accepted edit');
-    }
+    const reopened = await deadline(fileWorkingApi.open(binding, first.object), 30000, 'native saved working readback');
+    try {
+      if (reopened.revision !== receipt.receipt.revision || reopened.contentHash !== receipt.receipt.contentHash) throw Error('Native working readback differs from saved revision/hash');
+      if (config.format === 'md') {
+        const text = new TextDecoder().decode(Uint8Array.from(atob(reopened.base64), char => char.charCodeAt(0)));
+        if (!text.includes(witness.marker)) throw Error('Native saved Markdown source lost the accepted edit');
+      } else if (!reopened.model || !modelHasMutation(reopened.model, witness)) throw Error('Native saved Office bytes lost the accepted edit');
+    } finally { await fileWorkingApi.close(binding, {object: first.object, sessionId: reopened.sessionId}); }
     return { witness, receipt: receipt.receipt, closeGuardCompleted: true, nativeReadback: true };
+  });
+  await operation('acceptance_native_archive_boundary', first, async () => {
+    if (!receipt) throw Error('No completed real mutation receipt');
+    const archived = await deadline(fileWorkingApi.archive(binding, first.object), 15000, 'explicit native archive for history acceptance');
+    latest = await deadline(projectFileApi.resolve(binding, first.object), 15000, 'native archived version');
+    if (archived.pendingArchive || archived.revision !== receipt.receipt.revision || archived.contentHash !== receipt.receipt.contentHash || latest.versionNumber !== archived.archivedVersionNumber || latest.contentHash !== archived.contentHash) throw Error('Native archive does not match the saved working content');
+    return { archived, latestVersion: latest.versionNumber, explicitArchiveInvoked: true };
   });
   await operation('acceptance_reopen_and_verify', latest, async start => {
     if (!witness) throw Error('Mutation witness is missing');
@@ -1397,7 +1423,7 @@ async function run() {
         ready: file => ready(file, false, false, performance.now()),
         settlePaint: () => doubleRaf(window, 'pending native read completion'),
       }, { action, pendingFile: first, replacementFile: action === 'switch' ? other : undefined,
-        pendingCommand: config.format === 'md' ? 'file_source_read' : 'file_office_inspect' });
+        pendingCommand: 'file_working_open' });
       return result;
     });
     await measure('after_races_reopen', first, () => mount(first, project.id));
