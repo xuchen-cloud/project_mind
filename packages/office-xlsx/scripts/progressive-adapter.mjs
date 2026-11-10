@@ -8,7 +8,7 @@ export function adaptProgressiveApp(source) {
     'formulaMode: !window.__projectMindSheetsHost.isPartialView() && opensInFormulaMode(cellCounts),')
   return replace(source, '        if (recorded.length === 0) return', `        if (recorded.length === 0) return
         if (window.__projectMindSheetsHost.isPartialView() && !state.flags.preloadComplete &&
-            recorded.some((entry) => entry.formula !== undefined)) {
+            recorded.some((entry) => entry.hasValue || entry.formula !== undefined)) {
           window.__projectMindSheetsHost.invalidateFormulaClosure(state)
           void activateFormulaClosure(runtime, lazyWorkbookRef, setMessage)
         }`)
@@ -35,6 +35,18 @@ export function adaptProgressiveSync(source) {
   closure = closure.replaceAll(guard, 'if (!current()) return')
   closure = replace(closure, 'formulas: indexedFormulas(result.cells, shared),',
     'formulas: window.__projectMindSheetsHost.formulasWithEdits(state, sheet.id, indexedFormulas(result.cells, shared)),')
+  closure = replace(closure, '            rowCount: sheet.rowCount,\n            columnCount: sheet.columnCount,',
+    '            ...window.__projectMindSheetsHost.formulaSheetExtent(state, sheet),')
+  closure = replace(closure, '    state.closure.pinned.set(sheetId, pinned)', `    for (const key of cells) {
+      const row = keyRow(key), column = keyColumn(key), address = row + ':' + column
+      const content = journalCellContentAt(state.editJournal, sheetId, row, column)
+      if (content.found) {
+        pinned.set(address, content.formula ? {f: content.formula, v: null} : {v: content.value ?? null})
+      } else if (!pinned.has(address)) {
+        pinned.set(address, {v: null})
+      }
+    }
+    state.closure.pinned.set(sheetId, pinned)`)
   closure = replace(closure, "  state.closure.status = 'active'", "  if (!current()) return\n  state.closure.status = 'active'")
   source = source.slice(0, start) + closure + source.slice(end)
   return source

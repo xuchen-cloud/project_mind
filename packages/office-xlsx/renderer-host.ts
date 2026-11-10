@@ -16,7 +16,7 @@ import type { Edit, Model, OfficeViewRead } from './types'
 import {snapshotRange, createViewReader} from './view-source'
 import {readView} from './renderer-view'
 import {parseViewResult} from './view-protocol'
-import {formulaClosureRevision, invalidateFormulaClosure, formulasWithEdits} from './formula-closure-edits'
+import {formulaClosureRevision, invalidateFormulaClosure, formulasWithEdits, formulaSheetExtent} from './formula-closure-edits'
 
 // Only data and explicit replies cross this frame boundary. No native/path relay is installed.
 type Options = { model: Model; edits: Edit[]; readOnly: boolean; presentationMode: 'preview' | 'edit'; appearance: Record<string,string> }
@@ -184,6 +184,7 @@ export async function initialize(){options=await new Promise<Options>(resolve=>{
   formulaClosureRevision,
   invalidateFormulaClosure,
   formulasWithEdits,
+  formulaSheetExtent,
   canCalculate:()=>options.model.coverage?.kind!=='partial'||context?.lazyWorkbookRef.current?.closure.status==='active'||context?.lazyWorkbookRef.current?.flags.preloadComplete===true,
   initialCalculationRequested(state:object){initialCalculationTarget=state;initialCalculation.expect(state);performance.mark('office-xlsx:initial-calculation-requested')},
   initialCalculationStarting(runtime:any){initialCalculation.begin(initialCalculationTarget,runtime.univer.__getInjector().get(FormulaCalculationSessionService).state.id);performance.mark('office-xlsx:initial-calculation-starting')},

@@ -49,7 +49,7 @@ test('fixed-source adapters select cached-first GUI mode, install metadata befor
 test('new formula references replace original closure inputs and retire stale asynchronous calculations',()=>{
   const state={closure:{status:'active',pinned:new Map([['sheet',new Map([['0:0',{v:1}]])]])},
     recalc:{generation:3,timer:null,running:true,overlay:new Map([['sheet',new Map()]]),follow:new Map([['sheet',{}]])},
-    editJournal:{cells:new Map([['sheet',new Map([
+    editJournal:{bulkConstantFills:new Map(),cells:new Map([['sheet',new Map([
       ['0:1',{row:0,column:1,formula:'=A10000+1',hasValue:false}],
       ['0:2',{row:0,column:2,value:9,hasValue:true}],
       ['0:3',{row:0,column:3,style:{bold:true},hasValue:false}],
@@ -66,6 +66,10 @@ test('new formula references replace original closure inputs and retire stale as
   assert.equal(state.recalc.generation,4)
   assert.equal(state.recalc.running,false)
   assert.equal(state.recalc.overlay.size,0)
+  state.editJournal.cells.get('sheet').set('499:0',{row:499,column:0,value:7,hasValue:true})
+  assert.deepEqual(JSON.parse(JSON.stringify(closureEdits.formulaSheetExtent(state,{id:'sheet',rowCount:100,columnCount:10}))),{rowCount:500,columnCount:10})
+  const sync=adaptProgressiveSync(readFileSync(new URL('../vendor/apps/sheets/src/renderer/univer-sync.ts',import.meta.url),'utf8'))
+  assert.match(sync,/journalCellContentAt\(state.editJournal, sheetId, row, column\)/)
 })
 
 test('forced calculation cannot bypass missing-dependency protection on a partial view',()=>{

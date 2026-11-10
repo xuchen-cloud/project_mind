@@ -26,3 +26,17 @@ export function formulasWithEdits(state: LazyWorkbookState, sheetId: string, ori
   }
   return [...formulas.values()]
 }
+
+export function formulaSheetExtent(state: LazyWorkbookState, sheet: {id: string; rowCount: number; columnCount: number}): {rowCount: number; columnCount: number} {
+  let {rowCount, columnCount} = sheet
+  for (const entry of state.editJournal.cells.get(sheet.id)?.values() ?? []) {
+    if (!entry.hasValue && !entry.formula) continue
+    rowCount = Math.max(rowCount, entry.row + 1)
+    columnCount = Math.max(columnCount, entry.column + 1)
+  }
+  for (const fill of state.editJournal.bulkConstantFills.get(sheet.id) ?? []) {
+    rowCount = Math.max(rowCount, fill.endRow + 1)
+    columnCount = Math.max(columnCount, fill.endColumn + 1)
+  }
+  return {rowCount, columnCount}
+}
