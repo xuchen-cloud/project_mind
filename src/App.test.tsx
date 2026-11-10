@@ -134,6 +134,7 @@ vi.mock("./services/projectMindApi", () => ({
     workspaceCreate: vi.fn(),
     workspaceClose: vi.fn(),
     projectSetArchive: vi.fn(),
+    projectUpdate: vi.fn(),
     projectCreate: vi.fn(async ({ name }: { name: string }) => ({
       id: 1,
       name,
@@ -2087,6 +2088,59 @@ describe("WorkspaceLayout", () => {
     expect(router.state.location.pathname).toBe("/workspace");
     expect(desktopApi.openFile).not.toHaveBeenCalled();
   });
+
+  async function editResidentQuickNote(project: Element, text: string) {
+    const rect = new DOMRect(0, 0, 240, 24);
+    const descriptor = Object.getOwnPropertyDescriptor(Range.prototype, "getClientRects");
+    Object.defineProperty(Range.prototype, "getClientRects", { configurable: true,
+      value: () => ({ 0: rect, length: 1, item: () => rect, [Symbol.iterator]: function* () { yield rect; } }) });
+    onTestFinished(() => { if (descriptor) Object.defineProperty(Range.prototype, "getClientRects", descriptor); else Reflect.deleteProperty(Range.prototype, "getClientRects"); });
+    let surface!: HTMLElement;
+    await waitFor(() => { surface = project.querySelector<HTMLElement>(".home-quick-note .ProseMirror")!; expect(surface).toHaveAttribute("contenteditable", "true"); });
+    act(() => {
+      surface.focus();
+      const selection = window.getSelection()!;
+      selection.selectAllChildren(surface);
+      selection.collapseToEnd();
+      document.dispatchEvent(new Event("selectionchange"));
+    });
+    await userEvent.setup().keyboard(text);
+    expect(surface).toHaveTextContent(text);
+    return surface;
+  }
+
+  it("waits for the actual QuickNote on Project close and keeps its draft after a failed save", async () => {
+    const { projectA } = await renderResidentProjectFixture();
+    const surface = await editResidentQuickNote(projectA!, " UNSAVED CLOSE");
+    let reject!: (reason: Error) => void;
+    vi.mocked(projectMindApi.projectUpdate).mockReturnValue(new Promise((_done, fail) => { reject = fail; }));
+    fireEvent.click(screen.getByRole("button", { name: "关闭 Project 1" }));
+    await waitFor(() => expect(projectMindApi.projectUpdate).toHaveBeenCalledWith(expect.objectContaining({ projectId: 1, quickNoteMarkdown: expect.stringContaining("UNSAVED CLOSE") })));
+    expect(projectA).toBeInTheDocument();
+    await act(async () => reject(new Error("QuickNote disk full")));
+    await waitFor(() => expect(screen.getByText("项目内容尚不能关闭")).toBeInTheDocument());
+    expect(surface).toBeInTheDocument();
+    expect(surface).toHaveTextContent("UNSAVED CLOSE");
+    vi.mocked(projectMindApi.projectUpdate).mockResolvedValue({ id: 1, name: "Project 1", kind: "normal", status: "active", rootPath: "/tmp/project-1", quickNote: "Quick note 1 UNSAVED CLOSE", isArchived: false, createdAt: "", updatedAt: "" });
+    fireEvent.click(screen.getByRole("button", { name: "关闭 Project 1" }));
+    await waitFor(() => expect(projectA).not.toBeInTheDocument());
+  }, 15_000);
+
+  it("retains a failed QuickNote through sixth-Project Overview eviction and retries from the same editor", async () => {
+    const { router, projectA } = await renderResidentProjectFixture();
+    const surface = await editResidentQuickNote(projectA!, " UNSAVED LRU");
+    vi.mocked(projectMindApi.projectUpdate).mockRejectedValue(new Error("QuickNote disk full"));
+    for (const id of [2, 3, 4, 5, 6]) await act(() => router.navigate(`/projects/${id}`));
+    await waitFor(() => expect(projectMindApi.projectUpdate).toHaveBeenCalledWith(expect.objectContaining({ projectId: 1, quickNoteMarkdown: expect.stringContaining("UNSAVED LRU") })));
+    expect(surface).toBeInTheDocument();
+    expect(surface).toHaveTextContent("UNSAVED LRU");
+    await act(() => router.navigate("/projects/1"));
+    expect(projectA!.querySelector(".home-quick-note .ProseMirror")).toBe(surface);
+    expect(surface).toBeVisible();
+    vi.mocked(projectMindApi.projectUpdate).mockResolvedValue({ id: 1, name: "Project 1", kind: "normal", status: "active", rootPath: "/tmp/project-1", quickNote: "Quick note 1 UNSAVED LRU", isArchived: false, createdAt: "", updatedAt: "" });
+    fireEvent.click(screen.getByRole("button", { name: "关闭 Project 1" }));
+    await waitFor(() => expect(projectA).not.toBeInTheDocument());
+  }, 15_000);
 
   it("keeps five Project overviews resident while preserving all opened content shells", async () => {
     const { router, projectA } = await renderResidentProjectFixture();

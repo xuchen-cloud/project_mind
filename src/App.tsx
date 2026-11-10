@@ -446,11 +446,15 @@ export function WorkspaceLayout({
       ) ?? null,
     [activeProjectId, projectsQuery.data],
   );
+  const prepareOverviewEviction = useCallback((projectId: number) =>
+    flushQuickNotes({ workspaceRoot: currentWorkspace?.rootPath ?? "", projectId }), [currentWorkspace?.rootPath]);
   const residentProjectIds = useResidentProjectShells({
     activeProjectId,
     enabled: cacheProjectOverviewPages,
     hasWorkspace,
     openProjectIds,
+    workspaceKey: currentWorkspace?.rootPath,
+    prepareEviction: prepareOverviewEviction,
   });
   const projectSidebarOverviewQuery = useQuery({
     queryKey: queryKeys.projectPage(activeProjectId),

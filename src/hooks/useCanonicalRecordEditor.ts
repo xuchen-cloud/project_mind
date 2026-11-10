@@ -46,13 +46,37 @@ export function useCanonicalRecordEditor({ target, coordinator, enabled, receive
     let cancelled = false;
     let unregister: (() => void) | undefined;
     const currentTarget = targetRef.current!;
+    // A save can settle while either the head read or registration is pending.
+    let savedSequence = 0;
+    let loadingBinding: AgentWorkspaceBinding | null = null;
+    const stopLoadingSaves = coordinator.subscribeSaved((snapshot) => {
+      const body = snapshot.canonicalBody;
+      const savedKey = snapshot.scope === "project"
+        ? projectRecordSaveKey(snapshot.projectId, snapshot.recordId) : workspaceRecordSaveKey(snapshot.recordId);
+      if (savedKey === key && body && loadingBinding && body.binding.workspaceId === loadingBinding.workspaceId
+        && body.binding.generation === loadingBinding.generation) ++savedSequence;
+    });
     void (async () => {
       try {
         const status = await agentApi.statusGet();
         if (cancelled) return;
         if (!status.binding) throw new Error("工作区尚未打开，暂时无法编辑这条记录");
-        const state = await recordDocumentApi.editorGet(status.binding, currentTarget);
+        loadingBinding = status.binding;
+        let readSequence = savedSequence;
+        let state = await recordDocumentApi.editorGet(status.binding, currentTarget);
         if (cancelled) return;
+        if (targetKey(state.head.target) !== key) throw new Error("记录加载结果与当前编辑页面不一致");
+        const stop = await registerCanonicalRecordEditor({
+          binding: status.binding, target: currentTarget, editorId: crypto.randomUUID().replaceAll("-", ""),
+          flush: () => editorFlusher.current?.() ?? Promise.resolve("busy"),
+        });
+        if (cancelled) { stop(); return; }
+        unregister = stop;
+        while (readSequence !== savedSequence) {
+          readSequence = savedSequence;
+          state = await recordDocumentApi.editorGet(status.binding, currentTarget);
+          if (cancelled) return;
+        }
         if (targetKey(state.head.target) !== key) throw new Error("记录加载结果与当前编辑页面不一致");
         const pending = coordinator.getLatestSnapshot(key)?.canonicalBody;
         const resumed = pending?.binding.workspaceId === status.binding.workspaceId
@@ -61,18 +85,14 @@ export function useCanonicalRecordEditor({ target, coordinator, enabled, receive
           metadata: resumed?.metadataBase ?? state.metadata,
           codeLanguage: state.head.projection.codeLanguage,
           session: resumed?.editSessionId ?? crypto.randomUUID().replaceAll("-", "") };
-        const stop = await registerCanonicalRecordEditor({
-          binding: status.binding, target: currentTarget, editorId: crypto.randomUUID().replaceAll("-", ""),
-          flush: () => editorFlusher.current?.() ?? Promise.resolve("busy"),
-        });
-        if (cancelled) { stop(); return; }
-        unregister = stop;
         setLoaded({ key, attempt, state, binding: status.binding });
       } catch (failure) {
         if (!cancelled) setError(failure);
+      } finally {
+        stopLoadingSaves();
       }
     })();
-    return () => { cancelled = true; ++refreshSequence.current; unregister?.(); };
+    return () => { cancelled = true; stopLoadingSaves(); ++refreshSequence.current; unregister?.(); };
   }, [key, coordinator, enabled, attempt]);
 
   useEffect(() => coordinator.subscribeSaved((snapshot, result) => {

@@ -477,6 +477,7 @@ export function WorkspacePage({
               editorControllerRef={quickNoteEditorRef}
               key={currentWorkspace?.rootPath}
               identity={`workspace-quick-note:${currentWorkspace?.rootPath}`}
+              scope={{ workspaceRoot: currentWorkspace.rootPath, projectId: null }}
               initialValue={quickNoteDraft}
               records={workspaceRecords}
               persist={saveWorkspaceQuickNote}

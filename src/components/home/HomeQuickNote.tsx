@@ -3,11 +3,12 @@ import { useHomeHeadingMotion } from "./useHomeHeadingMotion";
 import { useHomeModal } from "./useHomeModal";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { ChevronDown, Expand, ChevronLeft, ChevronRight, X } from "lucide-react";
-import { QuickNoteTransferSession, registerQuickNoteFlusher, type QuickNoteTransferContext, type QuickNoteTransferTarget } from "../../lib/quick-note-transfer";
+import { QuickNoteTransferSession, registerQuickNoteFlusher, type QuickNoteScope, type QuickNoteTransferContext, type QuickNoteTransferTarget } from "../../lib/quick-note-transfer";
 import type { RichEditorController, RichEditorPersistState, RichEditorValue } from "../rich-editor";
 
 interface Props {
   identity: string;
+  scope?: QuickNoteScope;
   pageTitle?: string;
   pageIcon?: ReactNode;
   editorControllerRef?: RefObject<RichEditorController | null>;
@@ -83,11 +84,16 @@ export function HomeQuickNote(props: Props) {
 
   useEffect(() => {
     const unregister = registerQuickNoteFlusher(identity, async () => {
-      await editorRef.current?.save();
-      await session.flush();
-    });
-    return () => { void session.flush().finally(unregister); };
-  }, [identity, session]);
+      const editor = editorRef.current;
+      // Hidden pages are read-only for interaction, but still own their draft.
+      // Capture through RichEditor so pending change/blur timers are irrelevant.
+      do {
+        await editor?.save({ allowReadOnly: true });
+        await session.flush();
+      } while (editor?.hasUnsavedCommittedContent());
+    }, props.scope);
+    return unregister;
+  }, [identity, session, props.scope?.workspaceRoot, props.scope?.projectId]);
 
   async function transfer(target: QuickNoteTransferTarget) {
     if (!editorRef.current?.getCommittedValue().markdown.trim()) return;

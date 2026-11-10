@@ -1,3 +1,5 @@
+import { flushQuickNotes } from "./quick-note-transfer";
+
 type ProjectCloseGuard = { workspaceRoot: string; projectId: number | null; prepare: () => Promise<void> };
 type WorkspaceRecordCloseGuard = { workspaceRoot: string; recordId: number; prepare: () => Promise<void> };
 const workspaceRecords = new Map<string, WorkspaceRecordCloseGuard>();
@@ -11,6 +13,7 @@ export function registerProjectContentCloseGuard(guard: ProjectCloseGuard) {
   return () => { if (projects.get(id) === guard) projects.delete(id); };
 }
 export async function prepareProjectContentClose(workspaceRoot: string, projectId: number | null) {
+  await flushQuickNotes({ workspaceRoot, projectId });
   await projects.get(key(workspaceRoot, projectId))?.prepare();
 }
 export function registerWorkspaceRecordCloseGuard(guard: WorkspaceRecordCloseGuard) {

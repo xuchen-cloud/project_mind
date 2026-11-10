@@ -17,6 +17,7 @@ export interface QuickNoteTransferAdapter<Value, Record> {
 
 export class QuickNoteTransferSession<Value, Record> {
   private tail: Promise<unknown> = Promise.resolve();
+  private completion: Promise<unknown> = this.tail;
   private transferPromise: Promise<Record> | null = null;
   private epoch = 0;
   private attempt: { valueKey: string; targetKey: string; context: QuickNoteTransferContext; persisted?: { value: Value } } | null = null;
@@ -30,11 +31,18 @@ export class QuickNoteTransferSession<Value, Record> {
       if (epoch !== this.epoch || (this.attempt?.persisted && this.attempt.valueKey === valueKey)) return;
       return this.adapter.persist(value);
     });
+    this.completion = operation;
     this.tail = operation.catch(() => undefined);
     return operation;
   }
 
-  async flush(): Promise<void> { await this.tail; }
+  async flush(): Promise<void> {
+    for (;;) {
+      const completion = this.completion;
+      await completion;
+      if (completion === this.completion) return;
+    }
+  }
 
   transfer(target: QuickNoteTransferTarget): Promise<Record> {
     if (this.transferPromise) return this.transferPromise;
@@ -66,6 +74,7 @@ export class QuickNoteTransferSession<Value, Record> {
       this.adapter.clearLocal();
       return record;
     });
+    this.completion = operation;
     this.tail = operation.catch(() => undefined);
     this.transferPromise = operation.finally(() => {
       this.transferPromise = null;
@@ -75,14 +84,18 @@ export class QuickNoteTransferSession<Value, Record> {
   }
 }
 
-const quickNoteFlushers = new Map<string, () => Promise<void>>();
+export interface QuickNoteScope { workspaceRoot: string; projectId: number | null }
+const quickNoteFlushers = new Map<string, { flush: () => Promise<void>; scope?: QuickNoteScope }>();
 
-export function registerQuickNoteFlusher(identity: string, flush: () => Promise<void>) {
-  quickNoteFlushers.set(identity, flush);
-  return () => { if (quickNoteFlushers.get(identity) === flush) quickNoteFlushers.delete(identity); };
+export function registerQuickNoteFlusher(identity: string, flush: () => Promise<void>, scope?: QuickNoteScope) {
+  const entry = { flush, scope };
+  quickNoteFlushers.set(identity, entry);
+  return () => { if (quickNoteFlushers.get(identity) === entry) quickNoteFlushers.delete(identity); };
 }
 
 /** Finish autosaves/publication before changing the active Workspace database. */
-export async function flushQuickNotes() {
-  await Promise.all([...quickNoteFlushers.values()].map((flush) => flush()));
+export async function flushQuickNotes(scope?: QuickNoteScope) {
+  await Promise.all([...quickNoteFlushers.values()]
+    .filter(entry => !scope || (entry.scope?.workspaceRoot === scope.workspaceRoot && entry.scope.projectId === scope.projectId))
+    .map(entry => entry.flush()));
 }

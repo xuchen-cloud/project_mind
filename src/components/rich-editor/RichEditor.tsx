@@ -403,7 +403,7 @@ interface RichEditorProps {
   selectionActions?: RichEditorSelectionAction[];
   renderToolbarExtras?: (context: {
     persistState: RichEditorPersistState;
-    save: (options?: { force?: boolean }) => Promise<unknown>;
+    save: (options?: { force?: boolean; allowReadOnly?: boolean }) => Promise<unknown>;
   }) => ReactNode;
   defaultCodeLanguage?: string | null;
   onDefaultCodeLanguageChange?: (language: string | null) => void;
@@ -439,7 +439,7 @@ export interface RichEditorController {
   focus: (position?: "start" | "end" | number | RichEditorAutoFocusPoint) => void;
   revealBlock: (blockId: string) => boolean;
   appendMarkdown: (markdown: string) => RichEditorValue | null;
-  save: (options?: { force?: boolean }) => Promise<unknown> | undefined;
+  save: (options?: { force?: boolean; allowReadOnly?: boolean }) => Promise<unknown> | undefined;
   replaceCommittedContent: (html: string) => void;
   setEditable: (editable: boolean) => void;
 }
@@ -1983,11 +1983,14 @@ export function RichEditor({
   }, []);
 
   const persistEditor = useCallback(
-    async (reason: SaveReason, options?: { force?: boolean }) => {
-      if (!editor || !onSave || readOnly) {
+    async (reason: SaveReason, options?: { force?: boolean; allowReadOnly?: boolean }) => {
+      if (!editor || !onSave || (readOnly && !options?.allowReadOnly)) {
         return undefined;
       }
 
+      if (options?.allowReadOnly && (editor.view.composing || assetBusyRef.current !== null)) {
+        throw new Error("QuickNote 正在输入或处理附件，请稍后重试保存");
+      }
       clearChangePublishTimer();
       clearPersistTimer();
       clearBlurPersistTimer();
@@ -2455,8 +2458,8 @@ export function RichEditor({
     shouldPersistOnBlur,
   ]);
 
-  const handleManualSave = useCallback(async (options?: { force?: boolean }) => {
-    if (!onSave || readOnly) {
+  const handleManualSave = useCallback(async (options?: { force?: boolean; allowReadOnly?: boolean }) => {
+    if (!onSave || (readOnly && !options?.allowReadOnly)) {
       return undefined;
     }
 

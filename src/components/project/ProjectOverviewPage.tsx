@@ -551,6 +551,7 @@ export function ProjectOverviewPage({
             editorControllerRef={quickNoteEditorRef}
             key={activeProject.rootPath}
             identity={`project-quick-note:${activeProject.rootPath}`}
+            scope={{ workspaceRoot: saveCoordinator?.workspaceKey ?? queryClient.getQueryData<WorkspaceStatusSnapshot>(queryKeys.workspaceStatus)?.currentWorkspace?.rootPath ?? "", projectId: activeProject.id }}
             initialValue={quickNoteDraft}
             records={allRecords}
             onBusyChange={setPublishingQuickNote}

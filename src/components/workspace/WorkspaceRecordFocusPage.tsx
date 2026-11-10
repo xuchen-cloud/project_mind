@@ -377,9 +377,9 @@ export function WorkspaceRecordFocusPage({
 
   const handleSave = useCallback(
     async (value: RichEditorValue) => {
-      if (!submitCurrentRecord(value)) return false;
+      if (recordId === null || !submitCurrentRecord(value)) return false;
       try {
-        await saveCoordinator.flush();
+        await saveCoordinator.flush(workspaceRecordSaveKey(recordId));
         await queryClient.invalidateQueries({ queryKey: queryKeys.projectTags.workspace });
         return true;
       } catch (error) {
@@ -387,7 +387,7 @@ export function WorkspaceRecordFocusPage({
         throw error;
       }
     },
-    [pushToast, queryClient, saveCoordinator, submitCurrentRecord],
+    [pushToast, queryClient, recordId, saveCoordinator, submitCurrentRecord],
   );
 
   const saveCurrentRecord = useCallback(async () => {

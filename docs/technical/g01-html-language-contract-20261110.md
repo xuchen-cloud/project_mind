@@ -64,4 +64,33 @@
 
 ### 局部修复与收口
 
-待补最终测试与修复后测量。
+局部改动仅 `src/components/rich-editor/extensions/StableRecordBlocks.ts` 与对应测试：mount 的 ID 初始化事务标记 Tiptap `skipTrailingNodeMeta`，其 ID 修复事务继承该标记；没有禁用 TrailingNode，没有清理用户空段，没有改全局 CSS 或 `RichEditor.tsx`。普通用户事务不携带该标记。
+
+- 排版红灯：只运行 `StableRecordBlocks.test.ts`，**7 failed / 14 passed**；覆盖列表/引用/表格/代码 mount 与 remount 无额外空段、显式空段保留、普通事务后的尾段继续输入。
+- 排版绿灯：同文件加两个 HTML 回归文件，**3 files / 40 tests passed**，2.18s。来源 `spacing-red.log` / `spacing-green.log`。
+- 用户插入新表格/代码、同时需要 ID 修复的额外边界：针对新用例运行（结果见最终状态），不重复全部已通过用例。
+
+修复后 `computed-style-after.json` 与 `spacing-summary.json`：
+
+| 对照项 | 差异对数 / 24 |
+| --- | ---: |
+| 正文语义元素 computed style / rect / Range 行框 | 0 |
+| 编辑 surface computed style / rect | 0 |
+| p / br / 空 p 数量 | 0 |
+| 完整原始 DOM 节点集合 | 2 |
+
+两处原始 DOM 差异均为 readonly 表格：关闭稳定块的初始 node view 仍有一个绝对定位 resize handle，开启稳定块的 ID 事务更新了 node view 并移除它。两种字体设置下正文、表格、surface 几何完全相同；没有将它隐去或误计成正文间距变化。该既有 readonly 控件初始化问题作为后续项保留，本包不扩张修改 ManagedTable。
+
+排版结论限定为这批实际 DOM fixture：确认并修复了 ID 初始化引起的尾空段，未发现稳定块导致正常段落/hardbreak/中间空段行高增加。没有用户历史文档及目标 Windows 样本，不能据此宣称其全部现场现象已解决。
+
+## 证据与复现
+
+所有本包生成的浏览器材料在 `output/playwright/g01/`（ignored，主会话归档证据时需显式收取）：
+
+- `spacing.html` / `spacing.ts` / `vite.config.mts`：独立入口、实际应用 CSS 和扩展、独立 Vite 缓存。首次使用克隆缓存遇到的 504 日志也保留，成功测量使用独立缓存。
+- `measure.js`：等待字体和两帧布局后，采集 computed style、相对矩形、行框和完整 HTML。
+- `computed-style-before.json` / `computed-style-after.json`：修复前后原始采集，包含浏览器版本、viewport 和设置变量。
+- `spacing-summary.json`：逐对比较结果和测量时源码 SHA-256。
+- `language-red.log` / `language-green.log` / `spacing-red.log` / `spacing-green.log` / `user-insertion-validation.log`：测试原始日志。
+
+浏览器命令使用 Playwright CLI 的 headless 默认模式；没有启动可见浏览器/Tauri GUI。重型测试均由共享 `with-build-lock.py` 串行执行，worker 为 1。语言提交为主会话创建的 `b847562f0094b1c25dc77dc64cff339720b6c87a`；本子包没有创建或 amend 提交。最终整体 Standards/Spec review 由主会话执行。
