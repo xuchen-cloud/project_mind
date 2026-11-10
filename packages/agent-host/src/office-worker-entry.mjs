@@ -9,7 +9,7 @@ function write(response) {
   const frame = JSON.stringify(response);
   process.stdout.write((Buffer.byteLength(frame) <= LIMIT ? frame : JSON.stringify({ requestId: response.requestId, ok: false, error: { code: 'BUDGET_EXCEEDED', message: 'Office result exceeds frame capacity' } })) + '\n');
 }
-async function serveBaseline() {
+async function serveBaseline(view = false) {
   // Native keeps stdin open for the whole private lease. Observe EOF directly:
   // a parent SIGKILL must interrupt an in-flight sidecar await, independently
   // of the async iterator advancing to its next frame. Native owns this exact
@@ -22,8 +22,8 @@ async function serveBaseline() {
   };
   process.stdin.once('end', ownerClosed);
   process.stdin.once('error', ownerClosed);
-  const { createOfficeRecalculationSession } = await import('../office-dist/worker.mjs');
-  const session = createOfficeRecalculationSession();
+  const { createOfficeRecalculationSession, createOfficeViewSession } = await import('../office-dist/worker.mjs');
+  const session = view ? createOfficeViewSession() : createOfficeRecalculationSession();
   let parts = [], length = 0;
   try {
     for await (const part of process.stdin) {
@@ -48,7 +48,7 @@ async function serveBaseline() {
   } finally { await session.close(); }
 }
 try {
-  if (process.argv[2] === '--recalc-baseline') await serveBaseline();
+  if (process.argv[2] === '--recalc-baseline' || process.argv[2] === '--view-baseline') await serveBaseline(process.argv[2] === '--view-baseline');
   else {
     const parts = []; let length = 0;
     for await (const part of process.stdin) {

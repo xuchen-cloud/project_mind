@@ -4,7 +4,7 @@ import { OfficeEditSession } from '../../../../src/lib/office-edit-session';
 import '../../../../src/styles/app.css';
 import { PptxEditor, type PptxEdit, type PptxModel, type PptxOutputDocument } from '../../../../src/components/office/PptxEditor';
 
-const initial: PptxModel = await (await fetch('/model')).json();
+const initial: PptxModel = await (await fetch(new URLSearchParams(location.search).has('progressive')?'/view-model':'/model')).json();
 function Harness() {
   const makeSession=(model:PptxModel)=>new OfficeEditSession<PptxModel,PptxEdit>(
     {object:{workspaceId:'fixture',scope:{kind:'project',projectId:1},kind:'file',id:'42'},versionNumber:1,expectedContentHash:model.originalHash},model,

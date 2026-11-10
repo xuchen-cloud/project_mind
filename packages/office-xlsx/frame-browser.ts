@@ -1,6 +1,6 @@
 import type {EditorProps,MountedEditor,ExportFile,PrintDocument,OutputCommand} from './types'
 import './browser.css'
-export type {Model,Edit,EditorProps,MountedEditor,OutputCommand,ExportFile,PrintDocument,ScreenSourcesResult,ScreenCaptureRequest,ScreenCaptureResult} from './types'
+export type {Model,Edit,EditorProps,MountedEditor,OutputCommand,ExportFile,PrintDocument,ScreenSourcesResult,ScreenCaptureRequest,ScreenCaptureResult,OfficeViewRead} from './types'
 /** Isolated full GenOffice renderer. File identity, CAS and persistence stay in the host.
  * The dynamic default path prevents host bundlers from emitting a second orphan HTML asset. */
 export function mount(container:HTMLElement,initial:EditorProps,rendererUrl=new URL(['.','renderer.html'].join('/'),import.meta.url).href):MountedEditor{
@@ -31,6 +31,7 @@ export function mount(container:HTMLElement,initial:EditorProps,rendererUrl=new 
     error=>reply({officeXlsx:true,type:replyType,id,value:{error:String(error.message??error)}}))
   }
   if(type==='renderPdfRequest')request('renderPdfReply',callbacks=>{if(!callbacks.onRenderPdf)throw Error('当前 File 宿主尚未连接 PDF 字节生成');if(!value||typeof value.html!=='string'||value.html.length>20_000_000)throw Error('无效的 PDF 打印文档');return callbacks.onRenderPdf(value)})
+  if(type==='readViewRequest')request('readViewReply',callbacks=>{if(!callbacks.onReadView)throw Error('当前 File 宿主尚未连接 XLSX 范围读取');return callbacks.onReadView(value)})
   if(type==='calculateRequest')request('calculateReply',callbacks=>{if(!callbacks.onRecalculate)throw Error('此工作簿需要当前 File 的原生只读计算桥');return callbacks.onRecalculate(value)})
   if(type==='inspectImportedRequest')request('inspectImportedReply',callbacks=>{
    if(!callbacks.onInspectImportedWorkbook)throw Error('当前 File 宿主尚未连接外部工作簿只读导入')

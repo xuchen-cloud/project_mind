@@ -67,6 +67,7 @@ export class Sidecar {
     })
   }
   async stop() { this.child.kill(); await this.stopped }
+  openView(path: string) { return this.request({ command: 'open_view', path }) }
   open(path: string) { return this.request({ command: 'open', path, locale: 'zh' }) }
   readRange(input: Record<string, unknown>) { return this.request({ command: 'read_range', ...input }) }
   close(sessionId: string) { return this.request({ command: 'close', sessionId }) }

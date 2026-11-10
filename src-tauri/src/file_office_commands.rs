@@ -6,7 +6,7 @@ use crate::{
     },
     file_office::{
         gui_request, FileOfficeEditInput, FileOfficeInput, FileOfficeInspection,
-        FileOfficeRecalculateInput, FileOfficeSaved, FileOfficeService,
+        FileOfficeRecalculateInput, FileOfficeSaved, FileOfficeService, FileOfficeViewInput,
     },
     office_worker::{AppOfficeUtility, OfficeRecalculationResult},
     AppState,
@@ -22,6 +22,37 @@ pub(crate) struct OfficeCommandInput<T> {
     data: T,
 }
 
+#[tauri::command]
+pub(crate) async fn file_office_view(
+    state: State<'_, AppState>,
+    input: OfficeCommandInput<FileOfficeViewInput>,
+) -> Result<ApiResponse<serde_json::Value>, String> {
+    let id = input.request_id.clone();
+    let app = state.app_handle.clone();
+    let handle = tokio::runtime::Handle::current();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let request = gui_request(
+            &*state,
+            &input.binding,
+            &input.request_id,
+            &input.data.object,
+            false,
+        )?;
+        handle.block_on(
+            FileOfficeService::new(&*state, &AppOfficeUtility(app.clone()))
+                .view(&request, &input.data),
+        )
+    })
+    .await
+    .unwrap_or_else(|_| {
+        Err(AgentError::new(
+            ErrorCode::IoFailed,
+            "Office view task failed",
+        ))
+    });
+    Ok(ApiResponse::from_result(id, result))
+}
 #[tauri::command]
 pub(crate) async fn file_office_inspect(
     state: State<'_, AppState>,

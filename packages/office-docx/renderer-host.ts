@@ -3,6 +3,7 @@ import {replaceInlineRange} from './upstream/apps/docs/src/renderer/ai/protocol'
 import {flushSync} from 'react-dom';
 import {buildPrintDocument} from './renderer-print';
 import {createPdfBridge} from './renderer-pdf';
+import {materializeProgressive,updateProgressiveContext,cancelProgressive} from './progressive-renderer';
 import type {FileActionContext} from './upstream/apps/docs/src/renderer/file-actions';
 import type {Edit} from './types';
 import type {FaceVerticalMetrics,EditorRemoteImage} from './editor-types';
@@ -116,6 +117,9 @@ export function initializeHost(deps:{buildDocBytes(ctx:FileActionContext):Promis
     }
     if(!commitActiveInput&&(activeOperations||uncommittedInput))return last;
     if(loading||!context?.doc)throw Error('文档仍在加载，请稍后保存。');
+    if(!commitActiveInput&&savedRevision===revision){pending(false);return last;}
+    await materializeProgressive();
+    ensureActive();
     // Tiptap mutates its live state synchronously, while its React subscription
     // may commit after this frame. Sample that state at the save boundary so
     // a just-finished image paste cannot save the previous document revision.
@@ -140,6 +144,8 @@ export function initializeHost(deps:{buildDocBytes(ctx:FileActionContext):Promis
     try{return await serializing;}catch(error){fail(error);throw error;}finally{serializing=null;}
   }
   const host={
+    get currentContext(){return context;},
+    get needsCompleteInitialContent(){return !!options.initialDocument;},
     reportError:fail,
     startImages:(name:string)=>pdf.startImages(name),finishImages:()=>pdf.finishImages(),cancelImages:()=>pdf.cancelImages(),
     async getSystemFonts(){
@@ -194,11 +200,12 @@ export function initializeHost(deps:{buildDocBytes(ctx:FileActionContext):Promis
     },
     async output(command:'html'|'print'|'pdf'|'images'|'preview'){
       try{await flush(true);if(command==='preview'){context!.setShowPagePreview(true);return true;}if(command==='html')return await deps.exportHtml(context!);if(command==='pdf')return await deps.exportPdf(context!);if(command==='images')return await deps.exportImages(context!);deps.printDoc(context!);return true;}
-      catch(error){fail(error);return false;}
+      catch(error){throw fail(error);}
     },
     render(ctx:FileActionContext,docLoading:boolean){
       if(destroyed)return;
       context=ctx;loading=docLoading||!ctx.doc;
+      updateProgressiveContext(ctx);
       syncViews();
       for(const node of document.querySelectorAll<HTMLElement>('.pm-ribbon-edit-tabs,.ribbon-body,.modal-backdrop:not(.pm-output-dialog):not(.pm-view-dialog),.comments-pane'))node.inert=options.readOnly;
       // Lock immediately. App's own readMode/protection/embeddedReadOnly effect
@@ -210,7 +217,7 @@ export function initializeHost(deps:{buildDocBytes(ctx:FileActionContext):Promis
       const changed=signature.some((value,i)=>value!==previous[i]);previous=signature;
       if(!loading){options.onReady?.();if(changed&&deps.isDocDirty(ctx)){revision++;pending(true);scheduleBuild();}}
     },
-    destroy(){if(destroyed)return;cancelBuild();destroyed=true;captured=null;rejectStopped(Error('Word 编辑器已关闭，旧文档操作已失效'));resolveOperationsIdle();events.clear();views.clear();context=null;pdf.cancelImages();URL.revokeObjectURL(sourceUrl);for(const url of comparisonUrls)URL.revokeObjectURL(url);comparisonUrls.clear();},
+    destroy(){if(destroyed)return;cancelProgressive();cancelBuild();destroyed=true;captured=null;rejectStopped(Error('Word 编辑器已关闭，旧文档操作已失效'));resolveOperationsIdle();events.clear();views.clear();context=null;pdf.cancelImages();URL.revokeObjectURL(sourceUrl);for(const url of comparisonUrls)URL.revokeObjectURL(url);comparisonUrls.clear();},
     undo(){if(!destroyed)context?.editor?.commands.undo();},redo(){if(!destroyed)context?.editor?.commands.redo();},
   };
   // The boundary plugin contributes its own editable predicate. Never capture

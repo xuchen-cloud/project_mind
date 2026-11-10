@@ -346,6 +346,21 @@ impl Database {
             .map_err(io)?;
         Ok((name, bytes))
     }
+    /// Warm view reads authorize the fixed session without copying its BLOB.
+    pub(crate) fn file_working_view_metadata(
+        &self,
+        request: &RequestContext,
+        binding: &WorkspaceBinding,
+        input: &crate::file_working::WorkingSession,
+    ) -> AgentResult<(String, String, usize)> {
+        let name = self.file_working_session_name(request, binding, input)?;
+        let (hash, length): (String, i64) = self.conn.query_row(
+            "SELECT base_hash,length(bytes) FROM file_working_sessions WHERE session_id=?1",
+            [&input.session_id], |r| Ok((r.get(0)?,r.get(1)?)),
+        ).map_err(io)?;
+        let length = usize::try_from(length).map_err(io)?;
+        Ok((name,hash,length))
+    }
     pub(crate) fn file_working_close(
         &self,
         request: &RequestContext,

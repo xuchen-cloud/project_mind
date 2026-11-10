@@ -3,11 +3,12 @@ import {newPasteCascade,pasteShiftPx,recordPaste,pageKey} from './vendor/apps/sl
 import {withReplayContext} from './parity-context';
 import * as engine from '@genoffice/pptx-engine';
 import { runTxn } from './vendor/packages/pptx-ops/src/ops';
-import { buildRenderSlide, makeViewport, resolveFill, HeuristicMetrics, type RenderSlide, type FontMetricsProvider } from '@genoffice/pptx-render';
+import { buildRenderSlide, makeViewport, HeuristicMetrics, type RenderSlide, type FontMetricsProvider } from '@genoffice/pptx-render';
 import { createHandlers } from './parity-handlers.mjs';
 import { safeExternalUrl } from './vendor/packages/electron-utils/src/safe-external-url';
 import type { PptxCommand } from './types';
 import {suppressFilledSlidePrompts} from './placeholder-prompts';
+import {isUnloadedSlide,materializeViewSlide,materializeViewDeck} from './progressive-open';
 import {synchronizeGeneratedChartWorkbooks} from './chart-workbook';
 
 type State = {
@@ -33,7 +34,14 @@ export function stableIds(opened: engine.OpenedPptx) {
 function remap(value: any, aliases: Map<string,string>): any {
   if (typeof value === 'string') return aliases.get(value) ?? value;
   if (Array.isArray(value)) return value.map(v=>remap(v,aliases));
-  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k,v])=>[k,remap(v,aliases)]));
+  if (value && typeof value === 'object') {
+    // Render getters must stay lazy across the in-process IPC adapter.
+    const result:Record<string,unknown>={};
+    for(const [key,descriptor] of Object.entries(Object.getOwnPropertyDescriptors(value))){
+      Object.defineProperty(result,key,descriptor.get?descriptor:{...descriptor,value:remap(descriptor.value,aliases)});
+    }
+    return result;
+  }
   return value;
 }
 export function createParitySession(opened: engine.OpenedPptx, options: {
@@ -41,7 +49,7 @@ export function createParitySession(opened: engine.OpenedPptx, options: {
   onCommand?: (edit:PptxCommand)=>void;
   confirmChart?: (message:string)=>Promise<boolean>;
   metrics?: FontMetricsProvider;
-  /** In-process opening only; export/query and mutation results remain eager. */
+  /** In-process view descriptors stay lazy; explicit global output resolves all slides. */
   lazyInitialLayout?: boolean;
 } = {}) {
   const metrics=options.metrics??new HeuristicMetrics();
@@ -55,22 +63,44 @@ export function createParitySession(opened: engine.OpenedPptx, options: {
   const snap=(): Snapshot=>({slides:structuredClone(state.opened.deck.slides),entries:new Map(state.opened.archive.entries),size:{...state.opened.deck.size},metaDirty:state.metaDirty});
   const restore=(_s:State,s:Snapshot)=>{opened=state.opened;opened.deck.slides=structuredClone(s.slides);opened.deck.size={...s.size};opened.archive.entries.clear();s.entries.forEach((v,k)=>opened.archive.entries.set(k,v));state.metaDirty=s.metaDirty;normalize()};
   const media=(o:engine.OpenedPptx)=>(part:string)=>{const bytes=o.archive.entries.get(part);if(!bytes)return undefined;const ext=part.split('.').pop();const mime=({png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',gif:'image/gif',svg:'image/svg+xml',webp:'image/webp'} as Record<string,string>)[ext??'']??'application/octet-stream';return `data:${mime};base64,${Buffer.from(bytes).toString('base64')}`};
-  const buildAll=(o=state.opened,width=state.fitWidthPx)=>{normalize();return o.deck.slides.map((s,i)=>suppressFilledSlidePrompts(buildRenderSlide(s,o.deck.size,{fitWidthPx:width,metrics,media:media(o),slideNo:i+1})))};
-  const buildInitial=(width:number):RenderSlide[]=>{
+  const ensure=(o:engine.OpenedPptx,index:number)=>{
+    const slide=materializeViewSlide(o,index);
+    if(slide)stableIds({...o,deck:{...o.deck,slides:[slide]}}).forEach((v,k)=>allAliases.set(k,v));
+    return slide;
+  };
+  const buildEager=(o=state.opened,width=state.fitWidthPx)=>{
+    materializeViewDeck(o);normalize();
+    return o.deck.slides.map((s,i)=>suppressFilledSlidePrompts(buildRenderSlide(s,o.deck.size,{fitWidthPx:width,metrics,media:media(o),slideNo:i+1})));
+  };
+  const buildInitial=(width:number,o=state.opened):RenderSlide[]=>{
     normalize();
-    const o=state.opened,vp=makeViewport(o.deck.size,width),resolveMedia=media(o);
-    return o.deck.slides.map((slide,index)=>{
+    const vp=makeViewport(o.deck.size,width),resolveMedia=media(o);
+    return o.deck.slides.map((entry,index)=>{
       let rendered:RenderSlide|undefined;
-      const layout=()=>rendered??=suppressFilledSlidePrompts(buildRenderSlide(slide,o.deck.size,{fitWidthPx:width,metrics,media:resolveMedia,slideNo:index+1}));
-      const sldOpen=/<p:sld\b[^>]*>/.exec(slide.bodyPrefix)?.[0];
-      return {...vp,background:resolveFill(slide.background,vp,resolveMedia),
-        ...(slide.bgOwn?{bgOwn:true}:{}),...(slide.masterSpHidden?{bgGraphicsHidden:true}:{}),
-        ...(sldOpen&&/\sshow="0"/.test(sldOpen)?{hidden:true}:{}),partPath:slide.path,
+      // Resolve by path: a stale render descriptor must not parse the slide now
+      // occupying this index after a structural operation or history restore.
+      const layout=()=>{
+        if(rendered)return rendered;
+        const at=o.deck.slides.findIndex(s=>s.path===entry.path);
+        const slide=at<0?entry:ensure(o,at)!;
+        return rendered=suppressFilledSlidePrompts(buildRenderSlide(slide,o.deck.size,{fitWidthPx:width,metrics,media:resolveMedia,slideNo:index+1}));
+      };
+      const xml=isUnloadedSlide(entry)?Buffer.from(o.archive.entries.get(entry.path)??[]).toString('utf8'):entry.bodyPrefix;
+      const result:RenderSlide={...vp,partPath:entry.path,
+        get background(){return layout().background},
+        ...(/<p:bg[\s>]/.test(xml)?{bgOwn:true}:{}),
+        ...(/<p:sld\b[^>]*\sshowMasterSp=["'](?:0|false)["']/.test(xml)?{bgGraphicsHidden:true}:{}),
+        ...(/<p:sld\b[^>]*\sshow=["'](?:0|false)["']/.test(xml)?{hidden:true}:{}),
         get nodes(){return layout().nodes},
       };
+      // App's empty-deck check may consult load state without enumerating a
+      // diagnostic field into RenderSlide payloads or triggering layout.
+      Object.defineProperty(result,'projectMindUnloaded',{get(){const slide=o.deck.slides.find(s=>s.path===entry.path);return !!slide&&isUnloadedSlide(slide)}});
+      return result;
     });
   };
-  const rebuild=(_s:State,index:number)=>{normalize();const slide=opened.deck.slides[index];return slide?suppressFilledSlidePrompts(buildRenderSlide(slide,opened.deck.size,{fitWidthPx:state.fitWidthPx,metrics,media:media(opened),slideNo:index+1})):null};
+  const buildAll=(o=state.opened,width=state.fitWidthPx)=>options.lazyInitialLayout?buildInitial(width,o):buildEager(o,width);
+  const rebuild=(_s:State,index:number)=>{normalize();const slide=ensure(state.opened,index);return slide?suppressFilledSlidePrompts(buildRenderSlide(slide,state.opened.deck.size,{fitWidthPx:state.fitWidthPx,metrics,media:media(state.opened),slideNo:index+1})):null};
   const emitHistory=()=>queueMicrotask(()=>options.emit?.('slides:history-changed',{canUndo:state.undoStack.length>0,canRedo:state.redoStack.length>0}));
   const push=()=>{state.undoStack.push(snap());if(state.undoStack.length>100)state.undoStack.shift();state.redoStack=[];emitHistory()};
   let pickedBytes:Uint8Array|null=null,pickedName='';
@@ -97,14 +127,25 @@ export function createParitySession(opened: engine.OpenedPptx, options: {
     'slides:history-batch-begin':()=>{batchStart=snap();batchUndoCount=state.undoStack.length;return true},
     'slides:history-batch-end':()=>{if(batchStart&&state.undoStack.length>batchUndoCount){state.undoStack.splice(batchUndoCount);state.undoStack.push(batchStart)}batchStart=null;emitHistory();return true},
 
-    'slides:get-render-slides':(width=state.fitWidthPx)=>{state.fitWidthPx=width;return buildAll()},
+    'slides:get-render-slides':(width=state.fitWidthPx)=>{state.fitWidthPx=width;return buildEager()},
   };
   return {
-    state, setReadOnly(value:boolean){readOnly=value},
+    state, viewCoverage:()=>({loadedSlides:state.opened.deck.slides.flatMap((slide,i)=>isUnloadedSlide(slide)?[]:[i]),totalSlides:state.opened.deck.slides.length}), setReadOnly(value:boolean){readOnly=value},
     openResult:(width=state.fitWidthPx)=>{state.fitWidthPx=width;return {path:state.path,slides:options.lazyInitialLayout?buildInitial(width):buildAll(),size:{...opened.deck.size}}},
     async invoke(name:string,args:any[]=[]) {
       const marker=args.at(-1);const recordedAt=marker?.__projectMindReplayAt;
       if(recordedAt!==undefined){if(!Number.isSafeInteger(recordedAt))throw new Error('Invalid replay timestamp');args=args.slice(0,-1)}
+      // Resolve the actual command's slide dependencies before entering upstream ops.
+      // Global operations retain their original full-deck semantics.
+      const first=args[0];
+      if(options.lazyInitialLayout){
+        const indexes=typeof first==='number'&&name!=='slides:get-render-slides'?[first]
+          :first&&typeof first==='object'&&Number.isInteger(first.slideIndex)?[first.slideIndex]
+          :first&&Array.isArray(first.slideIndexes)?first.slideIndexes:[];
+        if(indexes.length&&indexes.every((i:number)=>i>=0)&&!first?.all&&!first?.applyToAll)indexes.forEach((i:number)=>ensure(state.opened,i));
+        else if(!query.test(name)&&!['slides:undo','slides:redo','slides:history-batch-begin','slides:history-batch-end'].includes(name))materializeViewDeck(state.opened);
+        normalize();
+      }
       const handler=handlers.get(name);const custom=special[name];
       if(!handler&&!custom)throw new Error(`Unsupported PPTX editing command: ${name}`);
       const isQuery=query.test(name)||name==='slides:get-render-slides'||name==='slides:copy-elements-image';

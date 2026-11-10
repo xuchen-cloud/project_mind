@@ -7,7 +7,7 @@ import {useDshFileReferences} from '../../lib/dsh-host-events';
 import type {OfficeSelectionRequest} from '../../services/officeSelectionApi';
 const mocks = vi.hoisted(() => ({register:vi.fn(),bind:vi.fn(),unregister:vi.fn(),claim:vi.fn(),reply:vi.fn(),listen:vi.fn(),stop:vi.fn(),capture:vi.fn(),apply:vi.fn(),save:vi.fn(),activity:vi.fn(),inspect:vi.fn(),start:vi.fn(),sessions:vi.fn(),select:vi.fn(),binding:vi.fn(),open:vi.fn(),request:vi.fn(),editBeforeResolve:false,receive:undefined as ((request:OfficeSelectionRequest)=>void)|undefined}));
 vi.mock('../../services/officeSelectionApi',()=>({officeSelectionApi:{register:mocks.register,bind:mocks.bind,unregister:mocks.unregister,claim:mocks.claim,reply:mocks.reply,listen:mocks.listen}}));
-vi.mock('../../services/officeFileApi',()=>({officeFileApi:{inspect:mocks.inspect}}));
+vi.mock('../../services/officeFileApi',()=>({officeFileApi:{inspectView:mocks.inspect}}));
 vi.mock('../../services/fileWorkingApi',()=>({fileWorkingApi:{saveOffice:mocks.save,activity:mocks.activity}}));
 vi.mock('../../services/dshAssistantApi',()=>({dshAssistantApi:{start:mocks.start,sessions:mocks.sessions,selectSession:mocks.select}}));
 vi.mock('../../services/recordDocumentApi',()=>({recordDocumentApi:{bindingGet:mocks.binding}}));

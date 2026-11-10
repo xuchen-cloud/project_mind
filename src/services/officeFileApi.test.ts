@@ -31,3 +31,14 @@ it('rejects a mismatched response identity', async () => {
   vi.mocked(desktopApi.command).mockResolvedValueOnce({apiVersion:1,requestId:'stale',ok:true,data:result});
   await expect(officeFileApi.recalculate(binding,data,'recalc-1')).rejects.toMatchObject({code:'RUNTIME_INCOMPATIBLE'});
 });
+
+it('uses the bounded GUI view projection and keeps full inspect separate', async () => {
+  const model = {format:'xlsx',coverage:{kind:'partial'}};
+  vi.mocked(desktopApi.command).mockResolvedValueOnce({apiVersion:1,requestId:'view-1',ok:true,data:{model}});
+  await expect(officeFileApi.inspectView(binding,baseline,'view-1')).resolves.toEqual({model});
+  expect(desktopApi.command).toHaveBeenLastCalledWith('file_office_view',{input:{binding,requestId:'view-1',data:{...baseline,read:null}}});
+  const read = {kind:'outline' as const,sheetId:'s'};
+  vi.mocked(desktopApi.command).mockResolvedValueOnce({apiVersion:1,requestId:'view-2',ok:true,data:{result:{rows:[]}}});
+  await expect(officeFileApi.readView(binding,{...baseline,read},'view-2')).resolves.toEqual({rows:[]});
+  expect(desktopApi.command).toHaveBeenLastCalledWith('file_office_view',{input:{binding,requestId:'view-2',data:{...baseline,read}}});
+});

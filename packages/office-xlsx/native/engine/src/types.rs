@@ -517,6 +517,7 @@ pub struct RangeResult {
     /// Saved print settings; sheet-wide, complete-only, None when the sheet
     /// declares none.
     pub page_setup: Option<PagePrintInfo>,
+    pub metadata_ready: bool,
     pub indexed_through_row: Option<usize>,
     pub indexing_complete: bool,
 }

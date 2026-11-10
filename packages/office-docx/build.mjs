@@ -10,6 +10,7 @@ import ts from 'typescript';
 import postcss from 'postcss';
 import {rendererAdapter} from './renderer-build.mjs';
 import {adaptSummaryReader} from './authoring-summary-build.mjs';
+import {progressiveParserPlugin} from './progressive-build.mjs';
 
 const root = import.meta.dirname;
 const names = ['docx-engine', 'pptx-engine', 'pptx-render', 'zip-gate', 'ui', 'i18n', 'font-metrics', 'agent-core', 'ai-provider'];
@@ -35,11 +36,11 @@ alias.react = resolve(root, 'node_modules/react');
 alias['react-dom'] = resolve(root, 'node_modules/react-dom');
 await mkdir(resolve(root, 'dist'), { recursive: true });
 const inputs = new Set();
-for (const [entry, platform] of [['engine', 'node']]) {
+for (const [entry, platform] of [['engine', 'node'], ['progressive', 'node']]) {
   const result = await build({ absWorkingDir: root, entryPoints: [`${entry}.ts`], outfile: `dist/${entry}.mjs`, platform,
     bundle: true, format: 'esm', target: 'es2022', alias, treeShaking: true, metafile: true,
     jsx: 'automatic', logLevel: 'warning', legalComments: 'eof', loader: { '.css': 'empty' }, inject: ['css-escape.ts'],
-    plugins: [{ name: 'create-html-dom', setup(build) {
+    plugins: [progressiveParserPlugin(root), { name: 'create-html-dom', setup(build) {
       build.onLoad({filter:/[\\/]cli[\\/]src[\\/]formats[\\/]docx\.ts$/},async args=>({contents:adaptSummaryReader(await readFile(args.path,'utf8')),loader:'ts'}));
       build.onResolve({filter:/^(supports-color|bufferutil|utf-8-validate)$/},args=>({path:args.path,namespace:'unavailable-optional'}));
       build.onLoad({filter:/.*/,namespace:'unavailable-optional'},args=>({contents:`throw new Error(${JSON.stringify('Optional module disabled in the Office worker')});`,loader:'js'}));
@@ -64,7 +65,7 @@ for (const [entry, platform] of [['engine', 'node']]) {
 const worker = await build({absWorkingDir:root,entryPoints:['upstream/apps/docs/src/renderer/parse-worker.ts'],outfile:'dist/parse-worker.mjs',platform:'browser',bundle:true,format:'esm',target:'es2022',alias,metafile:true,logLevel:'warning',minify:true});
 for(const input of Object.keys(worker.metafile.inputs)) inputs.add(input);
 const workerCode=await readFile(resolve(root,'dist/parse-worker.mjs'),'utf8');
-const renderer = await build({absWorkingDir:root,entryPoints:['renderer.tsx'],outfile:'dist/renderer.mjs',platform:'browser',bundle:true,format:'esm',target:'es2022',alias,metafile:true,jsx:'automatic',logLevel:'warning',legalComments:'eof',minify:true,inject:['css-escape.ts'],define:{'process.env.NODE_ENV':'"production"','CSS.escape':'cssEscape','__PROJECT_MIND_DOCX_WORKER__':JSON.stringify(workerCode)},loader:{'.woff2':'file','.woff':'file','.ttf':'file','.svg':'dataurl','.png':'dataurl'},assetNames:'assets/[name]-[hash]',plugins:[rendererAdapter(root)]});
+const renderer = await build({absWorkingDir:root,entryPoints:['renderer.tsx'],outfile:'dist/renderer.mjs',platform:'browser',bundle:true,format:'esm',target:'es2022',alias,metafile:true,jsx:'automatic',logLevel:'warning',legalComments:'eof',minify:true,inject:['css-escape.ts'],define:{'process.env.NODE_ENV':'"production"','CSS.escape':'cssEscape','__PROJECT_MIND_DOCX_WORKER__':JSON.stringify(workerCode)},loader:{'.woff2':'file','.woff':'file','.ttf':'file','.svg':'dataurl','.png':'dataurl'},assetNames:'assets/[name]-[hash]',plugins:[progressiveParserPlugin(root),rendererAdapter(root)]});
 await writeFile(resolve(root,'dist/renderer.meta.json'),JSON.stringify(renderer.metafile,null,2));
 for(const input of Object.keys(renderer.metafile.inputs)) inputs.add(input);
 const rendererCode=await readFile(resolve(root,'dist/renderer.mjs'),'utf8');
@@ -113,7 +114,7 @@ if (diagnostics.length) throw Error(ts.formatDiagnosticsWithColorAndContext(diag
 program.emit();
 await writeFile(resolve(root, 'dist/editor.d.mts'), 'export { mountEditor, mountFullEditor } from "./editor-types";\n');
 await writeFile(resolve(root, 'dist/full-editor.d.mts'), 'export { mountFullEditor } from "./editor-types";\n');
-await writeFile(resolve(root, 'dist/engine.d.mts'), 'export { inspect, edit, create, catalog, DocxError } from "./types";\n');
+await writeFile(resolve(root, 'dist/engine.d.mts'), 'export { inspect, inspectView, edit, create, catalog, DocxError } from "./types";\n');
 await writeFile(resolve(root, 'dist/editor-shell.css'), await readFile(resolve(root, 'editor-shell.css')));
 // Keep original SDK document rules and discard its unrelated app/ribbon chrome.
 const sdkCssPath = 'apps/docs/src/renderer/styles.css';
@@ -132,7 +133,7 @@ const lockedPaths = new Set(sourceLock.files.map(row => `upstream/${row.path}`))
 for (const input of inputs) if (input.startsWith('upstream/') && !lockedPaths.has(input)) throw Error(`Unpinned source input: ${input}`);
 await writeNotices(root, inputs, sourceLock);
 await writeFile(resolve(root, 'dist/runtime-manifest.json'), JSON.stringify({
-  engine: 'engine.mjs', operations: ['inspect', 'edit', 'create'], createContent: { format: 'genoffice-html-and-operations', maxBytes: 2097152 }, editor: 'editor.mjs', engineAssets: [], browserAssets: ['full-editor.mjs', 'renderer-resources.json', 'editor-document.css', 'editor-shell.css', 'renderer.html', 'renderer.mjs', 'renderer.css', 'parse-worker.mjs'], nativeSidecars: [],
+  engine: 'engine.mjs', operations: ['inspect', 'inspectView', 'edit', 'create'], createContent: { format: 'genoffice-html-and-operations', maxBytes: 2097152 }, editor: 'editor.mjs', engineAssets: [], browserAssets: ['full-editor.mjs', 'renderer-resources.json', 'editor-document.css', 'editor-shell.css', 'renderer.html', 'renderer.mjs', 'renderer.css', 'parse-worker.mjs'], nativeSidecars: [],
   notices: 'THIRD-PARTY-NOTICES.txt', sourceCommit: sourceLock.commit,
 }, null, 2) + '\n');
 

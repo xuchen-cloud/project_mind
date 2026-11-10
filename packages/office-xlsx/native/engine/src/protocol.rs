@@ -27,6 +27,9 @@ fn default_locale() -> String {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case")]
 pub enum Command {
+    OpenView {
+        path: PathBuf,
+    },
     Open {
         path: PathBuf,
         #[serde(default = "default_locale")]
@@ -507,6 +510,9 @@ pub fn handle_request(
 
     let request_id = request.request_id;
     let result = match request.command {
+        Command::OpenView { path } => sessions
+            .open_view(&path, &in_flight.flag())
+            .and_then(to_json_value),
         Command::Open {
             path,
             locale,

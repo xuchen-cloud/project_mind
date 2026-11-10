@@ -14,7 +14,9 @@ use tokio::{
 
 #[path = "office_recalculation.rs"]
 mod recalculation;
-pub(crate) use recalculation::{baseline_context, clear_baselines, OfficeBaseline};
+pub(crate) use recalculation::{
+    baseline_context, clear_baselines, close_view, view_baseline_context, OfficeBaseline,
+};
 
 const FRAME_LIMIT: usize = 180 * 1024 * 1024;
 const NODE_GUARD: &str = "data:text/javascript,if(process.versions.node!==%2724.21.0%27)throw%20new%20Error(%27Unsupported%20Office%20runtime%27)";
@@ -22,7 +24,8 @@ static SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
 // Acquire before reading retained files, not after allocating their base64 frames.
 static SOURCE_SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
 pub(crate) async fn admit_source() -> AgentResult<tokio::sync::SemaphorePermit<'static>> {
-    tokio::time::timeout(Duration::from_secs(15), SOURCE_SLOTS.acquire()).await
+    tokio::time::timeout(Duration::from_secs(15), SOURCE_SLOTS.acquire())
+        .await
         .map_err(|_| failure(ErrorCode::EditorBusy, "Office utility is busy"))?
         .map_err(|_| failure(ErrorCode::RuntimeUnavailable, "Office utility stopped"))
 }
@@ -126,12 +129,40 @@ pub(crate) struct RecalcCell {
 #[derive(Clone, Copy)]
 pub(crate) enum OfficePayload<'a> {
     Inspect,
+    InspectView,
     Create(&'a Value),
     Edit(&'a [Value]),
     Recalculate(&'a OfficeRecalculation),
 }
 
 pub(crate) trait OfficeUtility {
+    fn view(
+        &self,
+        _baseline: &OfficeBaseline,
+        request_id: &str,
+        format: &str,
+        source: &str,
+        read: Option<&crate::office_view::OfficeViewRead>,
+    ) -> impl std::future::Future<Output = AgentResult<Value>> + Send {
+        let result = self.request(
+            request_id,
+            "office.inspectView",
+            format,
+            source,
+            OfficePayload::InspectView,
+        );
+        let unsupported = read.is_some();
+        async move {
+            if unsupported {
+                return Err(failure(
+                    ErrorCode::RuntimeUnavailable,
+                    "Office view reader is unavailable",
+                ));
+            }
+            result.await
+        }
+    }
+
     fn recalculate(
         &self,
         _baseline: &OfficeBaseline,
@@ -280,6 +311,33 @@ fn failure(code: ErrorCode, message: &str) -> AgentError {
 }
 
 impl OfficeUtility for OfficeWorker {
+    async fn view(
+        &self,
+        baseline: &OfficeBaseline,
+        id: &str,
+        format: &str,
+        source: &str,
+        read: Option<&crate::office_view::OfficeViewRead>,
+    ) -> AgentResult<Value> {
+        if format == "xlsx" {
+            recalculation::view(self, baseline, id, source, read).await
+        } else if read.is_none() {
+            self.request(
+                id,
+                "office.inspectView",
+                format,
+                source,
+                OfficePayload::InspectView,
+            )
+            .await
+        } else {
+            Err(failure(
+                ErrorCode::InvalidArgument,
+                "Only XLSX uses native range reads",
+            ))
+        }
+    }
+
     async fn recalculate(
         &self,
         baseline: &OfficeBaseline,
@@ -305,6 +363,7 @@ impl OfficeUtility for OfficeWorker {
             || !matches!(
                 (method, payload),
                 ("office.inspect", OfficePayload::Inspect)
+                    | ("office.inspectView", OfficePayload::InspectView)
                     | ("office.create", OfficePayload::Create(_))
                     | ("office.edit", OfficePayload::Edit(_))
                     | ("office.recalculate", OfficePayload::Recalculate(_))
@@ -325,11 +384,27 @@ impl OfficeUtility for OfficeWorker {
             .map_err(|_| failure(ErrorCode::EditorBusy, "Office utility is busy"))?
             .map_err(|_| failure(ErrorCode::RuntimeUnavailable, "Office utility stopped"))?;
         if let OfficePayload::Create(content) = payload {
-            if !base64.is_empty() || !(content.is_object() || format == "docx" && content.as_str().is_some_and(|value| !value.trim().is_empty())) {
-                return Err(failure(ErrorCode::InvalidArgument, "Creation requires content and no source bytes"));
+            if !base64.is_empty()
+                || !(content.is_object()
+                    || format == "docx"
+                        && content
+                            .as_str()
+                            .is_some_and(|value| !value.trim().is_empty()))
+            {
+                return Err(failure(
+                    ErrorCode::InvalidArgument,
+                    "Creation requires content and no source bytes",
+                ));
             }
-            if serde_json::to_vec(content).map_err(|_| failure(ErrorCode::InvalidArgument, "Invalid Office content"))?.len() > 2 * 1024 * 1024 {
-                return Err(failure(ErrorCode::BudgetExceeded, "Office creation content exceeds 2 MiB"));
+            if serde_json::to_vec(content)
+                .map_err(|_| failure(ErrorCode::InvalidArgument, "Invalid Office content"))?
+                .len()
+                > 2 * 1024 * 1024
+            {
+                return Err(failure(
+                    ErrorCode::BudgetExceeded,
+                    "Office creation content exceeds 2 MiB",
+                ));
             }
         }
         // The byte budget is independent of the larger base64/JSON frame budget.
@@ -356,10 +431,16 @@ impl OfficeUtility for OfficeWorker {
             ));
         }
         drop(bytes);
-        let mut data = if method == "office.create" { json!({"format":format}) } else { json!({"format":format,"base64":base64}) };
+        let mut data = if method == "office.create" {
+            json!({"format":format})
+        } else {
+            json!({"format":format,"base64":base64})
+        };
         match payload {
-            OfficePayload::Inspect => {}
-            OfficePayload::Create(content) => { data["content"] = json!(content); }
+            OfficePayload::Inspect | OfficePayload::InspectView => {}
+            OfficePayload::Create(content) => {
+                data["content"] = json!(content);
+            }
             OfficePayload::Edit(edits) => {
                 data["edits"] = json!(edits);
             }
@@ -378,7 +459,10 @@ impl OfficeUtility for OfficeWorker {
         }
         frame.push(b'\n');
         #[cfg(feature = "office-performance")]
-        eprintln!("[office-performance] {request_id} worker-slot {:.3}", performance_start.elapsed().as_secs_f64() * 1000.0);
+        eprintln!(
+            "[office-performance] {request_id} worker-slot {:.3}",
+            performance_start.elapsed().as_secs_f64() * 1000.0
+        );
         let temporary = tempfile::tempdir().map_err(|_| {
             failure(
                 ErrorCode::IoFailed,
@@ -444,7 +528,10 @@ impl OfficeUtility for OfficeWorker {
         })?;
         let _tree = crate::office_process::ProcessTree::attach(&child)?;
         #[cfg(feature = "office-performance")]
-        eprintln!("[office-performance] {request_id} worker-spawn {:.3}", performance_start.elapsed().as_secs_f64() * 1000.0);
+        eprintln!(
+            "[office-performance] {request_id} worker-spawn {:.3}",
+            performance_start.elapsed().as_secs_f64() * 1000.0
+        );
         let mut input = child
             .stdin
             .take()
@@ -471,7 +558,10 @@ impl OfficeUtility for OfficeWorker {
             let (_, bytes) = tokio::try_join!(send, receive)
                 .map_err(|_| failure(ErrorCode::IoFailed, "Office pipe failed"))?;
             #[cfg(feature = "office-performance")]
-            eprintln!("[office-performance] {request_id} worker-response {:.3}", performance_start.elapsed().as_secs_f64() * 1000.0);
+            eprintln!(
+                "[office-performance] {request_id} worker-response {:.3}",
+                performance_start.elapsed().as_secs_f64() * 1000.0
+            );
             if bytes.len() > FRAME_LIMIT {
                 return Err(failure(
                     ErrorCode::BudgetExceeded,
@@ -491,7 +581,10 @@ impl OfficeUtility for OfficeWorker {
             }
             let decoded = decode_response(request_id, method, &bytes);
             #[cfg(feature = "office-performance")]
-            eprintln!("[office-performance] {request_id} worker-decode {:.3}", performance_start.elapsed().as_secs_f64() * 1000.0);
+            eprintln!(
+                "[office-performance] {request_id} worker-decode {:.3}",
+                performance_start.elapsed().as_secs_f64() * 1000.0
+            );
             decoded
         })
         .await;
@@ -525,6 +618,8 @@ fn decode_response(request_id: &str, method: &str, bytes: &[u8]) -> AgentResult<
             if frame["data"].is_object()
                 && (if method == "office.recalculate" {
                     frame["data"]["cells"].is_array()
+                } else if method == "office.view.read" {
+                    frame["data"].get("result").is_some()
                 } else {
                     frame["data"]["model"].is_object()
                 }) =>
@@ -544,6 +639,26 @@ fn decode_response(request_id: &str, method: &str, bytes: &[u8]) -> AgentResult<
 }
 pub(crate) struct AppOfficeUtility(pub tauri::AppHandle);
 impl OfficeUtility for AppOfficeUtility {
+    async fn view(
+        &self,
+        baseline: &OfficeBaseline,
+        id: &str,
+        format: &str,
+        source: &str,
+        read: Option<&crate::office_view::OfficeViewRead>,
+    ) -> AgentResult<Value> {
+        let app = self.0.clone();
+        let worker = tokio::task::spawn_blocking(move || OfficeWorker::for_app(&app))
+            .await
+            .map_err(|_| {
+                failure(
+                    ErrorCode::RuntimeUnavailable,
+                    "Cannot prepare Office view worker",
+                )
+            })??;
+        worker.view(baseline, id, format, source, read).await
+    }
+
     async fn recalculate(
         &self,
         baseline: &OfficeBaseline,

@@ -63,16 +63,7 @@ sync_command!(
         |db| db.file_working_activity(r, &r.binding, i, chrono::Utc::now().timestamp_millis())
     )
 );
-sync_command!(
-    file_working_close,
-    WorkingSession,
-    (),
-    |s: &AppState, r: &crate::agent::access::RequestContext, i: &WorkingSession| with_db(
-        s,
-        r,
-        |db| db.file_working_close(r, &r.binding, i)
-    )
-);
+sync_command!(file_working_close, WorkingSession, (), close);
 sync_command!(
     file_working_tick,
     WorkingObject,
@@ -143,6 +134,12 @@ macro_rules! office_command {
     };
 }
 office_command!(file_working_open, WorkingObject, WorkingOpened, open);
+office_command!(
+    file_working_read_view,
+    WorkingReadView,
+    serde_json::Value,
+    read_view
+);
 office_command!(
     file_working_save_office,
     WorkingSaveOffice,
