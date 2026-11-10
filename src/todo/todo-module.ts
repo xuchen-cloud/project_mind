@@ -1,6 +1,8 @@
 import type { QueryClient } from "@tanstack/react-query";
 
 import { queryKeys } from "../lib/queryKeys";
+import type { AgentWorkspaceBinding } from "../lib/agent-types";
+import { createWorkspaceOperation } from "../lib/workspace-operation";
 import {
   colorKeyForTagLabel,
   extractHashTagLabels,
@@ -84,6 +86,7 @@ export type TodoChange =
 
 export type TodoTransport = Pick<
   typeof projectMindApi,
+  | "workspaceBindingGet"
   | "projectsList"
   | "workspacePageGet"
   | "projectPageGet"
@@ -100,6 +103,8 @@ export type TodoTransport = Pick<
   | "todoDelete"
 >;
 
+type TodoOperation = Omit<ReturnType<typeof createWorkspaceOperation>, "binding"> & { binding: AgentWorkspaceBinding };
+
 export function createTodoModule({
   queryClient,
   transport,
@@ -111,6 +116,18 @@ export function createTodoModule({
   const todoMutationRevisions = new Map<number, number>();
 
   async function load(scope: TodoViewScope, options: { force?: boolean } = {}) {
+    const operation = createWorkspaceOperation(queryClient, transport.workspaceBindingGet);
+    return loadBound(scope, options, { ...operation, binding: await operation.binding });
+  }
+
+  async function loadBound(scope: TodoViewScope, options: { force?: boolean }, operation: TodoOperation) {
+    operation.assertCurrent();
+    async function boundResult<T>(result: Promise<T>, signal: AbortSignal) {
+      const value = await result;
+      operation.assertCurrent();
+      signal.throwIfAborted();
+      return value;
+    }
     // Native changes invalidate the source page and the derived view together.
     // Join its refetch before projecting collections; ensureQueryData would
     // immediately return the previous page even when it has been invalidated.
@@ -119,7 +136,7 @@ export function createTodoModule({
     const readQuery = queryClient.fetchQuery.bind(queryClient);
     const projectsPromise = readQuery({
       queryKey: queryKeys.projects.all,
-      queryFn: () => transport.projectsList({ includeArchived: true }),
+      queryFn: ({ signal }) => boundResult(transport.projectsList({ includeArchived: true }, operation.binding), signal),
       staleTime: options.force ? 0 : Infinity,
       ...(options.force ? { retry: false } : {}),
     });
@@ -128,23 +145,25 @@ export function createTodoModule({
       const [workspacePage] = await Promise.all([
         readQuery({
           queryKey: queryKeys.workspacePage,
-          queryFn: () => transport.workspacePageGet(),
+          queryFn: ({ signal }) => boundResult(transport.workspacePageGet(operation.binding), signal),
           staleTime: options.force ? 0 : Infinity,
           ...(options.force ? { retry: false } : {}),
         }),
         projectsPromise,
       ]);
+      operation.assertCurrent();
       cacheWorkspaceTodoCollections(queryClient, workspacePage);
     } else {
       const [projectPage] = await Promise.all([
         readQuery({
           queryKey: queryKeys.projectPage(scope.projectId),
-          queryFn: () => transport.projectPageGet({ projectId: scope.projectId }),
+          queryFn: ({ signal }) => boundResult(transport.projectPageGet({ projectId: scope.projectId }, operation.binding), signal),
           staleTime: options.force ? 0 : Infinity,
           ...(options.force ? { retry: false } : {}),
         }),
         projectsPromise,
       ]);
+      operation.assertCurrent();
       cacheProjectTodoCollection(queryClient, projectPage);
     }
 
@@ -196,6 +215,7 @@ export function createTodoModule({
   }
 
   async function resolveContentTags(
+    operation: TodoOperation,
     ownership: TodoOwnership,
     content: string,
     explicitTagIds: number[],
@@ -212,7 +232,9 @@ export function createTodoModule({
     if (extractHashTagLabels(content).length > 0 && knownTags.length === 0) {
       const snapshot = await transport.projectTagSettingsGet(
         ownership.scope === "workspace" ? {} : { projectId: ownership.projectId },
+        operation.binding,
       );
+      operation.assertCurrent();
       knownTags = snapshot.tags;
       queryClient.setQueryData(tagQueryKey, snapshot);
     }
@@ -225,7 +247,8 @@ export function createTodoModule({
           ...(ownership.scope === "project" ? { projectId: ownership.projectId } : {}),
           label,
           colorKey: colorKeyForTagLabel(label),
-        }));
+        }, operation.binding));
+      operation.assertCurrent();
       if (!existing) {
         knownTags = [...knownTags, tag];
         queryClient.setQueryData(tagQueryKey, { tags: knownTags });
@@ -272,25 +295,30 @@ export function createTodoModule({
       : { scope: "project", projectId: todo.projectId as number };
   }
 
-  async function refreshAfterConflict(source: TodoRecord) {
+  async function refreshAfterConflict(source: TodoRecord, operation: TodoOperation) {
     try {
+      operation.assertCurrent();
       await cache.cancel(source.projectId);
+      operation.assertCurrent();
       await Promise.all([
-        load({ kind: "workspace" }, { force: true }),
-        ...(source.projectId === null ? [] : [load({ kind: "current-project", projectId: source.projectId }, { force: true })]),
+        loadBound({ kind: "workspace" }, { force: true }, operation),
+        ...(source.projectId === null ? [] : [loadBound({ kind: "current-project", projectId: source.projectId }, { force: true }, operation)]),
       ]);
     } catch (cause) {
+      operation.assertCurrent();
       throw Object.assign(new Error("Todo 已变化，但刷新最新数据失败。请手动刷新后再操作。"), { cause });
     }
   }
 
   async function mutateExistingTodo<T>({
+    operation,
     source,
     optimisticTodo,
     run,
     reconcile,
     openTodoDelta = 0,
   }: {
+    operation: TodoOperation;
     source: TodoRecord;
     optimisticTodo: TodoRecord;
     run: (expectedRevision: number) => Promise<T>;
@@ -300,10 +328,12 @@ export function createTodoModule({
     const mutationRevision = (todoMutationRevisions.get(source.id) ?? 0) + 1;
     todoMutationRevisions.set(source.id, mutationRevision);
     await cache.cancel(source.projectId);
+    operation.assertCurrent();
     cache.upsert(optimisticTodo);
     cache.updateProjectOpenCount(source.projectId, openTodoDelta);
     try {
       const result = await run(source.revision);
+      operation.assertCurrent();
       if (todoMutationRevisions.get(source.id) === mutationRevision) {
         const saved = reconcile(result, optimisticTodo);
         const current = findTodo(source.id);
@@ -311,8 +341,9 @@ export function createTodoModule({
       }
       return result;
     } catch (error) {
+      operation.assertCurrent();
       if (isTodoRevisionConflict(error)) {
-        await refreshAfterConflict(source);
+        await refreshAfterConflict(source, operation);
       } else if (todoMutationRevisions.get(source.id) === mutationRevision && (findTodo(source.id)?.revision ?? Infinity) <= source.revision) {
         cache.upsert(source);
       }
@@ -321,13 +352,15 @@ export function createTodoModule({
     }
   }
 
-  async function create(command: Extract<TodoChange, { type: "create" }>) {
+  async function create(command: Extract<TodoChange, { type: "create" }>, operation: TodoOperation) {
     const synced = await resolveContentTags(
+      operation,
       command.ownership,
       command.content,
       command.tagIds ?? [],
       command.tags ?? [],
     );
+    operation.assertCurrent();
     const input: TodoCreateInput =
       command.ownership.scope === "workspace"
         ? {
@@ -347,6 +380,7 @@ export function createTodoModule({
             tagIds: synced.tagIds,
           };
     await cache.cancel(input.projectId);
+    operation.assertCurrent();
     const optimisticTodo = {
       ...optimisticTodoFromInput(input),
       tags: synced.tags,
@@ -355,11 +389,13 @@ export function createTodoModule({
     cache.updateProjectOpenCount(input.projectId, 1);
 
     try {
-      const saved = await transport.todoCreate(input);
+      const saved = await transport.todoCreate(input, operation.binding);
+      operation.assertCurrent();
       cache.remove(optimisticTodo);
       cache.upsert(saved);
       return saved;
     } catch (error) {
+      operation.assertCurrent();
       if (findTodo(optimisticTodo.id)) {
         cache.remove(optimisticTodo);
         cache.syncProjectOpenCount(input.projectId);
@@ -368,18 +404,27 @@ export function createTodoModule({
     }
   }
 
+  /** update-content resolves with the native canonical Todo. Its cache is
+   * reconciled before resolve (or already contains a newer same-open revision).
+   * Editors may clear their pending text on resolve, including hashtag input.
+   * A retired Workspace rejects and never publishes into the next open.
+   */
   async function change(command: TodoChange) {
-    if (command.type === "create") return create(command);
+    const workspace = createWorkspaceOperation(queryClient, transport.workspaceBindingGet);
+    const operation = { ...workspace, binding: await workspace.binding };
+    if (command.type === "create") return create(command, operation);
 
     if (command.type === "update-content") {
       const source = findTodo(command.todoId);
       if (!source) throw new Error(`Todo ${command.todoId} 不存在`);
       const synced = await resolveContentTags(
+        operation,
         ownershipOf(source),
         command.content,
         (source.tags ?? []).map((tag) => tag.id),
         source.tags ?? [],
       );
+      operation.assertCurrent();
       const optimisticTodo = {
         ...source,
         content: synced.content,
@@ -387,6 +432,7 @@ export function createTodoModule({
         tags: synced.tags,
       };
       return mutateExistingTodo({
+        operation,
         source,
         optimisticTodo,
         run: (expectedRevision) =>
@@ -396,7 +442,7 @@ export function createTodoModule({
             content: synced.content,
             dueDate: command.dueDate,
             tagIds: synced.tagIds,
-          }),
+          }, operation.binding),
         reconcile: (saved) => saved,
       });
     }
@@ -405,9 +451,10 @@ export function createTodoModule({
       const source = findTodo(command.todoId);
       if (!source) throw new Error(`Todo ${command.todoId} 不存在`);
       return mutateExistingTodo({
+        operation,
         source,
         optimisticTodo: { ...source, priority: command.priority },
-        run: expectedRevision => transport.todoUpdatePriority({ todoId: source.id, expectedRevision, priority: command.priority }),
+        run: expectedRevision => transport.todoUpdatePriority({ todoId: source.id, expectedRevision, priority: command.priority }, operation.binding),
         reconcile: (saved) => saved,
       });
     }
@@ -418,10 +465,11 @@ export function createTodoModule({
       const openTodoDelta =
         source.status === command.status ? 0 : command.status === "finished" ? -1 : 1;
       return mutateExistingTodo({
+        operation,
         source,
         optimisticTodo: { ...source, status: command.status },
         openTodoDelta,
-        run: expectedRevision => transport.todoUpdateStatus({ todoId: source.id, expectedRevision, status: command.status }),
+        run: expectedRevision => transport.todoUpdateStatus({ todoId: source.id, expectedRevision, status: command.status }, operation.binding),
         reconcile: (saved) => saved,
       });
     }
@@ -430,9 +478,10 @@ export function createTodoModule({
       const source = findTodo(command.todoId);
       if (!source) throw new Error(`Todo ${command.todoId} 不存在`);
       return mutateExistingTodo({
+        operation,
         source,
         optimisticTodo: { ...source, tags: command.tags },
-        run: expectedRevision => transport.todoUpdateTags({ todoId: source.id, expectedRevision, tagIds: command.tagIds }),
+        run: expectedRevision => transport.todoUpdateTags({ todoId: source.id, expectedRevision, tagIds: command.tagIds }, operation.binding),
         reconcile: (saved) => saved,
       });
     }
@@ -453,6 +502,7 @@ export function createTodoModule({
         createdAt: new Date().toISOString(),
       };
       return mutateExistingTodo({
+        operation,
         source,
         optimisticTodo: { ...source, progresses: [optimisticProgress, ...source.progresses] },
         run: (expectedRevision) =>
@@ -462,7 +512,7 @@ export function createTodoModule({
             content: command.content,
             progressDate: command.progressDate,
             dueDate: command.dueDate,
-          }),
+          }, operation.binding),
         reconcile: (saved, optimistic) => ({
           ...optimistic,
           revision: saved.todoRevision,
@@ -495,6 +545,7 @@ export function createTodoModule({
         ),
       };
       return mutateExistingTodo({
+        operation,
         source,
         optimisticTodo,
         run: (expectedRevision) =>
@@ -505,7 +556,7 @@ export function createTodoModule({
             progressDate: command.progressDate,
             dueDate: command.dueDate,
             status: command.status,
-          }),
+          }, operation.binding),
         reconcile: (saved, optimistic) => ({
           ...optimistic,
           revision: saved.todoRevision,
@@ -520,12 +571,13 @@ export function createTodoModule({
       const source = findTodoByProgress(command.progressId);
       if (!source) throw new Error(`Todo progress ${command.progressId} 不存在`);
       return mutateExistingTodo({
+        operation,
         source,
         optimisticTodo: {
           ...source,
           progresses: source.progresses.filter((progress) => progress.id !== command.progressId),
         },
-        run: expectedRevision => transport.todoDeleteProgress({ progressId: command.progressId, expectedRevision }),
+        run: expectedRevision => transport.todoDeleteProgress({ progressId: command.progressId, expectedRevision }, operation.binding),
         reconcile: (deleted, optimistic) => ({ ...optimistic, revision: deleted.todoRevision }),
       });
     }
@@ -533,17 +585,20 @@ export function createTodoModule({
     const source = findTodo(command.todoId);
     if (!source) throw new Error(`Todo ${command.todoId} 不存在`);
     await cache.cancel(source.projectId);
+    operation.assertCurrent();
     const mutationRevision = (todoMutationRevisions.get(source.id) ?? 0) + 1;
     todoMutationRevisions.set(source.id, mutationRevision);
     cache.remove(source);
     cache.updateProjectOpenCount(source.projectId, source.status === "unfinished" ? -1 : 0);
     try {
-      const deleted = await transport.todoDelete({ todoId: source.id, expectedRevision: source.revision });
+      const deleted = await transport.todoDelete({ todoId: source.id, expectedRevision: source.revision }, operation.binding);
+      operation.assertCurrent();
       cache.remove(deleted);
       return deleted;
     } catch (error) {
+      operation.assertCurrent();
       if (isTodoRevisionConflict(error)) {
-        await refreshAfterConflict(source);
+        await refreshAfterConflict(source, operation);
       } else if (todoMutationRevisions.get(source.id) === mutationRevision && !findTodo(source.id)) {
         cache.upsert(source);
       }

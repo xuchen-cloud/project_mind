@@ -1,3 +1,4 @@
+vi.mock("../../services/recordDocumentApi", () => ({ recordDocumentApi: { bindingGet: async () => ({ workspaceId: "fixture-workspace", generation: "open-1" }) } }));
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -264,6 +265,7 @@ describe("ProjectOverviewPage", () => {
     page.records.push({ ...page.records[0], id: 9, title: "较新记录", updatedAt: "2026-04-07T09:00:00.000Z" });
     vi.mocked(projectMindApi.projectPageGet).mockResolvedValueOnce(page);
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/tmp/workspace" } });
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={["/projects/1"]}>
       <Routes><Route path="/projects/:projectId" element={<ProjectOverviewPage />} /></Routes>
     </MemoryRouter></QueryClientProvider>);
@@ -286,6 +288,7 @@ describe("ProjectOverviewPage", () => {
       () => new Promise((resolve) => { resolvePage = resolve; }),
     );
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/tmp/workspace" } });
     render(
       <QueryClientProvider client={queryClient}>
         <MemoryRouter initialEntries={["/projects/1"]}>
@@ -310,6 +313,7 @@ describe("ProjectOverviewPage", () => {
 
   it("does not replay cold entry when a cached resident project is hidden and restored", async () => {
     const queryClient = new QueryClient();
+    queryClient.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/tmp/workspace" } });
     queryClient.setQueryData(queryKeys.projects.all, [projectPageWithTaglessRecord().project]);
     queryClient.setQueryData(queryKeys.projectPage(1), projectPageWithTaglessRecord());
     const page = (visible: boolean) => (
@@ -331,6 +335,7 @@ describe("ProjectOverviewPage", () => {
   it("shows QuickNote and Project Records together", async () => {
     const user = userEvent.setup();
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/tmp/workspace" } });
 
     render(
       <QueryClientProvider client={queryClient}>
@@ -348,6 +353,7 @@ describe("ProjectOverviewPage", () => {
 
   it("does not expose the internal Project status beside the title", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/tmp/workspace" } });
     render(
       <QueryClientProvider client={queryClient}>
         <MemoryRouter initialEntries={["/projects/1"]}>
@@ -370,6 +376,7 @@ describe("ProjectOverviewPage", () => {
         mutations: { retry: false },
       },
     });
+    queryClient.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/tmp/workspace" } });
 
     render(
       <QueryClientProvider client={queryClient}>
@@ -401,6 +408,7 @@ describe("ProjectOverviewPage", () => {
         mutations: { retry: false },
       },
     });
+    queryClient.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/tmp/workspace" } });
 
     render(
       <QueryClientProvider client={queryClient}>
@@ -422,6 +430,7 @@ describe("ProjectOverviewPage", () => {
 
   it("does not autofocus controls while the resident Project shell is Warm", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/tmp/workspace" } });
     const projectPage = projectPageWithTaglessRecord();
     queryClient.setQueryData(queryKeys.projects.all, [projectPage.project]);
     queryClient.setQueryData(queryKeys.projectPage(1), projectPage);
@@ -448,6 +457,7 @@ describe("ProjectOverviewPage", () => {
 
   it("makes every Overview editor read-only while the resident Project shell is Warm", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/tmp/workspace" } });
     const projectPage = projectPageWithTaglessRecord();
     queryClient.setQueryData(queryKeys.projects.all, [projectPage.project]);
     queryClient.setQueryData(queryKeys.projectPage(1), projectPage);
@@ -478,6 +488,7 @@ describe("ProjectOverviewPage", () => {
         mutations: { retry: false },
       },
     });
+    queryClient.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/tmp/workspace" } });
 
     render(
       <QueryClientProvider client={queryClient}>
@@ -505,6 +516,7 @@ describe("ProjectOverviewPage", () => {
         mutations: { retry: false },
       },
     });
+    queryClient.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/tmp/workspace" } });
 
     render(
       <QueryClientProvider client={queryClient}>
@@ -524,6 +536,7 @@ describe("ProjectOverviewPage", () => {
 
   it("opens a compact project record in Focus on a single click", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/tmp/workspace" } });
     render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={["/projects/1"]}><Routes>
       <Route path="/projects/:projectId" element={<ProjectOverviewPage />} />
       <Route path="/projects/:projectId/records/:noteId" element={<p>Record Focus</p>} />
@@ -543,6 +556,7 @@ describe("ProjectOverviewPage", () => {
         mutations: { retry: false },
       },
     });
+    queryClient.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/tmp/workspace" } });
 
     render(
       <QueryClientProvider client={queryClient}>

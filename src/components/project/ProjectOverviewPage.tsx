@@ -1,3 +1,4 @@
+import { withWorkspaceBinding } from "../../lib/workspace-operation";
 import { useListPins, recordPinScope } from "../../state/list-pins-store";
 import { sortPinnedByUpdatedAt } from "../../lib/list-order";
 import { AgentLauncher } from "../agent/AgentLauncher";
@@ -146,7 +147,7 @@ export function ProjectOverviewPage({
   });
   const tagSettingsQuery = useQuery({
     queryKey: queryKeys.projectTags.project(projectId),
-    queryFn: () => projectMindApi.projectTagSettingsGet({ projectId: projectId as number }),
+    queryFn: () => withWorkspaceBinding(queryClient, binding => projectMindApi.projectTagSettingsGet({ projectId: projectId as number }, binding)),
     enabled: visible && projectId !== null,
     ...RESIDENT_PROJECT_QUERY_OPTIONS,
   });
@@ -416,10 +417,10 @@ export function ProjectOverviewPage({
         const tagIds = extractTagMentionIds(value.markdown);
         for (const label of metadata.tagLabels) {
           const existing = findTagByLabel(availableTags, label);
-          const tag = existing ?? await projectMindApi.projectTagUpsert({
+          const tag = existing ?? await withWorkspaceBinding(queryClient, binding => projectMindApi.projectTagUpsert({
         projectId,
             label, colorKey: colorKeyForTagLabel(label),
-          });
+          }, binding));
           if (!tagIds.includes(tag.id)) tagIds.push(tag.id);
         }
         return tagIds;
@@ -575,11 +576,11 @@ export function ProjectOverviewPage({
                   projectId: activeProject.id,
                   availableTags,
                   onCreateTag: async (label) => {
-                    const tag = await projectMindApi.projectTagUpsert({
+                    const tag = await withWorkspaceBinding(queryClient, binding => projectMindApi.projectTagUpsert({
                       projectId: activeProject.id,
                       label,
                       colorKey: colorKeyForTagLabel(label),
-                    });
+                    }, binding));
                     syncProjectTagCache(tag);
                     return tag;
                   },
@@ -655,11 +656,11 @@ export function ProjectOverviewPage({
                         projectId: activeProject.id,
                         availableTags,
                         onCreateTag: async (label) => {
-                          const tag = await projectMindApi.projectTagUpsert({
+                          const tag = await withWorkspaceBinding(queryClient, binding => projectMindApi.projectTagUpsert({
                             projectId: activeProject.id,
                             label,
                             colorKey: colorKeyForTagLabel(label),
-                          });
+                          }, binding));
                           syncProjectTagCache(tag);
                           return tag;
                         },

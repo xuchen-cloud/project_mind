@@ -1,3 +1,4 @@
+import { withWorkspaceBinding } from "../../lib/workspace-operation";
 import { HomeSaveIndicator } from "../home/HomeSaveIndicator";
 import { HomeRecordHeader } from "../home/HomeRecordHeader";
 import "../home/home.css";
@@ -177,7 +178,7 @@ export function ProjectNoteFocusPage({
 
   const tagSettingsQuery = useQuery({
     queryKey: queryKeys.projectTags.project(projectId),
-    queryFn: () => projectMindApi.projectTagSettingsGet({ projectId: projectId as number }),
+    queryFn: () => withWorkspaceBinding(queryClient, binding => projectMindApi.projectTagSettingsGet({ projectId: projectId as number }, binding)),
     enabled: visible && projectId !== null,
     ...RESIDENT_PROJECT_QUERY_OPTIONS,
   });
@@ -788,11 +789,11 @@ export function ProjectNoteFocusPage({
                 projectId,
                 availableTags,
                 onCreateTag: async (label) => {
-                  const tag = await projectMindApi.projectTagUpsert({
+                  const tag = await withWorkspaceBinding(queryClient, binding => projectMindApi.projectTagUpsert({
                     projectId,
                     label,
                     colorKey: colorKeyForTagLabel(label),
-                  });
+                  }, binding));
                   syncProjectTagCache(tag);
                   return tag;
                 },

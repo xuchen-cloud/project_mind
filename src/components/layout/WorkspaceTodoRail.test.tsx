@@ -1,3 +1,4 @@
+vi.mock("../../services/recordDocumentApi", () => ({ recordDocumentApi: { bindingGet: async () => ({ workspaceId: "fixture-workspace", generation: "open-1" }) } }));
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -35,6 +36,7 @@ function LocationDisplay() {
 
 function renderRail(projectId: number | null, visible = true, search = "", workspaceRoot = "/workspace") {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  queryClient.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: workspaceRoot } });
   const content = (nextVisible: boolean, nextRoot = workspaceRoot) => (
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[`${projectId === null ? "/workspace" : `/projects/${projectId}`}${search}`]}>
@@ -129,7 +131,7 @@ describe("WorkspaceTodoRail", () => {
     await user.click(screen.getByRole("button", { name: "创建" }));
     await waitFor(() => expect(apiMocks.todoCreate).toHaveBeenCalledWith(expect.objectContaining({
       scope: "project", projectId: 1, content: "核对项目", tagIds: [31],
-    })));
+    }), { workspaceId: "fixture-workspace", generation: "open-1" }));
 
     await user.selectOptions(screen.getByRole("combobox", { name: "待办范围" }), "workspace");
     await user.click(createButton);
@@ -137,7 +139,7 @@ describe("WorkspaceTodoRail", () => {
     await user.click(screen.getByRole("button", { name: "创建" }));
     await waitFor(() => expect(apiMocks.todoCreate).toHaveBeenCalledWith(expect.objectContaining({
       scope: "workspace", projectId: null, content: "核对工作区", tagIds: [41],
-    })));
+    }), { workspaceId: "fixture-workspace", generation: "open-1" }));
     expect(apiMocks.projectTagUpsert).not.toHaveBeenCalled();
   });
 

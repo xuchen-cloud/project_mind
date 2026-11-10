@@ -1,3 +1,4 @@
+import { withWorkspaceBinding } from "../../lib/workspace-operation";
 import { useQuery,useQueryClient } from "@tanstack/react-query";
 import { useCallback,useEffect,useMemo,useRef,useState, type ReactNode } from "react";
 import { useNavigate,useParams,useSearchParams } from "react-router-dom";
@@ -109,7 +110,7 @@ export function WorkspacePage({
   });
   const workspacePageQuery = useQuery({
     queryKey: queryKeys.workspacePage,
-    queryFn: projectMindApi.workspacePageGet,
+    queryFn: () => projectMindApi.workspacePageGet(),
     enabled: visible,
   });
   const workspaceStatusQuery = useQuery({
@@ -119,7 +120,7 @@ export function WorkspacePage({
   });
   const workspaceTagSettingsQuery = useQuery({
     queryKey: queryKeys.projectTags.workspace,
-    queryFn: () => projectMindApi.projectTagSettingsGet({}),
+    queryFn: () => withWorkspaceBinding(queryClient, binding => projectMindApi.projectTagSettingsGet({}, binding)),
     enabled: visible,
   });
   const aiSettingsQuery = useQuery({
@@ -241,10 +242,10 @@ export function WorkspacePage({
       const existing = findTagByLabel(availableTags, label);
       const tag =
         existing ??
-        (await projectMindApi.projectTagUpsert({
+        (await withWorkspaceBinding(queryClient, binding => projectMindApi.projectTagUpsert({
           label,
           colorKey: colorKeyForTagLabel(label),
-        }));
+        }, binding)));
       hashTagIds.push(tag.id);
     }
 
@@ -281,9 +282,9 @@ export function WorkspacePage({
         const tagIds = extractTagMentionIds(value.markdown);
         for (const label of metadata.tagLabels) {
           const existing = findTagByLabel(availableTags, label);
-          const tag = existing ?? await projectMindApi.projectTagUpsert({
+          const tag = existing ?? await withWorkspaceBinding(queryClient, binding => projectMindApi.projectTagUpsert({
             label, colorKey: colorKeyForTagLabel(label),
-          });
+          }, binding));
           if (!tagIds.includes(tag.id)) tagIds.push(tag.id);
         }
         return tagIds;
@@ -506,10 +507,10 @@ export function WorkspacePage({
                     projectId: null,
                     availableTags,
                     onCreateTag: async (label) => {
-                      const tag = await projectMindApi.projectTagUpsert({
+                      const tag = await withWorkspaceBinding(queryClient, binding => projectMindApi.projectTagUpsert({
                         label,
                         colorKey: colorKeyForTagLabel(label),
-                      });
+                      }, binding));
                       syncWorkspaceTagCache(tag);
                       return tag;
                     },

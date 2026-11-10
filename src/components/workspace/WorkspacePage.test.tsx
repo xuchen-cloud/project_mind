@@ -99,8 +99,10 @@ function LocationDisplay() {
 }
 
 function renderPage(initialEntries: string[] = ["/"], withTodoRail = false) {
+  const queryClient = new QueryClient();
+  queryClient.setQueryData(queryKeys.workspaceStatus, { currentWorkspace: { rootPath: "/tmp/workspace" } });
   return render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={initialEntries}>
         <WorkspacePage />
         {withTodoRail ? <WorkspaceTodoRail projectId={null} /> : null}
@@ -224,6 +226,7 @@ describe("WorkspacePage", () => {
 
   it("does not replay cold entry when a cached resident workspace is hidden and restored", async () => {
     const queryClient = new QueryClient();
+    queryClient.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/tmp/workspace" } });
     queryClient.setQueryData(queryKeys.workspacePage, {
       quickNote: null,
       records: [],
@@ -383,7 +386,7 @@ describe("WorkspacePage", () => {
       expect(apiMocks.projectTagUpsert).toHaveBeenCalledWith({
         label: "跨项目",
         colorKey: expect.any(String),
-      });
+      }, { workspaceId: "fixture-workspace", generation: "open-1" });
       expect(apiMocks.todoCreate).toHaveBeenCalledWith({
         scope: "workspace",
         projectId: null,
@@ -391,7 +394,7 @@ describe("WorkspacePage", () => {
         priority: "not_urgent_important",
         dueDate: undefined,
         tagIds: [41],
-      });
+      }, { workspaceId: "fixture-workspace", generation: "open-1" });
     });
   });
 
@@ -472,7 +475,7 @@ describe("WorkspacePage", () => {
         priority: "not_urgent_important",
         dueDate: undefined,
         tagIds: [71],
-      });
+      }, { workspaceId: "fixture-workspace", generation: "open-1" });
     });
   });
 
@@ -558,7 +561,7 @@ describe("WorkspacePage", () => {
     expect(await within(projectTodoCard!).findByRole("textbox", { name: "新增标签" })).toBeInTheDocument();
     expect(apiMocks.projectTagSettingsGet).toHaveBeenCalledWith({
       projectId: 1,
-    });
+    }, { workspaceId: "fixture-workspace", generation: "open-1" });
   });
 
   it("opens a project in a new window from the sidebar context menu", async () => {

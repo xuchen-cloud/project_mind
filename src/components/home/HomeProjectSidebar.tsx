@@ -1,3 +1,4 @@
+import { withWorkspaceBinding } from "../../lib/workspace-operation";
 import { usePrefetchFileApplications } from "../../hooks/useFileApplications";
 import { useFocusedProjectContent } from "./useFocusedProjectContent";
 import { RecordIcon } from "../icons/ContentTypeIcon";
@@ -7,7 +8,7 @@ import { HomeProjectFiles } from "./HomeProjectFiles";
 import { LazySidebarSessions } from "./LazySidebarSessions";
 import { HomeSidebarFooter, HomeWorkspaceIdentity } from "./HomeWorkspaceIdentity";
 import { useMemo, useState, type ComponentProps } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, Compass, Mic, Plus, Pencil, Pin, PinOff, Trash2 } from "lucide-react";
 import type { NoteRecord } from "../../lib/types";
 import { queryKeys } from "../../lib/queryKeys";
@@ -41,6 +42,7 @@ export function HomeProjectSidebar({
   onRenameRecord?: (id: number, title: string) => Promise<unknown>;
   onDeleteRecord?: (id: number) => Promise<unknown>;
 }) {
+  const queryClient = useQueryClient();
   usePrefetchFileApplications(workspaceRoot, projectId, documents ?? []);
   const { activeRecordId, activeSessionId, activeFileId, activeRelativePath } = useFocusedProjectContent(workspaceRoot, projectId);
   const { projectSidebarCollapsed, projectSidebarWidthPx, toggleProjectSidebarCollapsed, setProjectSidebarWidthPx } = useUiStore();
@@ -51,7 +53,7 @@ export function HomeProjectSidebar({
   const [editing, setEditing] = useState<{ id: number; title: string } | null>(null);
   const tagsQuery = useQuery({
     queryKey: queryKeys.projectTags.project(projectId),
-    queryFn: () => projectMindApi.projectTagSettingsGet({ projectId }),
+    queryFn: () => withWorkspaceBinding(queryClient, binding => projectMindApi.projectTagSettingsGet({ projectId }, binding)),
     staleTime: Infinity,
   });
   const visibleRecords = useMemo(() => {

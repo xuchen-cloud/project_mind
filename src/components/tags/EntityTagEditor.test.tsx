@@ -1,4 +1,7 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactElement } from "react";
+vi.mock("../../services/recordDocumentApi", () => ({ recordDocumentApi: { bindingGet: async () => ({ workspaceId: "fixture-workspace", generation: "open-1" }) } }));
+import { render as baseRender, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -11,6 +14,12 @@ const apiMocks = vi.hoisted(() => ({
 vi.mock("../../services/projectMindApi", () => ({
   projectMindApi: apiMocks,
 }));
+
+function render(ui: ReactElement) {
+  const client = new QueryClient();
+  client.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/tmp/workspace" } });
+  return baseRender(ui, { wrapper: ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> });
+}
 
 describe("EntityTagEditor", () => {
   beforeEach(() => {
@@ -73,7 +82,7 @@ describe("EntityTagEditor", () => {
         projectId: null,
         label: "预算",
         colorKey: "amber",
-      });
+      }, { workspaceId: "fixture-workspace", generation: "open-1" });
     });
     expect(onChange).toHaveBeenCalledWith([7]);
     expect(onCreated).toHaveBeenCalledWith(expect.objectContaining({ id: 7, label: "预算" }));

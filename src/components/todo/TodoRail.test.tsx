@@ -1,3 +1,4 @@
+vi.mock("../../services/recordDocumentApi", () => ({ recordDocumentApi: { bindingGet: async () => ({ workspaceId: "fixture-workspace", generation: "open-1" }) } }));
 import {
   act,
   fireEvent,
@@ -20,8 +21,10 @@ import { RightSidebar } from "../layout/RightSidebar";
 
 // TodoRail now uses useContactMentionOptions(), which needs a QueryClient.
 function render(ui: ReactElement) {
+  const queryClient = new QueryClient();
+  queryClient.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/tmp/workspace" } });
   return baseRender(
-    <QueryClientProvider client={new QueryClient()}>{ui}</QueryClientProvider>,
+    <QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>,
   );
 }
 
@@ -466,14 +469,14 @@ describe("TodoRail", () => {
     });
     fireEvent.select(composer, { target: { selectionStart: 3 } });
     await waitFor(() =>
-      expect(tagSearch).toHaveBeenCalledWith({ projectId: 7 }),
+      expect(tagSearch).toHaveBeenCalledWith({ projectId: 7 }, { workspaceId: "fixture-workspace", generation: "open-1" }),
     );
 
     await selectOwnership(user, "Beta");
     await user.clear(composer);
     await user.type(composer, "#另");
     await waitFor(() =>
-      expect(tagSearch).toHaveBeenCalledWith({ projectId: 8 }),
+      expect(tagSearch).toHaveBeenCalledWith({ projectId: 8 }, { workspaceId: "fixture-workspace", generation: "open-1" }),
     );
   });
 

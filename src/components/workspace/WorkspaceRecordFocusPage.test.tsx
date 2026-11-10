@@ -48,6 +48,7 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
 });
 vi.mock("../../services/agentApi", async (importOriginal) => ({ ...await importOriginal<typeof import("../../services/agentApi")>(), agentApi: { statusGet: async () => ({ binding: { workspaceId: "fixture-workspace", generation: "open-1" } }) } }));
 vi.mock("../../services/recordDocumentApi", () => ({ recordDocumentApi: {
+  bindingGet: async () => ({ workspaceId: "fixture-workspace", generation: "open-1" }),
   editorGet: recordMocks.editorGet, bodySave: recordMocks.bodySave, metadataGet: recordMocks.metadataGet, metadataApply: recordMocks.metadataApply, checkpoint: vi.fn(),
   editorRegister: recordMocks.editorRegister, editorUnregister: vi.fn(async () => null), editorFlushReply: vi.fn(async () => null),
 } }));
@@ -268,6 +269,9 @@ function LocationDisplay() {
 }
 
 function renderPage(ui: ReactElement, queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } }), initialEntry = "/workspace/records/7") {
+  if (!queryClient.getQueryData(queryKeys.workspaceStatus)) {
+    queryClient.setQueryData(queryKeys.workspaceStatus, { currentWorkspace: { rootPath: "/tmp/workspace" } });
+  }
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[initialEntry]}>
@@ -850,6 +854,7 @@ describe("WorkspaceRecordFocusPage record switching", () => {
     "navigation save is not_needed without a draft when %s",
     async (state) => {
       const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      queryClient.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/tmp/workspace" } });
       if (state === "missing") {
         apiMocks.workspacePageGet.mockResolvedValue({ ...buildWorkspacePage(), records: [] });
       } else if (state === "failed") {
@@ -887,6 +892,7 @@ describe("WorkspaceRecordFocusPage record switching", () => {
 
   it("navigation save submits a loaded draft and retains a real persistence failure", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/tmp/workspace" } });
     queryClient.setQueryData(queryKeys.workspacePage, buildWorkspacePage());
     const coordinator = new RecordSaveCoordinator({
       workspaceKey: "/tmp/workspace",
@@ -916,6 +922,7 @@ describe("WorkspaceRecordFocusPage record switching", () => {
 
   it("navigation save follows resident visibility changes", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/tmp/workspace" } });
     queryClient.setQueryData(queryKeys.workspacePage, buildWorkspacePage());
     function VisibilityHarness() {
       const [visible, setVisible] = useState(true);
@@ -947,6 +954,7 @@ describe("WorkspaceRecordFocusPage record switching", () => {
 
   it.each([false, true])("hidden resident navigation save is unhandled with draft=%s", (hasDraft) => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/tmp/workspace" } });
     if (hasDraft) queryClient.setQueryData(queryKeys.workspacePage, buildWorkspacePage());
     const persist = vi.fn(async () => ({}));
     const coordinator = new RecordSaveCoordinator({
@@ -990,6 +998,7 @@ describe("WorkspaceRecordFocusPage record switching", () => {
 
   it("renders a cached record synchronously without a cold entrance", async () => {
     const queryClient = new QueryClient();
+    queryClient.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/tmp/workspace" } });
     queryClient.setQueryData(queryKeys.workspacePage, buildWorkspacePage());
     queryClient.setQueryData(queryKeys.projects.all, []);
     queryClient.setQueryData(queryKeys.workspaceStatus, { currentWorkspace: { rootPath: "/tmp/workspace", displayName: "workspace" }, recentWorkspaces: [], aiSecretsUnlocked: true });
@@ -1082,6 +1091,7 @@ describe("WorkspaceRecordFocusPage record switching", () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
+    queryClient.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/tmp/workspace" } });
     queryClient.setQueryData(queryKeys.workspacePage, buildWorkspacePage());
     queryClient.setQueryData(queryKeys.projects.all, []);
     queryClient.setQueryData(queryKeys.workspaceStatus, {
@@ -1160,6 +1170,7 @@ describe("WorkspaceRecordFocusPage record switching", () => {
       projectDocuments: [],
     };
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/tmp/workspace" } });
     queryClient.setQueryData(queryKeys.workspacePage, buildWorkspacePage());
     queryClient.setQueryData(queryKeys.workspaceStatus, {
       currentWorkspace: { rootPath: "/tmp/workspace", displayName: "workspace" },
@@ -1194,6 +1205,7 @@ describe("WorkspaceRecordFocusPage record switching", () => {
   it("does not overwrite an initialized Workspace Record draft after Query cache refresh", async () => {
     const user = userEvent.setup();
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/tmp/workspace" } });
     queryClient.setQueryData(queryKeys.workspacePage, buildWorkspacePage());
 
     render(
@@ -1228,6 +1240,7 @@ describe("WorkspaceRecordFocusPage record switching", () => {
 
   it("initializes from a failed Workspace save snapshot before stale Query data", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/tmp/workspace" } });
     queryClient.setQueryData(queryKeys.workspacePage, buildWorkspacePage());
     const coordinator = new RecordSaveCoordinator({
       workspaceKey: "/tmp/workspace",
@@ -1264,6 +1277,7 @@ describe("WorkspaceRecordFocusPage record switching", () => {
   });
   it("embeds a Workspace Record without a second sidebar and preserves the shared Tab close guard", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/tmp/workspace" } });
     queryClient.setQueryData(queryKeys.workspacePage, buildWorkspacePage());
     let close!: () => Promise<void>;
     const unregister = vi.fn();

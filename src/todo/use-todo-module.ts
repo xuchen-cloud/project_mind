@@ -3,6 +3,7 @@ import { skipToken, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useFeedbackStore } from "../state/feedback-store";
 import { queryKeys } from "../lib/queryKeys";
+import { createWorkspaceOperation, WorkspaceOperationExpiredError } from "../lib/workspace-operation";
 import type { ProjectListItem, TodoRecord } from "../lib/types";
 import {
   createTodoModule,
@@ -46,8 +47,12 @@ export function useTodoModule(scope: TodoViewScope, enabled = true) {
   );
 
   async function change(command: TodoChange) {
+    const feedbackOperation = createWorkspaceOperation(queryClient, productionTodoTransport.workspaceBindingGet);
     try {
+      await feedbackOperation.binding;
+      feedbackOperation.assertCurrent();
       const result = await module.change(command);
+      feedbackOperation.assertCurrent();
       feedback.setStatus({
         tone: "success",
         label: "Saved",
@@ -55,6 +60,8 @@ export function useTodoModule(scope: TodoViewScope, enabled = true) {
       });
       return result;
     } catch (error) {
+      feedbackOperation.assertCurrent();
+      if (error instanceof WorkspaceOperationExpiredError) throw error;
       const detail = isTodoRevisionConflict(error) ? "Todo 已变化，已刷新最新数据。请核对后重新操作。" : String(error);
       feedback.setStatus({
         tone: "error",

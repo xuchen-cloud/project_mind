@@ -1,3 +1,4 @@
+vi.mock("../../services/recordDocumentApi", () => ({ recordDocumentApi: { bindingGet: async () => ({ workspaceId: "fixture-workspace", generation: "open-1" }) } }));
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -9,6 +10,7 @@ vi.mock("../../services/projectMindApi", () => ({ projectMindApi: api }));
 beforeEach(() => vi.resetAllMocks());
 function setup(projectId: number | null) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/tmp/workspace" } });
   const invalidate = vi.spyOn(client, "invalidateQueries");
   const select = vi.fn();
   render(<QueryClientProvider client={client}><SidebarTagItem tag={{ id: 7, label: "原标签", colorKey: "blue" }}
@@ -23,7 +25,7 @@ it.each([null, 3])("edits a tag in scope %s and refreshes all consumers", async 
   const input = screen.getByRole("textbox", { name: "标签名称" });
   await user.clear(input);
   await user.type(input, "新名称{Enter}");
-  await waitFor(() => expect(api.projectTagUpsert).toHaveBeenCalledWith({ projectId, id: 7, label: "新名称", colorKey: "blue" }));
+  await waitFor(() => expect(api.projectTagUpsert).toHaveBeenCalledWith({ projectId, id: 7, label: "新名称", colorKey: "blue" }, { workspaceId: "fixture-workspace", generation: "open-1" }));
   expect(invalidate).toHaveBeenCalledWith({ queryKey: ["workspace-page"] });
   expect(invalidate).toHaveBeenCalledWith({ queryKey: ["todos"] });
 });
@@ -32,7 +34,7 @@ it("deletes the selected tag and clears its filter", async () => {
   const { select } = setup(null);
   fireEvent.contextMenu(screen.getByRole("button", { name: "#原标签" }));
   await user.click(screen.getByRole("menuitem", { name: "删除标签" }));
-  expect(api.projectTagDelete).toHaveBeenCalledWith({ projectId: null, tagId: 7 });
+  expect(api.projectTagDelete).toHaveBeenCalledWith({ projectId: null, tagId: 7 }, { workspaceId: "fixture-workspace", generation: "open-1" });
   await waitFor(() => expect(select).toHaveBeenCalledWith(null));
 });
 it("cancels an edit with Escape without saving", async () => {

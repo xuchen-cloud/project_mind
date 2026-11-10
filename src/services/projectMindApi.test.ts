@@ -12,7 +12,25 @@ vi.mock("./desktopApi", () => ({
 
 import { projectMindApi } from "./projectMindApi";
 
+const binding = { workspaceId: "workspace-a", generation: "open-a" };
+
 describe("projectMindApi", () => {
+  it("forwards the captured binding on shared Todo source reads", async () => {
+    serviceMocks.commandMock.mockResolvedValue(undefined);
+    await projectMindApi.projectsList({ includeArchived: true }, binding);
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("projects_list", { input: { includeArchived: true }, binding });
+    await projectMindApi.projectPageGet({ projectId: 7 }, binding);
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("project_page_get", { input: { projectId: 7 }, binding });
+    await projectMindApi.workspacePageGet(binding);
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("workspace_page_get", { binding });
+  });
+
+  it("includes binding when deleting a Tag shared by Todo", async () => {
+    serviceMocks.commandMock.mockResolvedValue(undefined);
+    await projectMindApi.projectTagDelete({ projectId: 7, tagId: 4 }, binding);
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("file_tag_option_delete", { input: { projectId: 7, tagId: 4 }, binding });
+  });
+
   it("creates a workspace with its directory only", async () => {
     serviceMocks.commandMock.mockResolvedValue(undefined);
     await projectMindApi.workspaceCreate({ rootPath: "/tmp/workspace" });
@@ -180,9 +198,9 @@ describe("projectMindApi", () => {
     await projectMindApi.todoUpdatePriority({
       todoId: 5,
       priority: "urgent_important",
-    });
+    }, binding);
 
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith("todo_update_priority", {
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("todo_update_priority", { binding,
       input: {
         todoId: 5,
         priority: "urgent_important",
@@ -195,9 +213,9 @@ describe("projectMindApi", () => {
 
     await projectMindApi.todoDelete({
       todoId: 5,
-    });
+    }, binding);
 
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith("todo_delete", {
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("todo_delete", { binding,
       input: {
         todoId: 5,
       },
@@ -214,9 +232,9 @@ describe("projectMindApi", () => {
       progressId: 9,
       content: "已更新进展",
       progressDate: "2026-04-06",
-    });
+    }, binding);
 
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith("todo_update_progress", {
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("todo_update_progress", { binding,
       input: {
         progressId: 9,
         content: "已更新进展",
@@ -230,9 +248,9 @@ describe("projectMindApi", () => {
 
     await projectMindApi.todoDeleteProgress({
       progressId: 9,
-    });
+    }, binding);
 
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith("todo_delete_progress", {
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("todo_delete_progress", { binding,
       input: {
         progressId: 9,
       },
@@ -273,9 +291,9 @@ describe("projectMindApi", () => {
       tags: [],
     });
 
-    await projectMindApi.projectTagSettingsGet({ projectId: 7 });
+    await projectMindApi.projectTagSettingsGet({ projectId: 7 }, binding);
 
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith("file_tag_settings_get", { input: { projectId: 7 } });
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("file_tag_settings_get", { binding, input: { projectId: 7 } });
   });
 
   it("maps contact search to the correct command", async () => {
@@ -340,9 +358,9 @@ describe("projectMindApi", () => {
       id: 4,
       label: "法务",
       colorKey: "blue",
-    });
+    }, binding);
 
-    expect(serviceMocks.commandMock).toHaveBeenCalledWith("file_tag_option_upsert", {
+    expect(serviceMocks.commandMock).toHaveBeenCalledWith("file_tag_option_upsert", { binding,
       input: {
         projectId: 7,
         id: 4,

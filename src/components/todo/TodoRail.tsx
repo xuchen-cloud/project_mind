@@ -1,3 +1,4 @@
+import { withWorkspaceBinding } from "../../lib/workspace-operation";
 import { RightSidebarHostedContext } from "../layout/RightSidebar";
 import { HomeSidebarList } from "../home/HomeSidebarList";
 import "./todo.css";
@@ -5,7 +6,7 @@ import { useTodoListMotion } from "./useTodoListMotion";
 import { TodoPrioritySelector } from "./TodoPrioritySelector";
 import { TodoProgressTextEditor } from "./TodoProgressTextEditor";
 import { useMotionPresence } from "../../hooks/useMotionPresence";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useContext, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Archive, Check, ChevronDown, FolderKanban, ListTodo, SlidersHorizontal, Pin, PinOff, Plus, X } from "lucide-react";
 
@@ -140,6 +141,7 @@ export function TodoRail({
   onOpenInternalReference,
   onOpenContactMention,
 }: TodoRailProps) {
+  const queryClient = useQueryClient();
   const hosted = useContext(RightSidebarHostedContext);
   const {
     todoRailCollapsed,
@@ -197,7 +199,7 @@ export function TodoRail({
   const composerTagProjectId = createOwnershipOptions ? createProjectId : (projectId ?? null);
   const composerTagSettingsQuery = useQuery({
     queryKey: queryKeys.projectTags.project(createProjectId ?? 0),
-    queryFn: () => projectMindApi.projectTagSettingsGet({ projectId: createProjectId! }),
+    queryFn: () => withWorkspaceBinding(queryClient, binding => projectMindApi.projectTagSettingsGet({ projectId: createProjectId! }, binding)),
     enabled: Boolean(createOwnershipOptions && createProjectId !== null),
   });
   const composerAvailableTags = useMemo(() => {

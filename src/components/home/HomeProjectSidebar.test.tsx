@@ -21,6 +21,7 @@ vi.mock("./HomeProjectFiles", () => ({ HomeProjectFiles: ({ filter, activeFileId
 beforeEach(() => { localStorage.clear(); useListPinsStore.setState({ pins: {} }); useUiStore.setState(createUiStoreState()); useProjectContentStore.setState({ layouts: {} }); });
 function setup(voiceProps: Partial<ComponentProps<typeof HomeProjectSidebar>> = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/workspace" } });
   const onTagChange = vi.fn();
   const onOpenRecord = vi.fn();
   const onOpenProject = vi.fn();

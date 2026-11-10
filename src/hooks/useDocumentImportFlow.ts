@@ -1,3 +1,4 @@
+import { withWorkspaceBinding } from "../lib/workspace-operation";
 import type { AgentWorkspaceBinding } from "../lib/agent-types";
 import { recordDocumentApi } from "../services/recordDocumentApi";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
@@ -41,7 +42,7 @@ export function useDocumentImportFlow({
 
   const projectTagSettingsQuery = useQuery({
     queryKey: queryKeys.projectTags.project(projectId),
-    queryFn: () => projectMindApi.projectTagSettingsGet({ projectId }),
+    queryFn: () => withWorkspaceBinding(queryClient, binding => projectMindApi.projectTagSettingsGet({ projectId }, binding)),
     enabled,
     ...(resident ? RESIDENT_PROJECT_QUERY_OPTIONS : {}),
   });

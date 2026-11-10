@@ -1,4 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
+import { withWorkspaceBinding } from "../../lib/workspace-operation";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   useCallback,
   useEffect,
@@ -101,6 +102,7 @@ export function TodoListItem({
   availableTagScopeProjectId?: number | null;
   allowTagCreation?: boolean;
 }) {
+  const queryClient = useQueryClient();
   const [contentEditing, setContentEditing] = useState(false);
   const [cardEditing, setCardEditing] = useState(false);
   const cardEditRef = useDismissOnOutside<HTMLElement>({ enabled: cardEditing, onDismiss: () => setCardEditing(false), listenFocusIn: false });
@@ -125,7 +127,7 @@ export function TodoListItem({
     availableTagScopeProjectId !== todo.projectId;
   const projectTagSettingsQuery = useQuery({
     queryKey: queryKeys.projectTags.project(todo.projectId),
-    queryFn: () => projectMindApi.projectTagSettingsGet({ projectId: todo.projectId! }),
+    queryFn: () => withWorkspaceBinding(queryClient, binding => projectMindApi.projectTagSettingsGet({ projectId: todo.projectId! }, binding)),
     enabled: needsProjectTagOptions,
   });
   const scopedAvailableTags = needsProjectTagOptions

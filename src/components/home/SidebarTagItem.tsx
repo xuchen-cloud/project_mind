@@ -1,3 +1,4 @@
+import { withWorkspaceBinding } from "../../lib/workspace-operation";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useQueryClient } from "@tanstack/react-query";
@@ -55,10 +56,10 @@ export function SidebarTagItem({ tag, projectId, selected, onSelect, appearance 
     setBusy(true);
     try {
       if (remove) {
-        await projectMindApi.projectTagDelete({ projectId, tagId: tag.id });
+        await withWorkspaceBinding(client, binding => projectMindApi.projectTagDelete({ projectId, tagId: tag.id }, binding));
         if (selected) onSelect(null);
       } else {
-        await projectMindApi.projectTagUpsert({ projectId, id: tag.id, label: nextLabel, colorKey: tag.colorKey });
+        await withWorkspaceBinding(client, binding => projectMindApi.projectTagUpsert({ projectId, id: tag.id, label: nextLabel, colorKey: tag.colorKey }, binding));
       }
       setEditing(false);
       setMenu(null);

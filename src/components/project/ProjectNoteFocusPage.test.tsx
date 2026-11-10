@@ -79,6 +79,7 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
 });
 vi.mock("../../services/agentApi", async (importOriginal) => ({ ...await importOriginal<typeof import("../../services/agentApi")>(), agentApi: { statusGet: async () => ({ binding: { workspaceId: "fixture-workspace", generation: "open-1" } }) } }));
 vi.mock("../../services/recordDocumentApi", () => ({ recordDocumentApi: {
+  bindingGet: async () => ({ workspaceId: "fixture-workspace", generation: "open-1" }),
   editorGet: recordMocks.editorGet, bodySave: recordMocks.bodySave, metadataGet: recordMocks.metadataGet, metadataApply: recordMocks.metadataApply, checkpoint: vi.fn(),
   editorRegister: recordMocks.editorRegister, editorUnregister: vi.fn(async () => null), editorFlushReply: vi.fn(async () => null),
 } }));
@@ -284,6 +285,9 @@ function render(ui: ReactElement, providedQueryClient?: QueryClient, initialEntr
     },
   });
 
+  if (!queryClient.getQueryData(queryKeys.workspaceStatus)) {
+    queryClient.setQueryData(queryKeys.workspaceStatus, { currentWorkspace: { rootPath: "/tmp/workspace" } });
+  }
   const view = baseRender(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[initialEntry]}>
@@ -623,6 +627,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     "navigation save is not_needed without a draft when %s",
     async (state) => {
       const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      queryClient.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/tmp/workspace" } });
       if (state === "missing") {
         apiMocks.projectPageGet.mockResolvedValue({ ...buildProjectPage(), records: [] });
       } else if (state === "failed") {
@@ -658,6 +663,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
 
   it("navigation save follows resident visibility changes", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/tmp/workspace" } });
     queryClient.setQueryData(queryKeys.projectPage(1), buildProjectPage());
     function VisibilityHarness() {
       const [visible, setVisible] = useState(true);
@@ -690,6 +696,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
 
   it.each([false, true])("hidden resident navigation save responds by identity with draft=%s", (hasDraft) => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/tmp/workspace" } });
     if (hasDraft) queryClient.setQueryData(queryKeys.projectPage(1), buildProjectPage());
     const persist = vi.fn(async () => ({}));
     const coordinator = new RecordSaveCoordinator({
@@ -713,6 +720,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
 
   it("keeps two visible pages editable with independent source positions, focus and saves", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/tmp/workspace" } });
     queryClient.setQueryData(queryKeys.projectPage(1), { ...buildProjectPage(), records: [currentNote, { ...baseNote, id: 8, title: "Second", contentHtml: "<p>Other</p>" }] });
     const persist = vi.fn(async (value) => ({ headRevision: value.canonicalBody.baseRevision + 1 }));
     const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: { persist } });
@@ -897,6 +905,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
 
   it("keeps a hidden page with pending AI review mounted and permits missing objects without a draft to close", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/tmp/workspace" } });
     queryClient.setQueryData(queryKeys.projectPage(1), buildProjectPage());
     const guards = new Map<number, () => Promise<void>>();
     const register = (id: number) => (value: () => Promise<void>) => { guards.set(id, value); return () => undefined; };
@@ -921,6 +930,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
 
   it("pauses a safely saved hidden embedded editor and restores its draft on return", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/tmp/workspace" } });
     queryClient.setQueryData(queryKeys.projectPage(1), buildProjectPage());
     const coordinator = new RecordSaveCoordinator({ workspaceKey: "/tmp/workspace", adapter: {
       persist: vi.fn(async (value) => ({ headRevision: value.canonicalBody.baseRevision + 1 })),
@@ -948,6 +958,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
 
   it("accepts committed Agent content while a saved embedded editor is paused", async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/tmp/workspace" } });
     client.setQueryData(queryKeys.projectPage(1), buildProjectPage());
     function Harness() {
       const [visible, setVisible] = useState(true);
@@ -992,6 +1003,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
 
   it("renders a cached record synchronously without a cold entrance", async () => {
     const queryClient = new QueryClient();
+    queryClient.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/tmp/workspace" } });
     queryClient.setQueryData(queryKeys.projects.all, [project]);
     queryClient.setQueryData(queryKeys.projectPage(1), buildProjectPage());
 
@@ -1054,6 +1066,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
 
   it("does not refetch cached Project Labels when a Warm Focus becomes Active", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/tmp/workspace" } });
     queryClient.setQueryData(queryKeys.projects.all, [project]);
     queryClient.setQueryData(queryKeys.projectPage(1), buildProjectPage());
     queryClient.setQueryData(
@@ -1181,7 +1194,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
         projectId: 1,
         label: "紧急",
         colorKey: expect.any(String),
-      });
+      }, { workspaceId: "fixture-workspace", generation: "open-1" });
     });
     await waitFor(() => expect(richEditorMocks.focus).toHaveBeenCalledWith("end"));
   });
@@ -1299,6 +1312,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
+    queryClient.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/tmp/workspace" } });
     queryClient.setQueryData(queryKeys.projectPage(1), projectPage);
     queryClient.setQueryData(queryKeys.projects.all, [project]);
     const coordinator = new RecordSaveCoordinator({
@@ -1384,6 +1398,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
       contentHtml: "<p>Project B 正文</p>",
     };
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/tmp/workspace" } });
     queryClient.setQueryData(queryKeys.projects.all, [project, projectB]);
     queryClient.setQueryData<ProjectPageData>(queryKeys.projectPage(1), {
       project,
@@ -1440,6 +1455,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
+    queryClient.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/tmp/workspace" } });
     queryClient.setQueryData<ProjectPageData>(queryKeys.projectPage(1), {
       project,
       records: notes,
@@ -1486,6 +1502,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
 
   it("initializes from a failed save snapshot before stale Query data", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/tmp/workspace" } });
     queryClient.setQueryData<ProjectPageData>(queryKeys.projectPage(1), {
       project,
       records: [
@@ -1576,6 +1593,7 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
+    queryClient.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/tmp/workspace" } });
     baseRender(
       <QueryClientProvider client={queryClient}>
         <MemoryRouter initialEntries={["/projects/1/records/70"]}>

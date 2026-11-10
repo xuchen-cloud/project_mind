@@ -1,4 +1,5 @@
 import type { AgentWorkspaceBinding } from "../lib/agent-types";
+import { recordDocumentApi } from "./recordDocumentApi";
 import { desktopApi } from "./desktopApi";
 import { callAgentCommand } from "./agentApi";
 import type {
@@ -92,6 +93,7 @@ import type {
 } from "../lib/types";
 
 export const projectMindApi = {
+  workspaceBindingGet: (workspaceRoot: string) => recordDocumentApi.bindingGet(workspaceRoot),
   workspaceStatusGet: () =>
     desktopApi.command<WorkspaceStatusSnapshot>("workspace_status_get"),
   workspaceCreate: (input: WorkspaceCreateInput) =>
@@ -100,27 +102,27 @@ export const projectMindApi = {
     desktopApi.command<WorkspaceStatusSnapshot>("workspace_open", { input }),
   workspaceClose: () =>
     desktopApi.command<WorkspaceStatusSnapshot>("workspace_close"),
-  projectsList: (input: ProjectsListInput = {}) =>
-    desktopApi.command<ProjectListItem[]>("projects_list", { input }),
+  projectsList: (input: ProjectsListInput = {}, binding?: AgentWorkspaceBinding) =>
+    desktopApi.command<ProjectListItem[]>("projects_list", { input, ...(binding ? { binding } : {}) }),
   projectCreate: (input: ProjectCreateInput) =>
     desktopApi.command<ProjectRecord>("project_create", { input }),
-  projectPageGet: (input: ProjectIdInput) =>
-    desktopApi.command<ProjectPageData>("project_page_get", { input }),
-  workspacePageGet: () =>
-    desktopApi.command<WorkspacePageData>("workspace_page_get"),
+  projectPageGet: (input: ProjectIdInput, binding?: AgentWorkspaceBinding) =>
+    desktopApi.command<ProjectPageData>("project_page_get", { input, ...(binding ? { binding } : {}) }),
+  workspacePageGet: (binding?: AgentWorkspaceBinding) =>
+    desktopApi.command<WorkspacePageData>("workspace_page_get", ...(binding ? [{ binding }] : [])),
   projectUpdate: (input: ProjectUpdateInput) =>
     desktopApi.command<ProjectRecord>("project_update", { input }),
   projectSetArchive: (input: ProjectArchiveInput) =>
     desktopApi.command<ProjectRecord>("project_set_archive", { input }),
   projectDelete: (input: ProjectDeleteInput) =>
     desktopApi.command<ProjectRecord>("project_delete", { input }),
-  projectTagSettingsGet: (input: ProjectTagSettingsGetInput) =>
-    desktopApi.command<ProjectTagSettingsSnapshot>("file_tag_settings_get", { input }),
-  projectTagUpsert: (input: ProjectTagUpsertInput) =>
-    desktopApi.command<ProjectTagRecord>("file_tag_option_upsert", { input }),
-  projectTagDelete: (input: ProjectTagDeleteInput) =>
+  projectTagSettingsGet: (input: ProjectTagSettingsGetInput, binding: AgentWorkspaceBinding) =>
+    desktopApi.command<ProjectTagSettingsSnapshot>("file_tag_settings_get", { input, binding }),
+  projectTagUpsert: (input: ProjectTagUpsertInput, binding: AgentWorkspaceBinding) =>
+    desktopApi.command<ProjectTagRecord>("file_tag_option_upsert", { input, binding }),
+  projectTagDelete: (input: ProjectTagDeleteInput, binding: AgentWorkspaceBinding) =>
     desktopApi.command<ProjectTagSettingsSnapshot>("file_tag_option_delete", {
-      input,
+      input, binding,
     }),
   contactList: () => desktopApi.command<ContactRecord[]>("contact_list"),
   contactSearch: (input: ContactSearchInput) =>
@@ -137,26 +139,26 @@ export const projectMindApi = {
     desktopApi.command<NoteRecord>("project_record_metadata_apply", { input }),
   projectRecordDelete: (input: ProjectRecordDeleteInput) =>
     desktopApi.command<NoteRecord>("project_record_delete", { input }),
-  todoCreate: (input: TodoCreateInput) =>
-    desktopApi.command<TodoRecord>("todo_create", { input }),
-  todoUpdateContent: (input: TodoUpdateContentInput) =>
-    desktopApi.command<TodoRecord>("todo_update_content", { input }),
-  todoUpdateTags: (input: TodoUpdateTagsInput) =>
-    desktopApi.command<TodoRecord>("todo_update_tags", { input }),
-  todoUpdatePriority: (input: TodoUpdatePriorityInput) =>
-    desktopApi.command<TodoRecord>("todo_update_priority", { input }),
-  todoUpdateStatus: (input: TodoUpdateStatusInput) =>
-    desktopApi.command<TodoRecord>("todo_update_status", { input }),
-  todoAddProgress: (input: TodoAddProgressInput) =>
-    desktopApi.command<TodoProgressRecord>("todo_add_progress", { input }),
-  todoUpdateProgress: (input: TodoUpdateProgressInput) =>
-    desktopApi.command<TodoProgressRecord>("todo_update_progress", { input }),
-  todoDeleteProgress: (input: TodoDeleteProgressInput) =>
-    desktopApi.command<TodoProgressRecord>("todo_delete_progress", { input }),
-  todoDelete: (input: TodoDeleteInput) =>
-    desktopApi.command<TodoRecord>("todo_delete", { input }),
-  todoListOpen: (input: ProjectIdInput) =>
-    desktopApi.command<TodoRecord[]>("todo_list_open", { input }),
+  todoCreate: (input: TodoCreateInput, binding: AgentWorkspaceBinding) =>
+    desktopApi.command<TodoRecord>("todo_create", { input, binding }),
+  todoUpdateContent: (input: TodoUpdateContentInput, binding: AgentWorkspaceBinding) =>
+    desktopApi.command<TodoRecord>("todo_update_content", { input, binding }),
+  todoUpdateTags: (input: TodoUpdateTagsInput, binding: AgentWorkspaceBinding) =>
+    desktopApi.command<TodoRecord>("todo_update_tags", { input, binding }),
+  todoUpdatePriority: (input: TodoUpdatePriorityInput, binding: AgentWorkspaceBinding) =>
+    desktopApi.command<TodoRecord>("todo_update_priority", { input, binding }),
+  todoUpdateStatus: (input: TodoUpdateStatusInput, binding: AgentWorkspaceBinding) =>
+    desktopApi.command<TodoRecord>("todo_update_status", { input, binding }),
+  todoAddProgress: (input: TodoAddProgressInput, binding: AgentWorkspaceBinding) =>
+    desktopApi.command<TodoProgressRecord>("todo_add_progress", { input, binding }),
+  todoUpdateProgress: (input: TodoUpdateProgressInput, binding: AgentWorkspaceBinding) =>
+    desktopApi.command<TodoProgressRecord>("todo_update_progress", { input, binding }),
+  todoDeleteProgress: (input: TodoDeleteProgressInput, binding: AgentWorkspaceBinding) =>
+    desktopApi.command<TodoProgressRecord>("todo_delete_progress", { input, binding }),
+  todoDelete: (input: TodoDeleteInput, binding: AgentWorkspaceBinding) =>
+    desktopApi.command<TodoRecord>("todo_delete", { input, binding }),
+  todoListOpen: (input: ProjectIdInput, binding: AgentWorkspaceBinding) =>
+    desktopApi.command<TodoRecord[]>("todo_list_open", { input, binding }),
   workspaceQuickNoteGet: () =>
     desktopApi.command<WorkspaceRecord | null>("workspace_quick_note_get"),
   workspaceQuickNoteUpsert: (input: WorkspaceQuickNoteUpsertInput) =>

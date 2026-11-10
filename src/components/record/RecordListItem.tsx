@@ -1,3 +1,4 @@
+import { withWorkspaceBinding } from "../../lib/workspace-operation";
 import { VoiceRecordIcon } from "../icons/ContentTypeIcon";
 import { HomeRecordPreview } from "../home/HomeRecordPreview";
 import { cancelQuickNoteRecordMetadata } from "../../lib/quick-note-auto-metadata";
@@ -453,11 +454,11 @@ export function RecordListItem<TRecord extends RecordListItemRecord>({
   }
 
   async function createMentionTag(label: string) {
-    const tag = await projectMindApi.projectTagUpsert({
+    const tag = await withWorkspaceBinding(queryClient, binding => projectMindApi.projectTagUpsert({
       projectId,
       label,
       colorKey: colorKeyForTagLabel(label),
-    });
+    }, binding));
     onCreatedTag?.(tag);
     return tag;
   }

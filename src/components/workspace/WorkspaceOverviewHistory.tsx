@@ -1,3 +1,4 @@
+import { withWorkspaceBinding } from "../../lib/workspace-operation";
 import { useListPins, recordPinScope } from "../../state/list-pins-store";
 import { sortPinnedByUpdatedAt } from "../../lib/list-order";
 import { useSearchResultsMotion } from "../../hooks/useSearchResultsMotion";
@@ -233,10 +234,10 @@ export function WorkspaceOverviewHistory({
                 projectId: null,
                 availableTags,
                 onCreateTag: async (label) => {
-                  const tag = await projectMindApi.projectTagUpsert({
+                  const tag = await withWorkspaceBinding(queryClient, binding => projectMindApi.projectTagUpsert({
                     label,
                     colorKey: colorKeyForTagLabel(label),
-                  });
+                  }, binding));
                   syncWorkspaceTagCache(tag);
                   return tag;
                 },
