@@ -1,8 +1,7 @@
+import {canonicalCellData} from './cell-comparison'
+
 type Style = Record<string, unknown>
 type NormalizeStyle = (style: Style) => object | undefined
-
-const stable = (value: unknown): unknown => Array.isArray(value) ? value.map(stable) :
-  value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => [key, stable(item)])) : value
 
 /** Cell input repeats the editor's inherited font. Only changed style fields
  * belong in the journal; keep explicit style commands and resets intact. */
@@ -22,7 +21,7 @@ export function withoutUnchangedInputStyles(values: unknown, before: (row: numbe
       for (const [key, item] of Object.entries(remaining)) {
         const neutral = normalize({[key]: item})
         if (!neutral || !Object.keys(neutral).length) continue
-        if (Object.entries(neutral).every(([name, next]) => JSON.stringify(stable(next)) === JSON.stringify(stable((previous as Style)[name])))) {
+        if (Object.entries(neutral).every(([name, next]) => JSON.stringify(canonicalCellData(next)) === JSON.stringify(canonicalCellData((previous as Style)[name])))) {
           delete remaining[key]
           changed = true
         }

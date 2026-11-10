@@ -18,6 +18,7 @@ import {readView} from './renderer-view'
 import {parseViewResult} from './view-protocol'
 import {formulaClosureRevision, invalidateFormulaClosure, formulasWithEdits, formulaSheetExtent} from './formula-closure-edits'
 import {withoutUnchangedInputStyles} from './input-style-journal'
+import {canonicalCellData} from './cell-comparison'
 
 // Only data and explicit replies cross this frame boundary. No native/path relay is installed.
 type Options = { model: Model; edits: Edit[]; readOnly: boolean; presentationMode: 'preview' | 'edit'; appearance: Record<string,string> }
@@ -68,8 +69,7 @@ function encode(value:any):any {if(value instanceof Map)return{__xlsxMap:[...val
 function decode(value:any):any {if(value?.__xlsxMap)return new Map(value.__xlsxMap.map(([k,v]:any[])=>[decode(k),decode(v)]));if(value?.__xlsxSet)return new Set(value.__xlsxSet.map(decode));if(Array.isArray(value))return value.map(decode);if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).map(([k,v])=>[k,decode(v)]));return value}
 function comparableCell(cell:any,workbook:any){
  const style=typeof cell?.s==='string'?workbook.getWorkbook().getStyles().get(cell.s):cell?.s
- const stable=(v:any):any=>Array.isArray(v)?v.map(stable):v&&typeof v==='object'?Object.fromEntries(Object.entries(v).sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>[k,stable(v)])):v
- return JSON.stringify(stable({v:cell?.f?null:cell?.v??null,f:cell?.f??null,p:cell?.p??null,s:style?toNeutralStyle(style):null,t:cell?.f?null:cell?.t??null}))
+ return JSON.stringify(canonicalCellData({v:cell?.f?null:cell?.v??null,f:cell?.f??null,p:cell?.p??null,s:style?toNeutralStyle(style):null,t:cell?.f?null:cell?.t??null}))
 }
 function pruneRestoredCells(){if(options.model.coverage?.kind==='partial')return;const state=context!.lazyWorkbookRef.current,journal=state.editJournal;if(journal.structuralOps.size||journal.sheets.added.size||journal.sheets.removed.size)return
  const workbook=context!.univerRef.current.univerAPI.getActiveWorkbook()

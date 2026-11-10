@@ -8,8 +8,10 @@ import {adaptProgressiveApp,adaptProgressiveSync,adaptProgressiveHold} from '../
 const exports={}
 runInNewContext(ts.transpileModule(readFileSync(new URL('../view-source.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,Map,WeakMap,Promise,Error,JSON})
 const {snapshotRange,createViewReader}=exports
+const cellComparison={}
+runInNewContext(ts.transpileModule(readFileSync(new URL('../cell-comparison.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:cellComparison})
 const inputStyles={}
-runInNewContext(ts.transpileModule(readFileSync(new URL('../input-style-journal.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:inputStyles})
+runInNewContext(ts.transpileModule(readFileSync(new URL('../input-style-journal.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:inputStyles,require:()=>cellComparison})
 const closureEdits={}
 runInNewContext(ts.transpileModule(readFileSync(new URL('../formula-closure-edits.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:closureEdits,Map,WeakMap,clearTimeout})
 const area={startRow:3,endRow:3,startColumn:2,endColumn:3}
