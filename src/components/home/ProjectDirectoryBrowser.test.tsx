@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { ProjectFileMenuControls } from "../layout/ProjectSidebar";
+import type { ProjectFileMenuControls, ProjectSidebarDocumentItem } from "../layout/ProjectSidebar";
 import type { ReactNode } from "react";
 import { useProjectFileNavigation } from "../../lib/project-file-navigation";
 import { ProjectDirectoryBrowser } from "./ProjectDirectoryBrowser";
@@ -23,6 +23,10 @@ vi.mock("../layout/ProjectSidebar", () => ({ ProjectSidebar: ({ fileHeaderAction
 const folder: ProjectDirectoryEntry = { name: "generated", relativePath: "generated", kind: "directory", bytes: 0 };
 const file: ProjectDirectoryEntry = { name: "result.txt", relativePath: "generated/result.txt", kind: "file", bytes: 20 };
 const project = { id: 7, name: "Project", rootPath: "/project" };
+function managedFile(id: number, managedPath: string, extra: Partial<ProjectSidebarDocumentItem> = {}): ProjectSidebarDocumentItem {
+  return { id, projectId: 7, managedPath, name: "result.txt", baseName: "result.txt", mimeType: "text/plain",
+    originalPath: "", historyDirPath: "", isStarred: false, currentVersionNumber: 1, versionCount: 0, health: "normal", tags: [], ...extra };
+}
 function panel(filter = { query: "", tagId: null as number | null }) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const wrap = (id: number) => <QueryClientProvider client={client}><HomeProjectFiles project={{ ...project, id }} documents={[]} filter={filter} /></QueryClientProvider>;
@@ -426,6 +430,69 @@ it.each([7, null])("opens a registered tree File menu with mouse and keyboard (o
   expect(openContextMenu).toHaveBeenCalledTimes(2);
   expect(fileActions.register).not.toHaveBeenCalled();
   expect(useProjectFileNavigation.getState().request).toBeNull();
+});
+
+it("shares one path snapshot across recursive branches, selection and File menus", async () => {
+  const deep = { ...folder, name: "deep", relativePath: "generated/deep" };
+  const nested = { ...file, name: "nested.txt", relativePath: "generated/deep/nested.txt" };
+  vi.mocked(projectDirectoryApi.list).mockImplementation(async (_id, path) => path === "" ? [folder] : path === "generated" ? [deep, file] : [nested]);
+  let unrelatedReads = 0;
+  const unrelated = managedFile(99, "/outside/unused.txt");
+  Object.defineProperty(unrelated, "managedPath", { get: () => { unrelatedReads++; return "/outside/unused.txt"; } });
+  const first = managedFile(1, "\\project\\generated\\result.txt", { isStarred: true, currentVersionNumber: 3 });
+  const documents = [unrelated, first, managedFile(2, "/project/generated/result.txt"), managedFile(3, "/project/generated/deep/nested.txt")];
+  const menu = { openContextMenu: vi.fn(), renderRenameInput: () => null };
+  const client = new QueryClient();
+  const wrap = (activeRelativePath?: string) => <QueryClientProvider client={client}><ProjectDirectoryBrowser projectId={7} rootPath="/project" documents={documents} fileMenu={menu} activeRelativePath={activeRelativePath} /></QueryClientProvider>;
+  const view = render(wrap());
+  const generated = await screen.findByRole("button", { name: "generated" });
+  const readsAfterMount = unrelatedReads;
+  fireEvent.click(generated);
+  const row = await screen.findByRole("button", { name: "result.txt" });
+  fireEvent.click(screen.getByRole("button", { name: "deep" }));
+  const nestedRow = await screen.findByRole("button", { name: "nested.txt" });
+  expect(unrelatedReads).toBe(readsAfterMount);
+  expect(row).toHaveAttribute("data-file-selection-id", "1");
+  expect(JSON.parse(row.getAttribute("data-file-drop-target")!)).toMatchObject({ id: 1, expectedVersionNumber: 3 });
+  expect(within(row).getByLabelText("标星")).toBeVisible();
+  expect(nestedRow).toHaveAttribute("data-file-selection-id", "3");
+  fireEvent.click(row);
+  expect(row).toHaveAttribute("aria-pressed", "true");
+  view.rerender(wrap(nested.relativePath));
+  fireEvent.contextMenu(row, { clientX: 60, clientY: 70 });
+  expect(menu.openContextMenu).toHaveBeenCalledWith(first, 60, 70);
+  expect(unrelatedReads).toBe(readsAfterMount);
+  expect(fileActions.register).not.toHaveBeenCalled();
+});
+
+it("rebuilds File associations after add, rename, delete, metadata and root snapshot changes", async () => {
+  const entries: ProjectDirectoryEntry[] = ["old.txt", "renamed.txt", "added.txt"].map(name => ({ name, relativePath: name, kind: "file", bytes: 1 }));
+  vi.mocked(projectDirectoryApi.list).mockResolvedValue(entries);
+  const client = new QueryClient();
+  const wrap = (documents: ProjectSidebarDocumentItem[], rootPath = "/project") => <QueryClientProvider client={client}><ProjectDirectoryBrowser projectId={7} rootPath={rootPath} documents={documents} /></QueryClientProvider>;
+  const initial = managedFile(1, "/project/old.txt");
+  const view = render(wrap([initial]));
+  const old = await screen.findByRole("button", { name: "old.txt" });
+  expect(old).toHaveAttribute("data-file-selection-id", "1");
+  const renamed = { ...initial, managedPath: "/project/renamed.txt" };
+  view.rerender(wrap([renamed]));
+  expect(old).not.toHaveAttribute("data-file-drop-target");
+  const renamedRow = screen.getByRole("button", { name: "renamed.txt" });
+  expect(renamedRow).toHaveAttribute("data-file-selection-id", "1");
+  view.rerender(wrap([{ ...renamed, isStarred: true, currentVersionNumber: 4 }]));
+  expect(within(renamedRow).getByLabelText("标星")).toBeVisible();
+  expect(JSON.parse(renamedRow.getAttribute("data-file-drop-target")!)).toMatchObject({ id: 1, expectedVersionNumber: 4 });
+  view.rerender(wrap([]));
+  expect(renamedRow).not.toHaveAttribute("data-file-drop-target");
+  const added = managedFile(2, "/project/added.txt");
+  const documents = [added];
+  view.rerender(wrap(documents));
+  expect(screen.getByRole("button", { name: "added.txt" })).toHaveAttribute("data-file-selection-id", "2");
+  view.rerender(wrap(documents, "/other"));
+  const otherRow = await screen.findByRole("button", { name: "added.txt" });
+  expect(otherRow).not.toHaveAttribute("data-file-drop-target");
+  view.rerender(wrap([{ ...added, managedPath: "/other/added.txt" }], "/other"));
+  expect(otherRow).toHaveAttribute("data-file-selection-id", "2");
 });
 
 it("does not open an old unregistered File menu after Workspace changes at the same root", async () => {
