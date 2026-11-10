@@ -44,16 +44,29 @@ for (const entry of lock.files) {
     content=content.replace('      className="slash-menu"', '      ref={menuElement}\n      className="slash-menu"').replace('      {state.items.length', '      <ScrollMenu>{state.items.length').replace('      )}\n    </div>', '      )}</ScrollMenu>\n    </div>');
   }
   if(relative==='editor/ops.ts')content=content.replace('nodes.at(-1)!','nodes[nodes.length-1]!').replace('// a caret inside a list item inserts after that item, not after the whole list\n    liftFromList(exec)', '// Insert after the containing top-level block; inserting must never unlist existing content.');
+  if(relative==='editor/mermaid.ts') content="export { MERMAID_LANGUAGE, MERMAID_TEMPLATE, loadMermaid, renderMermaid } from '../../adapters/mermaidRenderer'\n";
   if(relative==='editor/wavedrom.ts')content='/// <reference path="../types/wavedrom.d.ts" />\n'+content;
   if(relative==='editor/redact.ts')content=content.replaceAll("'@genoffice/agent-core/","'../../agent-core/");
   if(relative==='components/icons.tsx')content=content.replace(/export \{[\s\S]*?\} from '\.\.\/\.\.\/\.\.\/\.\.\/docs\/src\/renderer\/components\/icons'\n/, '');
   if(relative==='source/plain-find.ts')content=content.replace('    replaceOne(index, replacement) {','    replaceOne(index, replacement) {\n      if(view.state.readOnly)return').replace('    replaceAll(replacement) {','    replaceAll(replacement) {\n      if(view.state.readOnly)return');
+  if (relative==='editor/diagrams.ts') content=content.replace('source: string): Promise<DiagramResult>', "source: string, theme: 'light' | 'dark' = 'light'): Promise<DiagramResult>").replace('renderMermaid(source)', 'renderMermaid(source, theme)');
   if (relative==='editor/diagrams.ts') content=content.replace("import type { NewImage } from '@genoffice/docx-engine'", "type NewImage = { base64: string; mime: string; widthPx: number; heightPx: number; align: string }");
   if (relative==='editor/CodeBlockView.tsx') {
     content="import { renderSafeDiagram as renderDiagram } from '../../adapters/diagramPreviewSafety'\n"+content.replace('DIAGRAM_LANGUAGES, diagramLanguage, renderDiagram', 'DIAGRAM_LANGUAGES, diagramLanguage');
     content=content.replace(".catch(() => {})", ".catch((error) => { if (mountedRef.current) setCopyError(String(error)) })");
     content=content.replace("const [copied, setCopied] = useState(false)", "const [copied, setCopied] = useState(false)\n  const [copyError, setCopyError] = useState('')");
     content=content.replace('<pre>', '{copyError && <span role="alert">{copyError}</span>}\n      <pre>');
+    content="import { useDiagramTheme } from '../../adapters/diagramTheme'\n"+content;
+    content=content.replace("  const [copied", "  const theme = useDiagramTheme()\n  const [copied");
+    content=content.replace('    language: DiagramLanguage\n', "    language: DiagramLanguage\n    source: string\n    theme: string\n");
+    content=content.replace('rendered.language === diagramLang ?', 'rendered.language === diagramLang && rendered.source === source && rendered.theme === theme ?');
+    content=content.replace('hasDiagramRef.current = diagram !== null', 'hasDiagramRef.current = rendered !== null');
+    content=content.replace('renderDiagram(diagramLang, source)', 'renderDiagram(diagramLang, source, theme)');
+    content=content.replace('setRendered({ language: diagramLang, result })', 'setRendered({ language: diagramLang, source, theme, result })');
+    content=content.replace('[diagramLang, source]', '[diagramLang, source, theme]');
+    content=content.replace('className="md-diagram-error"', 'role="alert" className="md-diagram-error"');
+    content=content.replace('role="button"', 'aria-label="编辑图表源码" role="button"');
+
   }
   if(relative==='editor/blockKeymap.ts')content=content.replace('  addKeyboardShortcuts() {','  addKeyboardShortcuts() {').replace('return {\n', 'const editable = (run: () => boolean) => () => this.editor.isEditable && run()\n    return {\n').replaceAll("() => uiOp(this.editor, { op: 'duplicateBlocks', target: 'selection' })","editable(() => uiOp(this.editor, { op: 'duplicateBlocks', target: 'selection' }))").replace("() => uiOp(this.editor, { op: 'deleteBlocks', target: 'selection' })","editable(() => uiOp(this.editor, { op: 'deleteBlocks', target: 'selection' }))").replace('() => moveSelectedBlocks(this.editor, -1)','editable(() => moveSelectedBlocks(this.editor, -1))').replace('() => moveSelectedBlocks(this.editor, 1)','editable(() => moveSelectedBlocks(this.editor, 1))').replace("'Mod-k': () => {","'Mod-k': () => {\n        if(!this.editor.isEditable)return false");
   if (relative==='editor/mathEdit.ts') {

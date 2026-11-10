@@ -16,6 +16,7 @@ import { Attachment } from "./extensions/Attachment";
 import { ContactMention } from "./extensions/ContactMention";
 import { InternalReference } from "./extensions/InternalReference";
 import { ManagedImage } from "./extensions/ManagedImage";
+import { MermaidCodeBlock } from "./extensions/MermaidCodeBlock";
 import { ManagedTable } from "./extensions/ManagedTable";
 import { TagMention } from "./extensions/TagMention";
 import { StableRecordBlocks, type RecordClipboardOptions } from "./extensions/StableRecordBlocks";
@@ -182,12 +183,9 @@ export function buildRichEditorExtensions(placeholder: string, options: RecordCl
       heading: {
         levels: [1, 2, 3, 4],
       },
-      codeBlock: {
-        HTMLAttributes: {
-          class: "rich-editor__code-block",
-        },
-      },
+      codeBlock: false,
     }),
+    MermaidCodeBlock.configure({ HTMLAttributes: { class: "rich-editor__code-block" } }),
     Highlight.configure({
       multicolor: false,
       HTMLAttributes: {

@@ -119,6 +119,7 @@ export const CODE_LANGUAGE_OPTIONS: CodeLanguageOption[] = [
   },
   { id: "json", label: "JSON", aliases: [], keywords: [] },
   { id: "markdown", label: "Markdown", aliases: ["md"], keywords: [] },
+  { id: "mermaid", label: "Mermaid", aliases: [], keywords: [] },
   {
     id: "html",
     label: "HTML",

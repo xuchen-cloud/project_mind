@@ -1,3 +1,4 @@
+import { useDiagramTheme } from '../../adapters/diagramTheme'
 import { renderSafeDiagram as renderDiagram } from '../../adapters/diagramPreviewSafety'
 import { useEffect, useRef, useState } from 'react'
 import { NodeViewContent, NodeViewWrapper } from '@tiptap/react'
@@ -44,6 +45,7 @@ const LANGUAGES = [
 const RERENDER_DEBOUNCE_MS = 300
 
 export function CodeBlockView({ node, updateAttributes, editor, getPos }: NodeViewProps) {
+  const theme = useDiagramTheme()
   const [copied, setCopied] = useState(false)
   const [copyError, setCopyError] = useState('')
   const copyTimerRef = useRef<number | null>(null)
@@ -54,12 +56,14 @@ export function CodeBlockView({ node, updateAttributes, editor, getPos }: NodeVi
 
   const [rendered, setRendered] = useState<{
     language: DiagramLanguage
+    source: string
+    theme: string
     result: DiagramResult
   } | null>(null)
   // a result for another language is stale the moment the fence is relabelled
-  const diagram = rendered && rendered.language === diagramLang ? rendered.result : null
+  const diagram = rendered && rendered.language === diagramLang && rendered.source === source && rendered.theme === theme ? rendered.result : null
   const hasDiagramRef = useRef(false)
-  hasDiagramRef.current = diagram !== null
+  hasDiagramRef.current = rendered !== null
   const [caretInside, setCaretInside] = useState(false)
 
   useEffect(() => {
@@ -97,15 +101,15 @@ export function CodeBlockView({ node, updateAttributes, editor, getPos }: NodeVi
     // first paint right away, then debounce while the user types
     const delay = hasDiagramRef.current ? RERENDER_DEBOUNCE_MS : 0
     const timer = window.setTimeout(() => {
-      void renderDiagram(diagramLang, source).then((result) => {
-        if (!cancelled) setRendered({ language: diagramLang, result })
+      void renderDiagram(diagramLang, source, theme).then((result) => {
+        if (!cancelled) setRendered({ language: diagramLang, source, theme, result })
       })
     }, delay)
     return () => {
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [diagramLang, source])
+  }, [diagramLang, source, theme])
 
   const copy = () => {
     void navigator.clipboard
@@ -169,7 +173,7 @@ export function CodeBlockView({ node, updateAttributes, editor, getPos }: NodeVi
         <NodeViewContent<'code'> as="code" />
       </pre>
       {error && (
-        <div className="md-diagram-error" contentEditable={false}>
+        <div role="alert" className="md-diagram-error" contentEditable={false}>
           {t('mermaidError')}: {error}
         </div>
       )}
@@ -184,7 +188,7 @@ export function CodeBlockView({ node, updateAttributes, editor, getPos }: NodeVi
               editSource()
             }
           }}
-          role="button"
+          aria-label="编辑图表源码" role="button"
           tabIndex={0}
           dangerouslySetInnerHTML={{ __html: diagram.svg }}
         />
