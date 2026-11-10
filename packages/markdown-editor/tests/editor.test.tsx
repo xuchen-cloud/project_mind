@@ -23,7 +23,7 @@ function openRichContext(target:Element){
 }
 function insertDivider(rich:HTMLElement){
   const menu=openRichContext(rich.querySelector('p')??rich);
-  fireEvent.click(within(menu).getByRole('button',{name:'分隔线',exact:true}));
+  fireEvent.click(within(menu).getByRole('button',{name:'分隔线'}));
 }
 
 describe('Markdown editing and original source persistence', () => {
@@ -67,7 +67,7 @@ describe('Markdown editing and original source persistence', () => {
     expect(view.state.readOnly).toBe(true);
     source.focus();fireEvent.keyDown(source,{key:'b',code:'KeyB',ctrlKey:true});
     expect(first).not.toHaveBeenCalled();expect(next).not.toHaveBeenCalled();
-    expect(screen.getByRole('button', {name:'表格',exact:true})).toBeDisabled();
+    expect(screen.getByRole('button', {name:'表格'})).toBeDisabled();
   });
 
   it('replaces real source matches in one undo group and keeps literal replacement text', async () => {
@@ -181,7 +181,7 @@ it('performs actual rich table row/column context commands and disables mutation
   let text='';const change=vi.fn((value:string)=>{text=value;});
   const {container,rerender}=render(<MarkdownEditor value="" onChange={change} initialView={{mode:'rich'}}/>);
   const rich=await screen.findByRole('textbox',{name:'Markdown 块编辑'});
-  fireEvent.click(screen.getByRole('button',{name:'表格',exact:true}));
+  fireEvent.click(screen.getByRole('button',{name:'表格'}));
   expect(rich.querySelectorAll('tr')).toHaveLength(3);
   let menu=openRichContext(rich.querySelector('td,th')!);
   fireEvent.click(within(menu).getByRole('menuitem',{name:'下方插入行'}));
@@ -190,21 +190,21 @@ it('performs actual rich table row/column context commands and disables mutation
   fireEvent.click(within(menu).getByRole('menuitem',{name:'右侧插入列'}));
   await waitFor(()=>expect(rich.querySelector('tr')?.children).toHaveLength(4));
   expect(text).toContain('|');expect(container.querySelector('.table-menu')).toBeNull();
-  fireEvent.click(screen.getByRole('button',{name:'撤销',exact:true}));
+  fireEvent.click(screen.getByRole('button',{name:'撤销'}));
   expect(rich.querySelectorAll('tr')).toHaveLength(4);
   expect(rich.querySelector('tr')?.children).toHaveLength(3);
-  fireEvent.click(screen.getByRole('button',{name:'撤销',exact:true}));
+  fireEvent.click(screen.getByRole('button',{name:'撤销'}));
   expect(rich.querySelectorAll('tr')).toHaveLength(3);
   expect(rich.querySelector('tr')?.children).toHaveLength(3);
-  fireEvent.click(screen.getByRole('button',{name:'重做',exact:true}));
+  fireEvent.click(screen.getByRole('button',{name:'重做'}));
   expect(rich.querySelectorAll('tr')).toHaveLength(4);
   expect(rich.querySelector('tr')?.children).toHaveLength(3);
-  fireEvent.click(screen.getByRole('button',{name:'重做',exact:true}));
+  fireEvent.click(screen.getByRole('button',{name:'重做'}));
   expect(rich.querySelectorAll('tr')).toHaveLength(4);
   expect(rich.querySelector('tr')?.children).toHaveLength(4);
   rerender(<MarkdownEditor value={text} onChange={change} readOnly initialView={{mode:'rich'}}/>);
   expect(rich).toHaveAttribute('contenteditable','false');
-  expect(screen.getByRole('button',{name:'表格',exact:true})).toBeDisabled();
+  expect(screen.getByRole('button',{name:'表格'})).toBeDisabled();
   const saved=text,calls=change.mock.calls.length;
   menu=openRichContext(rich.querySelector('td,th')!);
   expect(within(menu).getAllByRole('button')).toHaveLength(1);
