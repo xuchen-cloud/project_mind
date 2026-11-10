@@ -549,6 +549,8 @@ impl Database {
         )?;
         let project = self.file_project_lock(project_id, false)?;
         let file = self.file_version_lock(document_id)?;
+        let document = self.document_record(document_id)?;
+        self.directory_require_no_pending(Path::new(&document.managed_path), project_id)?;
         Ok((project, file))
     }
     pub(super) fn file_scope_storage_lock(&self, directory: &str, project_id: Option<i64>, exclusive: bool) -> Result<File> {

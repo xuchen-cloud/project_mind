@@ -273,7 +273,12 @@ fn directory_changes_empty_database_can_prepare_and_rename_unregistered_folder_f
 fn directory_changes_prepare_does_not_recover_journal_or_mutate_business_data() {
     let f = fixture(true);
     let (object, _) = rich_file(&f);
-    let before_versions = versions(&f, &object);
+    let snapshots = || {
+        f.db.conn.prepare("SELECT id,version_number,managed_path FROM document_versions WHERE document_id=?1 ORDER BY id").unwrap()
+            .query_map([&object.id], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?))).unwrap()
+            .map(|row| { let (id, version, path) = row.unwrap(); let bytes = fs::read(f.db.decode_path_ref(&path)).unwrap(); (id, version, path, bytes) }).collect::<Vec<_>>()
+    };
+    let before_versions = snapshots();
     let before_working = working_bytes(&f, &object);
     let before_changes = count(&f, "agent_change_log");
     let before_receipts = count(&f, "agent_operation_receipts");
@@ -307,7 +312,7 @@ fn directory_changes_prepare_does_not_recover_journal_or_mutate_business_data() 
         after_writes, before_writes,
         "prepare must not write DB rows"
     );
-    assert_eq!(versions(&f, &object), before_versions);
+    assert_eq!(snapshots(), before_versions);
     assert_eq!(working_bytes(&f, &object), before_working);
     assert_eq!(count(&f, "agent_change_log"), before_changes);
     assert_eq!(count(&f, "agent_operation_receipts"), before_receipts);
@@ -847,4 +852,19 @@ fn directory_changes_real_os_trash_keeps_registered_history_readable() {
     reopen(&mut f);
     assert_eq!(f.db.project_file_resolve(&object).unwrap().state, "missing");
     assert_eq!(versions(&f, &object), histories);
+}
+
+#[test]
+fn directory_changes_corrupt_working_revision_is_not_replaced_by_archived_version() {
+    let f = fixture(true);
+    let (object, _) = rich_file(&f);
+    f.db.conn.execute("UPDATE file_working_contents SET state=json_set(state,'$.revision','corrupt') WHERE document_id=?1", [&object.id]).unwrap();
+    assert!(f
+        .db
+        .project_directory_change_prepare(&f.binding, f.owner, "folder")
+        .is_err());
+    assert_eq!(
+        fs::read(f.root.join("folder/nested/note.md")).unwrap(),
+        b"working bytes not archived"
+    );
 }

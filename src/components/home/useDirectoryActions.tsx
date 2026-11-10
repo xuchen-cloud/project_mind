@@ -1,3 +1,4 @@
+import { matchesDirectoryQueryBinding } from "../../lib/project-directory-query";
 import { useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Pencil, Trash2 } from "lucide-react";
@@ -63,8 +64,7 @@ export function useDirectoryActions({ projectId, rootPath, workspaceRoot, bindin
   const refresh = async (current: () => boolean) => {
     const directoryKey = ["project-directory", rootPath, projectId];
     const pageKey = projectId === null ? queryKeys.workspacePage : queryKeys.projectPage(projectId);
-    const matchesBinding = (key: readonly unknown[]) => key[5] === workspaceRoot
-      && (!binding || (key[6] === binding.workspaceId && key[7] === binding.generation));
+    const matchesBinding = (key: readonly unknown[]) => matchesDirectoryQueryBinding(key, workspaceRoot, binding);
     // A pre-commit native read cannot satisfy the post-commit reconciliation.
     await Promise.allSettled([...client.getQueryCache().findAll({ queryKey: directoryKey,
       predicate: query => matchesBinding(query.queryKey) }),

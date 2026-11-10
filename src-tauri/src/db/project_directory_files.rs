@@ -431,6 +431,7 @@ impl Database {
                 "File belongs to another Project",
             ));
         }
+        self.directory_require_no_pending(Path::new(&document.managed_path), project)?;
         Ok((document, root))
     }
     fn directory_hash(&self, id: i64, version: i64) -> Result<Option<String>> {
@@ -555,6 +556,7 @@ impl Database {
         let root = self.directory_owner(workspace, project)?;
         let path = business_path(&root, relative)?;
         let _project_lock = self.file_project_lock(project, false)?;
+        self.directory_require_no_pending(&path, project)?;
         let identity_lock = self.file_storage_lock("file-import-identities", 1, true)?;
         let metadata = fs::symlink_metadata(&path)?;
         if !metadata.is_file() {
@@ -684,6 +686,7 @@ impl Database {
         )>,
         gui: Option<(&str, &file_versions::GuiFileVersionIntent, bool)>,
     ) -> Result<DirectoryFile> {
+        self.directory_require_no_pending(path, project)?;
         if !replacement && self.file_working_matches_live(existing)? { return self.directory_projection(existing); }
         let _identity_lock = self.file_storage_lock("file-import-identities", 1, true)?;
         let root = self.directory_owner(workspace, project)?;
@@ -1421,6 +1424,7 @@ impl Database {
         let root = self.directory_owner(&object.workspace_id, project)?;
         let original = PathBuf::from(&document.managed_path);
         let target = business_path(&root, relative)?;
+        self.directory_require_no_pending(&target, project)?;
         self.directory_unclaimed(&target, object)?;
         if original == target {
             return self.directory_projection(object);

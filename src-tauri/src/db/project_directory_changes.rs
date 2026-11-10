@@ -198,6 +198,24 @@ fn directory_ancestors(root: &Path, path: &Path) -> Result<()> {
     }
     Ok(())
 }
+fn recovery_path_error(error: anyhow::Error) -> anyhow::Error {
+    if error.downcast_ref::<std::io::Error>().is_some_and(|e| {
+        matches!(
+            e.kind(),
+            std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+        )
+    }) || error
+        .downcast_ref::<FileServiceError>()
+        .is_some_and(|e| e.code == "invalid_path")
+    {
+        failure(
+            "revision_conflict",
+            "目录或祖先已被外部替换，恢复材料已保留",
+        )
+    } else {
+        error
+    }
+}
 fn present(path: &Path) -> Result<bool> {
     match fs::symlink_metadata(path) {
         Ok(_) => Ok(true),
@@ -235,7 +253,11 @@ fn read_intent(path: &Path) -> Result<Intent> {
 impl Database {
     // Preparation is read-only. Unresolved paths remain blocked even when the
     // global recovery pass can continue opening unrelated Workspace content.
-    fn directory_require_no_pending(&self, source: &Path, project: Option<i64>) -> Result<()> {
+    pub(super) fn directory_require_no_pending(
+        &self,
+        source: &Path,
+        project: Option<i64>,
+    ) -> Result<()> {
         let base = self.workspace_root.join(JOURNALS);
         if !present(&base)? {
             return Ok(());
@@ -509,16 +531,16 @@ impl Database {
             .map(|m| {
                 let revision = m
                     .working
-                    .as_ref()
-                    .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
-                    .and_then(|s| s["revision"].as_i64())
+                    .as_deref()
+                    .map(super::file_working::stored_working_revision)
+                    .transpose()?
                     .unwrap_or(m.version);
-                PreparedFile {
+                Ok(PreparedFile {
                     file_id: m.id,
                     revision,
-                }
+                })
             })
-            .collect();
+            .collect::<Result<Vec<_>>>()?;
         Ok((
             PreparedDirectoryChange {
                 token,
@@ -620,6 +642,15 @@ impl Database {
         }
         let root = self.decode_path_ref(&intent.root);
         let source = self.decode_path_ref(&intent.source);
+        // Distinguish external path replacement from storage/intent corruption.
+        // Check ancestors before helpers which reject links as a generic error.
+        directory_ancestors(
+            &self.workspace_root,
+            source
+                .parent()
+                .ok_or_else(|| anyhow!("Invalid directory source"))?,
+        )
+        .map_err(recovery_path_error)?;
         if self.file_scope_root(intent.input.project_id)? != root
             || intent.input.relative_path.is_empty()
             || intent
@@ -650,8 +681,11 @@ impl Database {
             bail!("Invalid directory intent ownership or token");
         }
         files::relative(&self.workspace_root, &root)?;
+        // The final entry may legitimately be missing after rename or Trash.
+        if present(&source)? {
+            directory_identity(&source).map_err(recovery_path_error)?;
+        }
         files::relative(&root, &source)?;
-        directory_ancestors(&self.workspace_root, source.parent().unwrap())?;
         if source != root.join(&intent.input.relative_path)
             || directory_identity(&root)? != intent.root_identity
             || directory_identity(source.parent().unwrap())? != intent.parent_identity
@@ -663,6 +697,9 @@ impl Database {
         }
         let target = intent.target.as_ref().map(|s| self.decode_path_ref(s));
         if let Some(target) = &target {
+            if present(target)? {
+                directory_identity(target).map_err(recovery_path_error)?;
+            }
             files::relative(&root, target)?;
             if source.parent() != target.parent()
                 || target.file_name().and_then(|n| n.to_str()) != intent.input.name.as_deref()
@@ -764,7 +801,6 @@ impl Database {
         Ok(result)
     }
     fn directory_recover_locked(&self, directory: &Path, intent: &Intent) -> Result<()> {
-        let (source, target) = self.directory_validate_intent(intent)?;
         let committed = self
             .agent_operation_replay::<DirectoryChangeResult>(
                 "gui",
@@ -774,15 +810,24 @@ impl Database {
             )
             .map_err(|e| anyhow!(e.message))?
             .is_some();
+        // A durable receipt is authoritative. Later external changes cannot
+        // authorize another filesystem mutation or obstruct intent cleanup.
+        if committed {
+            return clear(directory);
+        }
+        let (source, target) = self.directory_validate_intent(intent)?;
         if let Some(target) = target {
-            if committed {
-                // Never undo a committed rename; a later external move is not
-                // authority to touch a new entity occupying either path.
-                return clear(directory);
-            }
             match (present(&source)?, present(&target)?) {
-                (true, false) if directory_identity(&source)? == intent.identity => (),
-                (false, true) if directory_identity(&target)? == intent.identity => {
+                (true, false)
+                    if directory_identity(&source).map_err(recovery_path_error)?
+                        == intent.identity =>
+                {
+                    ()
+                }
+                (false, true)
+                    if directory_identity(&target).map_err(recovery_path_error)?
+                        == intent.identity =>
+                {
                     files::move_exclusive(&target, &source)?
                 }
                 _ => {
@@ -792,9 +837,9 @@ impl Database {
                     ))
                 }
             }
-        } else if !committed {
+        } else {
             if present(&source)? {
-                if directory_identity(&source)? != intent.identity {
+                if directory_identity(&source).map_err(recovery_path_error)? != intent.identity {
                     return Err(failure(
                         "revision_conflict",
                         "删除后的路径被其他目录占用，恢复材料已保留",

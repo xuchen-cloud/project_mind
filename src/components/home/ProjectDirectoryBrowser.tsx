@@ -1,3 +1,4 @@
+import { matchesDirectoryQueryBinding, projectDirectoryQueryKey } from "../../lib/project-directory-query";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight } from "lucide-react";
@@ -49,7 +50,7 @@ export function useProjectDirectoryListing({ projectId, workspaceRoot, binding, 
   projectId: number | null; workspaceRoot?: string; binding?: AgentWorkspaceBinding; rootPath: string; relativePath: string; enabled: boolean;
 }) {
   const queryClient = useQueryClient();
-  const queryKey = [...queryKeys.projectDirectory(rootPath, projectId, relativePath, 0), workspaceRoot, ...(binding ? [binding.workspaceId, binding.generation] : [])];
+  const queryKey = projectDirectoryQueryKey(rootPath, projectId, relativePath, workspaceRoot, binding);
   const existing = queryClient.getQueryCache().find({ queryKey, exact: true });
   // Visible views share an in-progress read. Completed data still needs
   // reconciliation: the flat view does not consume directory dirty hints.
@@ -188,8 +189,7 @@ export function ProjectDirectoryBrowser({ projectId, workspaceRoot, rootPath, bi
   // Layout cleanup retires it before a new scope can use the same element.
   useLayoutEffect(() => {
     let disposed = false;
-    const matchesBinding = (key: readonly unknown[]) => key[5] === activeWorkspaceRoot
-      && (!directoryBinding || (key[6] === directoryBinding.workspaceId && key[7] === directoryBinding.generation));
+    const matchesBinding = (key: readonly unknown[]) => matchesDirectoryQueryBinding(key, activeWorkspaceRoot, directoryBinding);
     const invalidate = (paths: Set<string> | null) => queryClient.invalidateQueries({
       queryKey: ["project-directory", rootPath, projectId],
       predicate: query => matchesBinding(query.queryKey) && (paths === null || paths.has(String(query.queryKey[3]))),

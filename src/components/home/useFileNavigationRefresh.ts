@@ -1,3 +1,4 @@
+import { matchesDirectoryQueryBinding } from "../../lib/project-directory-query";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { ProjectSidebarDocumentItem } from "../layout/ProjectSidebar";
@@ -70,8 +71,7 @@ export function useFileNavigationRefresh({ projectId, rootPath, workspaceRoot, e
           const bindingKey = binding ? JSON.stringify([binding.workspaceId, binding.generation]) : undefined;
           const prefix = ["project-directory", rootPath, projectId];
           const pageKey = projectId === null ? queryKeys.workspacePage : queryKeys.projectPage(projectId);
-          const matchesBinding = (key: readonly unknown[]) => key[5] === workspaceRoot
-            && (!binding || (key[6] === binding.workspaceId && key[7] === binding.generation));
+          const matchesBinding = (key: readonly unknown[]) => matchesDirectoryQueryBinding(key, workspaceRoot, binding);
           // Tree dirty hints already use ProjectDirectoryBrowser's shared queue.
           // Only an explicit refresh needs to reconcile every expanded branch.
           await Promise.allSettled([

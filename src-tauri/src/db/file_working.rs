@@ -78,6 +78,9 @@ struct State {
     activity: Option<i64>,
     pending: bool,
 }
+pub(super) fn stored_working_revision(value: &str) -> anyhow::Result<i64> {
+    Ok(serde_json::from_str::<State>(value)?.revision)
+}
 #[derive(Debug, Serialize, Deserialize)]
 struct Journal {
     object: ObjectRef,

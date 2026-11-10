@@ -149,6 +149,18 @@ fn directory_conflicting_recovery_keeps_evidence_and_allows_unrelated_folder() {
     fs::write(source.join("foreign.txt"), b"replacement").unwrap();
     let db = Database::open(&db_path, &root, None).unwrap();
     assert!(db
+        .project_file_register(&binding.workspace_id, owner, "source/foreign.txt")
+        .is_err());
+    assert!(db
+        .project_file_register(&binding.workspace_id, owner, "target/known.md")
+        .is_err());
+    assert_eq!(
+        db.conn
+            .query_row("SELECT count(*) FROM documents", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+    assert!(db
         .project_directory_change_prepare(&binding, Some(owner), "source")
         .is_err());
     fs::create_dir(source.with_file_name("unrelated")).unwrap();
@@ -174,6 +186,43 @@ fn directory_conflicting_recovery_keeps_evidence_and_allows_unrelated_folder() {
     );
     assert!(source.with_file_name("target").join("known.md").is_file());
     assert_eq!(fs::read_dir(root.join(JOURNALS)).unwrap().count(), 1);
+}
+
+#[test]
+fn directory_recovery_external_file_or_missing_ancestor_keeps_workspace_available() {
+    for variant in ["source-file", "target-file", "missing-parent"] {
+        let (_temp, db, _binding, _owner, source) = setup();
+        let root = db.workspace_root.clone();
+        let db_path = crate::workspace::workspace_paths(&root).db_path;
+        drop(db);
+        crash(&root, 2, "rename");
+        let target = source.with_file_name("target");
+        match variant {
+            "source-file" => fs::write(&source, b"foreign occupant").unwrap(),
+            "target-file" => {
+                fs::rename(&target, root.join("retained-target")).unwrap();
+                fs::write(&target, b"foreign target").unwrap();
+            }
+            _ => fs::rename(source.parent().unwrap(), root.join("retained-owner")).unwrap(),
+        }
+        let mut db = Database::open(&db_path, &root, None).unwrap();
+        assert_eq!(fs::read_dir(root.join(JOURNALS)).unwrap().count(), 1);
+        let unrelated = db
+            .project_create(ProjectCreateInput {
+                name: "Usable".into(),
+                summary: None,
+                status: None,
+            })
+            .unwrap();
+        fs::write(Path::new(&unrelated.root_path).join("safe.md"), b"safe").unwrap();
+        let workspace = db.native_workspace_id.as_ref().unwrap();
+        assert_eq!(
+            db.project_file_register(workspace, unrelated.id, "safe.md")
+                .unwrap()
+                .state,
+            "ready"
+        );
+    }
 }
 
 #[test]
@@ -250,4 +299,33 @@ fn directory_closed_workspace_cannot_mutate_after_storage_admission() {
     assert!(source.join("known.md").exists());
     assert!(!source.with_file_name("target").exists());
     assert!(!db.workspace_root.join(JOURNALS).exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn directory_recovery_external_links_are_local_conflicts() {
+    use std::os::unix::fs::symlink;
+    for variant in ["source", "target", "parent"] {
+        let (_temp, db, _binding, _owner, source) = setup();
+        let root = db.workspace_root.clone();
+        let db_path = crate::workspace::workspace_paths(&root).db_path;
+        drop(db);
+        crash(&root, 2, "rename");
+        let target = source.with_file_name("target");
+        let retained = root.join("retained-external");
+        match variant {
+            "source" => symlink(&target, &source).unwrap(),
+            "target" => {
+                fs::rename(&target, &retained).unwrap();
+                symlink(&retained, &target).unwrap();
+            }
+            _ => {
+                fs::rename(source.parent().unwrap(), &retained).unwrap();
+                symlink(&retained, source.parent().unwrap()).unwrap();
+            }
+        }
+        let db = Database::open(&db_path, &root, None).unwrap();
+        assert_eq!(fs::read_dir(root.join(JOURNALS)).unwrap().count(), 1);
+        assert!(db.workspace_page_get().is_ok());
+    }
 }
