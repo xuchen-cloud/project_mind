@@ -1,0 +1,57 @@
+[
+  {
+    "file": "suite-red.log",
+    "source": "/tmp/project-mind-markdown-undo-suite-red.log",
+    "sha256": "65c40c2503e2fb5ce73e72ca0eea849f71a965b0a7dad3a08bc3672a4198b771"
+  },
+  {
+    "file": "pinned-click-red.log",
+    "source": "/tmp/project-mind-markdown-undo-pinned-click-red.log",
+    "sha256": "b0e1e11b3f2a7053a99ccb84cf495a42768785fcf0bcc7cf37010c3d7eefa47a"
+  },
+  {
+    "file": "pinned-click-red-confirm.log",
+    "source": "/tmp/project-mind-markdown-undo-pinned-click-red-confirm.log",
+    "sha256": "3406de7de41d01a5d7329d6f9738710bef165f1e5f8142fe3d27e26d21f29a78"
+  },
+  {
+    "file": "pinned-green.log",
+    "source": "/tmp/project-mind-markdown-undo-pinned-green.log",
+    "sha256": "97d2fcb2be1ffce1aea296309e4b8139f22bca2481a62f6e8444c303f9346f01"
+  },
+  {
+    "file": "package-affected.log",
+    "source": "/tmp/project-mind-markdown-undo-package-affected.log",
+    "sha256": "5b20610960fed399b70887038f4aaea8932517cb117d7242f8f8008adbc83a67"
+  },
+  {
+    "file": "package-image-retry.log",
+    "source": "/tmp/project-mind-markdown-undo-package-image-retry.log",
+    "sha256": "ed81d2019d6fd730ff91570923bfba42a3107c16c6d23addef7b0721a8bb6b83"
+  },
+  {
+    "file": "root-affected.log",
+    "source": "/tmp/project-mind-markdown-undo-root-affected.log",
+    "sha256": "63d09b692a69639d93855e5ecdd06539251b369070b4cd15173aac52757d4205"
+  },
+  {
+    "file": "package-tsc.log",
+    "source": "/tmp/project-mind-markdown-undo-package-tsc.log",
+    "sha256": "99b4fe309b363da05f3f77e2edf7c595cb9fd680b7e20337dfba01f28b1bcd43"
+  },
+  {
+    "file": "root-tsc.log",
+    "source": "/tmp/project-mind-markdown-undo-root-tsc.log",
+    "sha256": "812245586f91ec8a63115bfcde4feae03a97b66a701866a0e6a356a7e18e70c5"
+  },
+  {
+    "file": "root-tsc-final.log",
+    "source": "/tmp/project-mind-markdown-undo-root-tsc-final.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "file": "validation-results.json",
+    "source": "/tmp/project-mind-markdown-undo-validation-results.json",
+    "sha256": "f7a41876323c45c00b642f7defec4c89f497a2f435f46e54ac81e826acc07550"
+  }
+]

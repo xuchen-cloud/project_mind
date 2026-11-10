@@ -47,3 +47,9 @@ Standards: **0 remaining findings** in this work package. The production change 
 Spec: **0 remaining findings** in this work package. Two successive undo operations and two redos preserve the expected row/column states. Ordinary local echoes keep history; actual external values and same-text `documentKey` replacements retain their existing reset behavior. Read-only and async image/clipboard cancellation regressions pass. No WaveDrom implementation, dependency or entry point was changed.
 
 This is self review only; no subagent or independent approval is claimed. Execution covers macOS Node/jsdom and static TypeScript checks, not GUI/browser/WebView behavior or Windows/Linux platform acceptance. No Cargo, application launch, dependency installation, push or merge was performed. Main owns final fixed-SHA review and integration. The rest of the repository suite was not rerun.
+
+## Fixed-SHA integration review
+
+G12 reviewed `9b4fbe274b07cc9926b2d5e1017839092a7f5927`: Standards **0**, Spec **0** for the delayed-value/history race. The single reconciliation effect changes phase without discarding external values or weakening document-key resets. The new deterministic real-command regression preserves the original row/column undo/redo and read-only checks. Integrated as `4843b50`; the editor source and regression file match the reviewed worker byte-for-byte.
+
+Red/green logs, affected-suite results and typecheck environment failures/final success are archived in `docs/technical/review-20261110/verification/markdown-undo/` with SHA-256 provenance. WaveDrom removal is an independent change; main reruns the combined Markdown package after integration and records that result in the WaveDrom integration archive.

@@ -10,4 +10,6 @@
 
 当前集成快照的真实 File 流程和逐项测试见 [File-flow 验收](verification/fileflows/README.md)。该报告包含失败样本、有效 source/binary 指纹与边界；尚未完成的 Records/Office 收尾和 Windows 平台验收不计入通过。最终 Phase4/聚合结论仍待剩余工作完成，findings-ledger 保留既有冻结状态，不据此宣称当前全部问题已解决。
 
-用户追加的统一告警清理见 [构建验证](verification/warnings/README.md)：固定原生快照已达到生产/测试编译 0 warnings，相关 722 测试通过；第三方打包提示与后续权限 caller 修复单独记录。
+用户追加的统一告警清理见 [构建验证](verification/warnings/README.md)：固定原生快照已达到生产/测试编译 0 warnings，相关 722 测试通过；全 targets 检查为 0 warnings，权限 caller 修复已复核；第三方体积提示单独保留。
+
+用户追加的三类 WaveDrom 图表移除见 [功能移除与组合检查](verification/wavedrom/README.md)：旧围栏保留普通代码，最终 Markdown 82/82、Record worker 6/6、原生 Record 71/71，shipping 的 eval 提示已消失；总体集成与平台状态仍按上述边界跟踪。

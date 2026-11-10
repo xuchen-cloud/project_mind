@@ -1,0 +1,61 @@
+
+ RUN  v4.1.2 /private/tmp/project-mind-review-wavedrom-cleanup/packages/markdown-editor
+
+stderr | tests/preview-diagrams.test.tsx > renders Mermaid and keeps former WaveDrom fences as code when switching to blocks
+flushSync was called from inside a lifecycle method. React cannot flush when React is already rendering. Consider moving this call to a scheduler task or micro task.
+flushSync was called from inside a lifecycle method. React cannot flush when React is already rendering. Consider moving this call to a scheduler task or micro task.
+
+ ✓ tests/preview-diagrams.test.tsx > renders Mermaid and keeps former WaveDrom fences as code when switching to blocks 459ms
+ ✓ tests/preview-diagrams.test.tsx > keeps document references, footnotes, math and nested diagrams in the shared safe Markdown pipeline 174ms
+ ✓ tests/preview-diagrams.test.tsx > shows renderer-specific errors and readable source for invalid and empty diagrams 18ms
+ ✓ tests/preview-diagrams.test.tsx > discards a pending old SVG after false external baseline replacement 64ms
+stderr | tests/preview-diagrams.test.tsx > keeps real Mermaid SVG in rich view and the print callback
+flushSync was called from inside a lifecycle method. React cannot flush when React is already rendering. Consider moving this call to a scheduler task or micro task.
+
+ ✓ tests/preview-diagrams.test.tsx > discards a pending old SVG after true external baseline replacement 55ms
+ ✓ tests/preview-diagrams.test.tsx > blocks Mermaid resource syntax before rendering and filters active SVG 54ms
+ ✓ tests/preview-diagrams.test.tsx > keeps real Mermaid SVG in rich view and the print callback 498ms
+ ✓ tests/mermaid-theme.test.tsx > embeds independent light and dark themes in concurrent real flow/sequence renders and retains full Mermaid syntax 163ms
+stderr | tests/mermaid-theme.test.tsx > keeps the rich editor source exact across rendering, editing and reopen
+flushSync was called from inside a lifecycle method. React cannot flush when React is already rendering. Consider moving this call to a scheduler task or micro task.
+
+ ✓ tests/mermaid-theme.test.tsx > hides an old preview synchronously while theme replacement is pending 145ms
+stderr | tests/mermaid-theme.test.tsx > keeps the rich editor source exact across rendering, editing and reopen
+flushSync was called from inside a lifecycle method. React cannot flush when React is already rendering. Consider moving this call to a scheduler task or micro task.
+
+stderr | tests/mermaid-theme.test.tsx > does not flash the preceding rich SVG while a new source render is pending
+flushSync was called from inside a lifecycle method. React cannot flush when React is already rendering. Consider moving this call to a scheduler task or micro task.
+
+ ✓ tests/mermaid-theme.test.tsx > keeps the rich editor source exact across rendering, editing and reopen 152ms
+ ✓ tests/mermaid-theme.test.tsx > does not flash the preceding rich SVG while a new source render is pending 379ms
+ ✓ tests/mermaid-theme.test.tsx > blocks active Mermaid source before the real Word export renderer and preserves readable code 119ms
+stderr | tests/wavedrom-removal.test.tsx > keeps original fences and BOM/CRLF through rich view, source edits and reopen
+flushSync was called from inside a lifecycle method. React cannot flush when React is already rendering. Consider moving this call to a scheduler task or micro task.
+flushSync was called from inside a lifecycle method. React cannot flush when React is already rendering. Consider moving this call to a scheduler task or micro task.
+flushSync was called from inside a lifecycle method. React cannot flush when React is already rendering. Consider moving this call to a scheduler task or micro task.
+
+ ✓ tests/wavedrom-removal.test.tsx > offers only Mermaid diagrams while retaining math and ordinary code insertion 84ms
+ ✓ tests/wavedrom-removal.test.tsx > previews WaveDrom fences as plain code without parsing: {signal:[{name:'clk',wave:'p..'}]} 5ms
+ ✓ tests/wavedrom-removal.test.tsx > previews WaveDrom fences as plain code without parsing: {reg:[{bits:8,name:'DATA'}]} 2ms
+ ✓ tests/wavedrom-removal.test.tsx > previews WaveDrom fences as plain code without parsing: {assign:[['out',['&','a','b']]]} 1ms
+ ✓ tests/wavedrom-removal.test.tsx > previews WaveDrom fences as plain code without parsing: {signal: nope} 1ms
+ ✓ tests/wavedrom-removal.test.tsx > previews WaveDrom fences as plain code without parsing:  1ms
+stderr | tests/wavedrom-removal.test.tsx > keeps original fences and BOM/CRLF through rich view, source edits and reopen
+flushSync was called from inside a lifecycle method. React cannot flush when React is already rendering. Consider moving this call to a scheduler task or micro task.
+flushSync was called from inside a lifecycle method. React cannot flush when React is already rendering. Consider moving this call to a scheduler task or micro task.
+flushSync was called from inside a lifecycle method. React cannot flush when React is already rendering. Consider moving this call to a scheduler task or micro task.
+
+stderr | tests/wavedrom-removal.test.tsx > hands plain WaveDrom code to the real print callback without modifying source
+flushSync was called from inside a lifecycle method. React cannot flush when React is already rendering. Consider moving this call to a scheduler task or micro task.
+flushSync was called from inside a lifecycle method. React cannot flush when React is already rendering. Consider moving this call to a scheduler task or micro task.
+flushSync was called from inside a lifecycle method. React cannot flush when React is already rendering. Consider moving this call to a scheduler task or micro task.
+
+ ✓ tests/wavedrom-removal.test.tsx > keeps original fences and BOM/CRLF through rich view, source edits and reopen 446ms
+ ✓ tests/wavedrom-removal.test.tsx > exports former WaveDrom blocks as text in real HTML and DOCX without a diagram callback 38ms
+ ✓ tests/wavedrom-removal.test.tsx > hands plain WaveDrom code to the real print callback without modifying source 66ms
+
+ Test Files  3 passed (3)
+      Tests  21 passed (21)
+   Start at  00:39:47
+   Duration  6.08s (transform 674ms, setup 164ms, import 1.99s, tests 2.93s, environment 825ms)
+

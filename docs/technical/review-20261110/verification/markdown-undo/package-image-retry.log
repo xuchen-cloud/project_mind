@@ -1,0 +1,29 @@
+cwd: /tmp/project-mind-review-markdown-undo/packages/markdown-editor
+command: ["/Users/xuchen/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node", "../../node_modules/vitest/vitest.mjs", "run", "--config", "vitest.config.ts", "tests/image-async.test.tsx", "-t", "keeps current (rich|source) paste pending", "--reporter=verbose"]
+
+ RUN  v4.1.2 /private/tmp/project-mind-review-markdown-undo/packages/markdown-editor
+
+ ↓ tests/image-async.test.tsx > discards delayed rich paste after documentKey and releases the save guard
+ ↓ tests/image-async.test.tsx > discards delayed rich paste after readonly and releases the save guard
+ ↓ tests/image-async.test.tsx > discards delayed rich paste after unmount and releases the save guard
+ ↓ tests/image-async.test.tsx > discards delayed source paste after documentKey and releases the save guard
+ ↓ tests/image-async.test.tsx > discards delayed source paste after readonly and releases the save guard
+ ↓ tests/image-async.test.tsx > discards delayed source paste after unmount and releases the save guard
+ ✓ tests/image-async.test.tsx > keeps current rich paste pending until the real reader result is inserted and saved/reopened 190ms
+ ✓ tests/image-async.test.tsx > keeps current source paste pending until the real reader result is inserted and saved/reopened 446ms
+ ↓ tests/image-async.test.tsx > cancels a delayed image chooser after documentKey instead of filling another panel
+ ↓ tests/image-async.test.tsx > cancels a delayed image chooser after readonly instead of filling another panel
+ ↓ tests/image-async.test.tsx > cancels a delayed image chooser after unmount instead of filling another panel
+ ↓ tests/image-async.test.tsx > fills the current image chooser and commits its actual data URL only on Insert
+ ↓ tests/image-async.test.tsx > inserts a local raster drop as data in source without a hosting service
+ ↓ tests/image-async.test.tsx > inserts a local raster drop as data in rich without a hosting service
+ ↓ tests/image-async.test.tsx > retains the actual 4MiB local image limit in source
+ ↓ tests/image-async.test.tsx > retains the actual 4MiB local image limit in rich
+ ↓ tests/image-async.test.tsx > retains the actual 4MiB local image limit in chooser
+ ↓ tests/image-async.test.tsx > keeps BOM and CRLF when the local image chooser inserts at the initial source caret
+
+ Test Files  1 passed (1)
+      Tests  2 passed | 16 skipped (18)
+   Start at  00:28:23
+   Duration  1.32s (transform 237ms, setup 50ms, import 362ms, tests 637ms, environment 213ms)
+

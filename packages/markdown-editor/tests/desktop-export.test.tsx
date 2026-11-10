@@ -21,8 +21,8 @@ function deferred() {
 }
 
 function exportWord() {
-  fireEvent.click(screen.getByText('导出与打印'));
-  fireEvent.click(screen.getByRole('button', { name: '导出 Word (.docx)' }));
+  fireEvent.click(screen.getByRole('button', { name: '文件菜单' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: '导出 Word' }));
 }
 
 it('exports editable DOCX through the connected desktop service and waits for the actual write result', async () => {
@@ -63,7 +63,7 @@ it('exports editable DOCX through the connected desktop service and waits for th
     completed.resolve();
     await screen.findByText('已导出 Word 文档。');
     expect(changed).not.toHaveBeenCalled();
-    expect(screen.getByRole('textbox', { name: 'Markdown 源码' })).toHaveTextContent('中文正文');
+    expect(await screen.findByRole('textbox', { name: 'Markdown 块编辑' })).toHaveTextContent('中文正文');
     expect(anchor).not.toHaveBeenCalled();
   } finally {
     completed.resolve();
@@ -119,7 +119,7 @@ it('hands a self-contained current print document to native IPC and awaits nativ
   });
   try {
     render(<MarkdownEditor value={'\uFEFF---\r\ntitle: private\r\n---\r\n\r\n# 原生打印\r\n\r\n$x^2$\r\n\r\n![内嵌图](pixel.png)\r\n'} onChange={changed} resources={{ 'pixel.png': image }} onPrint={printEditorHtml} readOnly />);
-    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Markdown 源码' }), { key: 'p', ctrlKey: true });
+    fireEvent.keyDown(await screen.findByRole('textbox', { name: 'Markdown 块编辑' }), { key: 'p', ctrlKey: true });
     await prepared.promise;
     expect(screen.queryByText('已提交系统打印。')).toBeNull();
     const html = await readFile(join(directory, 'print.html'), 'utf8');
@@ -151,8 +151,8 @@ it('surfaces native print cancellation/failure without reporting completion or p
     throw '打印已取消或系统打印失败';
   });
   render(<MarkdownEditor value="# 打印" onChange={() => {}} onPrint={printEditorHtml} />);
-  fireEvent.click(screen.getByText('导出与打印'));
-  fireEvent.click(screen.getByRole('button', { name: '打印…' }));
+  fireEvent.click(screen.getByRole('button', { name: '文件菜单' }));
+  fireEvent.click(screen.getByRole('menuitem', { name: '打印…' }));
   expect(await screen.findByRole('alert')).toHaveTextContent('打印已取消或系统打印失败');
   await waitFor(() => expect(screen.queryByText('已提交系统打印。')).toBeNull());
   expect(browserPrint).not.toHaveBeenCalled();
@@ -193,8 +193,8 @@ it('round-trips native PDF base64 through the connected services to exact on-dis
   });
   try {
     render(<MarkdownEditor value={'\uFEFF---\r\ntitle: private\r\n---\r\n\r\n# 原生链路\r\n\r\n正文\r\n'} onChange={changed} onRenderPdf={renderEditorPdf} onExport={exportEditorFile} readOnly />);
-    fireEvent.click(screen.getByText('导出与打印'));
-    fireEvent.click(screen.getByRole('button', { name: '导出 PDF (.pdf)' }));
+    fireEvent.click(screen.getByRole('button', { name: '文件菜单' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: '导出 PDF' }));
     await waitFor(() => expect(rendering).toHaveBeenCalledOnce());
     expect(selecting).not.toHaveBeenCalled();
     const prepared = rendering.mock.calls[0][0] as { html: string; title?: string };

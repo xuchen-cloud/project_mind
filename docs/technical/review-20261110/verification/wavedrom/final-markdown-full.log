@@ -1,0 +1,122 @@
+
+ RUN  v4.1.2 /private/tmp/project-mind-review-combined/packages/markdown-editor
+
+ ✓ tests/editor.test.tsx > Markdown editing and original source persistence > formats the actual source selection, undo/redoes, saves real bytes and reopens 451ms
+ ✓ tests/editor.test.tsx > Markdown editing and original source persistence > uses latest value/callback/readOnly props without normalizing or emitting loads 31ms
+ ✓ tests/editor.test.tsx > Markdown editing and original source persistence > replaces real source matches in one undo group and keeps literal replacement text 67ms
+ ✓ tests/editor.test.tsx > Markdown editing and original source persistence > renders safe read-only blocks and only host-resolved images without changing stored source 55ms
+ ✓ tests/editor.test.tsx > Markdown editing and original source persistence > has actual rich editing, source-backed context commands and no-op preservation 52ms
+ ✓ tests/editor.test.tsx > clears source undo on external documentKey changes, preserving normal save acknowledgements 43ms
+ ✓ tests/editor.test.tsx > clears rich undo for a new external baseline, including same-text historical versions 58ms
+ ✓ tests/editor.test.tsx > keeps rich mode after the host acknowledges sourceMode=false 38ms
+ ✓ tests/editor.test.tsx > inserts a data image, renders it in blocks, writes bytes, and reopens read-only 78ms
+ ✓ tests/editor.test.tsx > waits for composing input before the host save guard resolves 14ms
+ ✓ tests/editor.test.tsx > performs actual rich table row/column context commands and disables mutations in read-only mode 82ms
+ ✓ tests/editor.test.tsx > keeps table history when undo precedes the previous controlled value passive effect 79ms
+ ✓ tests/editor.test.tsx > pastes linked Markdown at an empty rich caret through its context menu and saves the actual target 33ms
+ ✓ tests/editor.test.tsx > resolves a newly authored relative image through the bound host without rewriting source 32ms
+ ✓ tests/editor.test.tsx > keeps frontmatter in source while read-only blocks render only the document body 40ms
+ ✓ tests/editor.test.tsx > dismisses a formula editor when the host switches the document to read-only 26ms
+ ✓ tests/editor.test.tsx > flushes a pasted image before save and cancels pending insertion across an external baseline 33ms
+ ✓ tests/editor.test.tsx > inserts an image after a task list without lifting or changing its existing items 69ms
+ ✓ tests/editor.test.tsx > inserts a table after an ordered list while retaining its start number and all item text 26ms
+ ✓ tests/editor.test.tsx > shows parsed headings in the outline, ignores fenced code and supports resizing without source edits 19ms
+ ✓ tests/editor.test.tsx > accepts a longer inline-code delimiter as source input, retains original EOL and undoes the whole edit 43ms
+ ✓ tests/editor.test.tsx > removes an emptied frontmatter block while keeping the BOM and body bytes 21ms
+ ✓ tests/export.test.tsx > exports the latest source to a real DOCX download, preserving marks/tables/images without modifying Markdown 512ms
+ ✓ tests/export.test.tsx > prepares a safe print iframe from the current document, calls print and releases it after printing 404ms
+ ✓ tests/export.test.tsx > cancels an in-flight export when the external document baseline changes 98ms
+ ✓ tests/export.test.tsx > awaits the latest host export callback and writes real bytes without using browser download 88ms
+ ✓ tests/export.test.tsx > reports host cancel and never falls back to an anchor 40ms
+ ✓ tests/export.test.tsx > reports host fail and never falls back to an anchor 39ms
+ ✓ tests/export.test.tsx > sends self-contained print HTML with real embedded fonts/images to the latest host callback 86ms
+ ✓ tests/export.test.tsx > reports the exact font that cannot be embedded and does not fall back to browser printing 39ms
+ ✓ tests/export.test.tsx > reports an external reference hidden in an SVG image before handing HTML to native print 38ms
+ ✓ tests/desktop-export.test.tsx > exports editable DOCX through the connected desktop service and waits for the actual write result 232ms
+ ✓ tests/desktop-export.test.tsx > reports native export cancel without an anchor fallback 44ms
+ ✓ tests/desktop-export.test.tsx > reports native export write failure without an anchor fallback 42ms
+ ✓ tests/desktop-export.test.tsx > hands a self-contained current print document to native IPC and awaits native completion 103ms
+ ✓ tests/desktop-export.test.tsx > surfaces native print cancellation/failure without reporting completion or printing in the browser 47ms
+ ✓ tests/desktop-export.test.tsx > round-trips native PDF base64 through the connected services to exact on-disk PDF bytes 147ms
+stderr | tests/preview-diagrams.test.tsx > renders Mermaid and keeps former WaveDrom fences as code when switching to blocks
+flushSync was called from inside a lifecycle method. React cannot flush when React is already rendering. Consider moving this call to a scheduler task or micro task.
+flushSync was called from inside a lifecycle method. React cannot flush when React is already rendering. Consider moving this call to a scheduler task or micro task.
+
+ ✓ tests/preview-diagrams.test.tsx > renders Mermaid and keeps former WaveDrom fences as code when switching to blocks 374ms
+ ✓ tests/preview-diagrams.test.tsx > keeps document references, footnotes, math and nested diagrams in the shared safe Markdown pipeline 68ms
+ ✓ tests/preview-diagrams.test.tsx > shows renderer-specific errors and readable source for invalid and empty diagrams 13ms
+stderr | tests/preview-diagrams.test.tsx > keeps real Mermaid SVG in rich view and the print callback
+flushSync was called from inside a lifecycle method. React cannot flush when React is already rendering. Consider moving this call to a scheduler task or micro task.
+
+ ✓ tests/preview-diagrams.test.tsx > discards a pending old SVG after false external baseline replacement 43ms
+ ✓ tests/preview-diagrams.test.tsx > discards a pending old SVG after true external baseline replacement 44ms
+ ✓ tests/preview-diagrams.test.tsx > blocks Mermaid resource syntax before rendering and filters active SVG 44ms
+ ✓ tests/preview-diagrams.test.tsx > keeps real Mermaid SVG in rich view and the print callback 185ms
+ ✓ tests/image-async.test.tsx > discards delayed rich paste after documentKey and releases the save guard 155ms
+ ✓ tests/image-async.test.tsx > discards delayed rich paste after readonly and releases the save guard 80ms
+ ✓ tests/image-async.test.tsx > discards delayed rich paste after unmount and releases the save guard 74ms
+ ✓ tests/image-async.test.tsx > discards delayed source paste after documentKey and releases the save guard 440ms
+ ✓ tests/image-async.test.tsx > discards delayed source paste after readonly and releases the save guard 83ms
+ ✓ tests/image-async.test.tsx > discards delayed source paste after unmount and releases the save guard 74ms
+ ✓ tests/image-async.test.tsx > keeps current rich paste pending until the real reader result is inserted and saved/reopened 111ms
+ ✓ tests/image-async.test.tsx > keeps current source paste pending until the real reader result is inserted and saved/reopened 95ms
+ ✓ tests/image-async.test.tsx > cancels a delayed image chooser after documentKey instead of filling another panel 93ms
+ ✓ tests/image-async.test.tsx > cancels a delayed image chooser after readonly instead of filling another panel 94ms
+ ✓ tests/image-async.test.tsx > cancels a delayed image chooser after unmount instead of filling another panel 77ms
+ ✓ tests/image-async.test.tsx > fills the current image chooser and commits its actual data URL only on Insert 91ms
+ ✓ tests/image-async.test.tsx > inserts a local raster drop as data in source without a hosting service 21ms
+ ✓ tests/image-async.test.tsx > inserts a local raster drop as data in rich without a hosting service 20ms
+ ✓ tests/image-async.test.tsx > retains the actual 4MiB local image limit in source 18ms
+ ✓ tests/image-async.test.tsx > retains the actual 4MiB local image limit in rich 16ms
+ ✓ tests/image-async.test.tsx > retains the actual 4MiB local image limit in chooser 19ms
+ ✓ tests/image-async.test.tsx > keeps BOM and CRLF when the local image chooser inserts at the initial source caret 38ms
+ ✓ tests/native-pdf.test.tsx > delivers physical Markdown pages with their own 20mm margins to a zero-margin native printer 193ms
+ ✓ tests/native-pdf.test.tsx > uses the latest native PDF renderer with embedded print assets and exports its bytes unchanged after completion 178ms
+ ✓ tests/native-pdf.test.tsx > reports native PDF render failure without raster or download fallback 47ms
+ ✓ tests/native-pdf.test.tsx > reports native PDF save cancellation without raster or download fallback 45ms
+ ✓ tests/native-pdf.test.tsx > discards a native PDF result after the external document baseline changes 89ms
+ ✓ tests/mermaid-theme.test.tsx > embeds independent light and dark themes in concurrent real flow/sequence renders and retains full Mermaid syntax 160ms
+stderr | tests/mermaid-theme.test.tsx > keeps the rich editor source exact across rendering, editing and reopen
+flushSync was called from inside a lifecycle method. React cannot flush when React is already rendering. Consider moving this call to a scheduler task or micro task.
+
+ ✓ tests/mermaid-theme.test.tsx > hides an old preview synchronously while theme replacement is pending 138ms
+stderr | tests/mermaid-theme.test.tsx > keeps the rich editor source exact across rendering, editing and reopen
+flushSync was called from inside a lifecycle method. React cannot flush when React is already rendering. Consider moving this call to a scheduler task or micro task.
+
+stderr | tests/mermaid-theme.test.tsx > does not flash the preceding rich SVG while a new source render is pending
+flushSync was called from inside a lifecycle method. React cannot flush when React is already rendering. Consider moving this call to a scheduler task or micro task.
+
+ ✓ tests/mermaid-theme.test.tsx > keeps the rich editor source exact across rendering, editing and reopen 151ms
+ ✓ tests/mermaid-theme.test.tsx > does not flash the preceding rich SVG while a new source render is pending 383ms
+ ✓ tests/mermaid-theme.test.tsx > blocks active Mermaid source before the real Word export renderer and preserves readable code 116ms
+stderr | tests/wavedrom-removal.test.tsx > keeps original fences and BOM/CRLF through rich view, source edits and reopen
+flushSync was called from inside a lifecycle method. React cannot flush when React is already rendering. Consider moving this call to a scheduler task or micro task.
+flushSync was called from inside a lifecycle method. React cannot flush when React is already rendering. Consider moving this call to a scheduler task or micro task.
+flushSync was called from inside a lifecycle method. React cannot flush when React is already rendering. Consider moving this call to a scheduler task or micro task.
+
+ ✓ tests/wavedrom-removal.test.tsx > offers only Mermaid diagrams while retaining math and ordinary code insertion 79ms
+ ✓ tests/wavedrom-removal.test.tsx > previews WaveDrom fences as plain code without parsing: {signal:[{name:'clk',wave:'p..'}]} 5ms
+ ✓ tests/wavedrom-removal.test.tsx > previews WaveDrom fences as plain code without parsing: {reg:[{bits:8,name:'DATA'}]} 1ms
+ ✓ tests/wavedrom-removal.test.tsx > previews WaveDrom fences as plain code without parsing: {assign:[['out',['&','a','b']]]} 1ms
+ ✓ tests/wavedrom-removal.test.tsx > previews WaveDrom fences as plain code without parsing: {signal: nope} 1ms
+ ✓ tests/wavedrom-removal.test.tsx > previews WaveDrom fences as plain code without parsing:  1ms
+stderr | tests/wavedrom-removal.test.tsx > keeps original fences and BOM/CRLF through rich view, source edits and reopen
+flushSync was called from inside a lifecycle method. React cannot flush when React is already rendering. Consider moving this call to a scheduler task or micro task.
+flushSync was called from inside a lifecycle method. React cannot flush when React is already rendering. Consider moving this call to a scheduler task or micro task.
+flushSync was called from inside a lifecycle method. React cannot flush when React is already rendering. Consider moving this call to a scheduler task or micro task.
+
+stderr | tests/wavedrom-removal.test.tsx > hands plain WaveDrom code to the real print callback without modifying source
+flushSync was called from inside a lifecycle method. React cannot flush when React is already rendering. Consider moving this call to a scheduler task or micro task.
+flushSync was called from inside a lifecycle method. React cannot flush when React is already rendering. Consider moving this call to a scheduler task or micro task.
+flushSync was called from inside a lifecycle method. React cannot flush when React is already rendering. Consider moving this call to a scheduler task or micro task.
+
+ ✓ tests/wavedrom-removal.test.tsx > keeps original fences and BOM/CRLF through rich view, source edits and reopen 452ms
+ ✓ tests/wavedrom-removal.test.tsx > exports former WaveDrom blocks as text in real HTML and DOCX without a diagram callback 37ms
+ ✓ tests/wavedrom-removal.test.tsx > hands plain WaveDrom code to the real print callback without modifying source 62ms
+ ✓ tests/source.test.ts > keeps untouched mixed EOL/BOM/trailing spaces around actual source edits 1ms
+
+ Test Files  9 passed (9)
+      Tests  82 passed (82)
+   Start at  00:37:58
+   Duration  13.73s (transform 696ms, setup 378ms, import 2.76s, tests 7.86s, environment 2.21s)
+

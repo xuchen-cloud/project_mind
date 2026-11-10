@@ -1,0 +1,10 @@
+{
+  "command": "Node 24.21.0 /opt/homebrew/bin/npm ls --all --package-lock-only --json --ignore-scripts",
+  "exit": 0,
+  "problems": [],
+  "stderrBytes": 0,
+  "rawOutput": "/tmp/project-mind-wavedrom-lock-ls.json",
+  "rawOutputSha256": "edce182db8086e5ec85e989df98bce5dff5728a6c6c4aa53034f9db3cbb85ecd",
+  "lockSha256": "48df27b8ddae748aba778e5dedd1ebf2eba4b604d58eb9acef87b7c13c2a299a",
+  "cleanInstall": false
+}

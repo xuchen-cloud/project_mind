@@ -1,0 +1,17 @@
+[
+  {
+    "name": "shipping-build",
+    "exit": 0,
+    "log": "/tmp/project-mind-wavedrom-final-shipping-build.log"
+  },
+  {
+    "name": "bundle-boundaries",
+    "exit": 0,
+    "log": "/tmp/project-mind-wavedrom-final-bundle-boundaries.log"
+  },
+  {
+    "name": "host-boundaries",
+    "exit": 0,
+    "log": "/tmp/project-mind-wavedrom-final-host-boundaries.log"
+  }
+]

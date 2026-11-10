@@ -1,0 +1,22 @@
+[
+  {
+    "name": "record-runtime",
+    "exit": 0,
+    "log": "/tmp/project-mind-wavedrom-final-record-runtime.log"
+  },
+  {
+    "name": "markdown-full",
+    "exit": 0,
+    "log": "/tmp/project-mind-wavedrom-final-markdown-full.log"
+  },
+  {
+    "name": "markdown-tsc",
+    "exit": 0,
+    "log": "/tmp/project-mind-wavedrom-final-markdown-tsc.log"
+  },
+  {
+    "name": "record-native",
+    "exit": 0,
+    "log": "/tmp/project-mind-wavedrom-final-record-native.log"
+  }
+]

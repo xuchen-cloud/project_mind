@@ -1,0 +1,9 @@
+
+ RUN  v4.1.2 /private/tmp/project-mind-review-wavedrom-cleanup
+
+
+ Test Files  1 passed (1)
+      Tests  12 passed (12)
+   Start at  00:12:41
+   Duration  2.13s (transform 233ms, setup 84ms, import 385ms, tests 1.23s, environment 371ms)
+

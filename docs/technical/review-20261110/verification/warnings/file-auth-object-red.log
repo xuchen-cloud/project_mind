@@ -1,0 +1,21 @@
+
+running 1 test
+db::file_versions::tests::file_version_target_authorizes_claimed_object_before_missing_diagnostics --- FAILED
+
+failures:
+
+---- db::file_versions::tests::file_version_target_authorizes_claimed_object_before_missing_diagnostics stdout ----
+
+thread 'db::file_versions::tests::file_version_target_authorizes_claimed_object_before_missing_diagnostics' (2047696) panicked at src/db/file_versions.rs:2304:9:
+assertion `left == right` failed
+  left: [("unlisted-existing", ScopeDenied), ("unlisted-missing", NotFound), ("stale-request", WorkspaceChanged), ("invalid-request", InvalidArgument), ("workspace-existing", ScopeDenied), ("workspace-missing", NotFound)]
+ right: [("unlisted-existing", ScopeDenied), ("unlisted-missing", ScopeDenied), ("stale-request", WorkspaceChanged), ("invalid-request", InvalidArgument), ("workspace-existing", ScopeDenied), ("workspace-missing", ScopeDenied)]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    db::file_versions::tests::file_version_target_authorizes_claimed_object_before_missing_diagnostics
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1869 filtered out; finished in 0.49s
+
+error: test failed, to rerun pass `--lib`

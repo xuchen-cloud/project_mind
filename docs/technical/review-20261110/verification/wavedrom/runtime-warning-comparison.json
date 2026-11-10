@@ -1,0 +1,16 @@
+{
+  "baselineCommit": "6806ad7634dd539e0bcb4a526aa980e9532df929",
+  "baselineLog": "/tmp/project-mind-wavedrom-baseline-runtime-warnings.log",
+  "integrationLog": "/tmp/project-mind-wavedrom-final-markdown-full.log",
+  "sameWarningsByTest": true,
+  "countsByTest": {
+    "tests/mermaid-theme.test.tsx > does not flash the preceding rich SVG while a new source render is pending": 1,
+    "tests/mermaid-theme.test.tsx > keeps the rich editor source exact across rendering, editing and reopen": 2,
+    "tests/preview-diagrams.test.tsx > keeps real Mermaid SVG in rich view and the print callback": 1,
+    "tests/preview-diagrams.test.tsx > renders Mermaid and keeps former WaveDrom fences as code when switching to blocks": 2,
+    "tests/wavedrom-removal.test.tsx > hands plain WaveDrom code to the real print callback without modifying source": 3,
+    "tests/wavedrom-removal.test.tsx > keeps original fences and BOM/CRLF through rich view, source edits and reopen": 6
+  },
+  "total": 15,
+  "scope": "Existing React/Tiptap lifecycle diagnostics in jsdom runtime; not compiler or Vite eval warnings. No console suppression or product change."
+}

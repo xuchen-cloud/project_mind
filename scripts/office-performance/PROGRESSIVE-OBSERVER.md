@@ -288,3 +288,9 @@ other-chat messages or repeat main's File flow acceptance. Preserve round4 as
 failed navigation evidence and keep native navigation/mode acceptance open until
 the rerun passes. Performance/release/p95 and Windows platform acceptance remain
 open independently; no GUI/cargo, native run, push, merge or Issue closure here.
+
+## Fixed-SHA navigation integration review
+
+G12 reviewed `6919ba7552fdbf31aa27e6dfae02951823cbc215`: Standards **0**, Spec **0** for the navigation-only observer delta. Initial readiness still proves its first viewport; postnavigation now reaches the existing selected-cell value/format/position/composition gate. Tests exercise the actual entry functions, including both missing-composition and missing-initial-witness rejection. Integrated as `f99ad34`; runtime entry and tests match the reviewed worker byte-for-byte. The documentation-only cherry-pick conflict retained both prior integration review and Round4 evidence.
+
+The 107-case log and successful tsc output are archived in `docs/technical/review-20261110/verification/observer-navigation/`. Office was notified under the user's existing Mac acceptance authorization to absorb the reviewed commit and perform its affected XLSX-only rebuild/run. The native result is owned by that separate run; no timing or platform conclusion is inferred from these boundary checks.

@@ -1,14 +1,14 @@
 # File and source locator authorization order
 
-This work package addresses the independent review P2 on `4c85bbb` (no separate Issue was supplied), based on integration `73a932ca3a18d7c228000513ec3a8706fa313f42`.
+This work package addresses the independent review P2 on `4c85bbb` (integration Issue #308), based on integration `73a932ca3a18d7c228000513ec3a8706fa313f42`.
 
 The File version target boundary must reject stale/invalid requests, unauthorized scopes, unlisted objects and foreign Workspace locators before reporting whether a document ID exists. Successful resolution must still verify actual ownership and the object allowlist. Restore requests derived from genuine undo receipts must continue to work with `operation.undo` authority alone; a caller-provided request prefix is not authority.
 
-Main review added the same missing-object allowlist case in Record/Transcript/File source aliases. The earlier independent review did not identify this source-read gap. It is included here at the user's explicit request: remember claimed-object denial only for unresolved aliases; a real alias still authorizes its actual canonical object. Other source kinds are outside this change.
+Main review added the same missing-object allowlist case in Record/Transcript/File source aliases. The earlier independent review did not identify this source-read gap. It is included here at the main integration review’s request: remember claimed-object denial only for unresolved aliases; a real alias still authorizes its actual canonical object. Other source kinds are outside this change.
 
 Scope: `file_version_target_scope`, `source_resolve_business`, the real external File bridge and native DB request tests, canonical alias regressions, and affected native File write/restore/undo tests. No schema, frontend, GUI, dependency installation, or other worktree changes. Integration owns final review and merge.
 
-Validation uses the shared `with-build-lock.py`, `CARGO_INCREMENTAL=0`, `CARGO_TARGET_DIR=/Users/xuchen/project_mind/src-tauri/target`, and offline Cargo. The baseline's 722 passing tests are reused; only the new regression and affected families run. The user additionally requested a final `cargo check --all-targets` to cover binary targets. Before editing, the process inventory showed no Tauri/Rust watcher and one unrelated Vite process in the `8db5` worktree.
+Validation uses the shared `with-build-lock.py`, `CARGO_INCREMENTAL=0`, `CARGO_TARGET_DIR=/Users/xuchen/project_mind/src-tauri/target`, and offline Cargo. The baseline's 722 passing tests are reused; only the new regression and affected families run. Main integration additionally requested a final `cargo check --all-targets` to cover binary targets. Before editing, the process inventory showed no Tauri/Rust watcher and one unrelated Vite process in the `8db5` worktree.
 
 ## Change
 
@@ -59,3 +59,7 @@ Standards: **0 remaining findings** in this work package. Authorization remains 
 Spec: **0 remaining findings** in the explicitly expanded scope. Missing authorized locators still return `NotFound`; missing unauthorized scopes/objects return `ScopeDenied`. Stale/invalid requests retain their earlier failures. Actual owner/allowlist checks still protect successful writes and reads. The existing single/group undo tests pass with restore/update/source-read permissions removed. Real old Record/Transcript/File aliases still read through canonical-only allowlists, with old scopes either granted or absent. Non-alias source kinds and non-`NotFound` storage failures keep their prior behavior.
 
 This is a self review, with no subagent or independent approval claimed. Main review supplied the source-read allowlist finding missed in the earlier independent review and owns the final fixed-SHA review/integration. Runtime evidence is macOS arm64 native only. No GUI, application launch, Windows/Linux execution, packaged CLI execution or platform acceptance was performed. No push or merge was performed.
+
+## Fixed-SHA integration review
+
+G12 reviewed all seven Rust files at `661b8674a39fd547df743d9eb139cf99a92a9624`: Standards **0**, Spec **0** for the File target and Record/Transcript/File alias authorization order. Both the initial reviewer finding and main’s added object-allowlist gaps are resolved. Successful resolution still requires actual ownership; legitimate canonical-only aliases and receipt-backed undo remain valid. At integrated `dc20d49`, the combined native source matched this reviewed and tested tree byte-for-byte; the 118-case run and all-target check are reused without repeating unchanged tests. Logs are archived under `docs/technical/review-20261110/verification/warnings/`.

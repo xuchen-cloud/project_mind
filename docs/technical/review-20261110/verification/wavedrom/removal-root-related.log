@@ -1,0 +1,33 @@
+
+ RUN  v4.1.2 /private/tmp/project-mind-review-wavedrom-cleanup
+
+ ❯ src/components/markdown/MarkdownEditor.test.tsx (12 tests | 1 failed) 1286ms
+   × defaults to editable blocks with one icon toolbar and ignores legacy presentationMode 168ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/components/markdown/MarkdownEditor.test.tsx > defaults to editable blocks with one icon toolbar and ignores legacy presentationMode
+AssertionError: expected [ <button …(5)>…(1)</button>, …(11) ] to have a length of 13 but got 12
+
+- Expected
++ Received
+
+- 13
++ 12
+
+ ❯ src/components/markdown/MarkdownEditor.test.tsx:24:49
+     22|  const toolbar=screen.getByRole('toolbar',{name:'Markdown 工具'});
+     23|  expect(toolbar.textContent).toBe('');
+     24|  expect(within(toolbar).getAllByRole('button')).toHaveLength(13);
+       |                                                 ^
+     25|  for(const name of ['分屏','预览','粗体','斜体','删除线','行内代码','链接','无序列表','有序列表…
+     26|  expect(screen.queryByRole('combobox',{name:'段落格式'})).not.toBeInTheDoc…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 4 passed (5)
+      Tests  1 failed | 74 passed (75)
+   Start at  00:11:40
+   Duration  3.37s (transform 1.90s, setup 349ms, import 2.77s, tests 5.67s, environment 1.18s)
+

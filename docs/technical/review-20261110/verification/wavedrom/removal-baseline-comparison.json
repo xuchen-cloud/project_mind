@@ -1,0 +1,49 @@
+{
+  "sameFailures": true,
+  "failures": [
+    [
+      "delivers physical Markdown pages with their own 20mm margins to a zero-margin native printer",
+      "TestingLibraryElementError: Unable to find an element with the text: 导出与打印. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible."
+    ],
+    [
+      "discards a native PDF result after the external document baseline changes",
+      "TestingLibraryElementError: Unable to find an element with the text: 导出与打印. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible."
+    ],
+    [
+      "exports editable DOCX through the connected desktop service and waits for the actual write result",
+      "TestingLibraryElementError: Unable to find an element with the text: 导出与打印. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible."
+    ],
+    [
+      "hands a self-contained current print document to native IPC and awaits native completion",
+      "TestingLibraryElementError: Unable to find an accessible element with the role \"textbox\" and name \"Markdown 源码\""
+    ],
+    [
+      "reports native PDF render failure without raster or download fallback",
+      "TestingLibraryElementError: Unable to find an element with the text: 导出与打印. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible."
+    ],
+    [
+      "reports native PDF save cancellation without raster or download fallback",
+      "TestingLibraryElementError: Unable to find an element with the text: 导出与打印. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible."
+    ],
+    [
+      "reports native export cancel without an anchor fallback",
+      "TestingLibraryElementError: Unable to find an element with the text: 导出与打印. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible."
+    ],
+    [
+      "reports native export write failure without an anchor fallback",
+      "TestingLibraryElementError: Unable to find an element with the text: 导出与打印. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible."
+    ],
+    [
+      "round-trips native PDF base64 through the connected services to exact on-disk PDF bytes",
+      "TestingLibraryElementError: Unable to find an element with the text: 导出与打印. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible."
+    ],
+    [
+      "surfaces native print cancellation/failure without reporting completion or printing in the browser",
+      "TestingLibraryElementError: Unable to find an element with the text: 导出与打印. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible."
+    ],
+    [
+      "uses the latest native PDF renderer with embedded print assets and exports its bytes unchanged after completion",
+      "TestingLibraryElementError: Unable to find an element with the text: 导出与打印. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible."
+    ]
+  ]
+}

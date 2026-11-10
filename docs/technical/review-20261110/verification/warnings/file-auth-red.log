@@ -1,0 +1,21 @@
+
+running 1 test
+agent::bridge::file_write_tests::file_patch_authorizes_before_missing_target_diagnostics --- FAILED
+
+failures:
+
+---- agent::bridge::file_write_tests::file_patch_authorizes_before_missing_target_diagnostics stdout ----
+
+thread 'agent::bridge::file_write_tests::file_patch_authorizes_before_missing_target_diagnostics' (2035074) panicked at src/agent/bridge/file_write_tests.rs:290:5:
+assertion `left == right` failed
+  left: [("foreign-existing", ScopeDenied), ("foreign-missing", NotFound), ("forged-owner", ScopeDenied), ("authorized-missing", NotFound), ("readonly-missing", NotFound), ("stale-binding", WorkspaceChanged), ("invalid-request", InvalidArgument)]
+ right: [("foreign-existing", ScopeDenied), ("foreign-missing", ScopeDenied), ("forged-owner", ScopeDenied), ("authorized-missing", NotFound), ("readonly-missing", ScopeDenied), ("stale-binding", WorkspaceChanged), ("invalid-request", InvalidArgument)]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    agent::bridge::file_write_tests::file_patch_authorizes_before_missing_target_diagnostics
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1868 filtered out; finished in 0.41s
+
+error: test failed, to rerun pass `--lib`

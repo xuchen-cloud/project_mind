@@ -1,0 +1,110 @@
+✔ worker notices cover emitted packages and packaging detects altered code or notices (9.00425ms)
+✔ actual utility build retains package notices and verifies its complete chunk set (22.666917ms)
+✔ standalone worker produces one canonical tree and matching compatibility projections (250.667833ms)
+✔ creating a distinct Record regenerates every block identity without changing content (259.021542ms)
+✖ Rust schema fixture stays in sync with the actual editor/worker schema (93.98525ms)
+✔ standalone worker previews block patches and rejects the whole malformed batch (505.785625ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 5
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1151.893625
+
+✖ failing tests:
+
+test at packages/agent-host/test/record-worker.test.mjs:50:1
+✖ Rust schema fixture stays in sync with the actual editor/worker schema (93.98525ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  ... Skipped lines
+  
+    {
+      marks: [
+        {
+          attrs: {
+            class: 'rich-editor__link',
+  ...
+        {
+  -       attrs: {
+  -         blockId: null,
+  -         language: null,
+  -         languageExplicit: false
+  -       },
+  -       content: 'text*',
+  -       group: 'block',
+  -       name: 'codeBlock'
+  -     },
+  -     {
+          attrs: {},
+          content: 'block+',
+          name: 'doc'
+        },
+        {
+  ...
+            blockId: null,
+  +         language: null,
+  +         languageExplicit: false
+          },
+  +       content: 'text*',
+  +       group: 'block',
+  +       name: 'codeBlock'
+  +     },
+  +     {
+  +       attrs: {
+  +         blockId: null
+  +       },
+          content: 'taskItem+',
+          group: 'block list',
+          name: 'taskList'
+        },
+        {
+  
+      at TestContext.<anonymous> (file:///private/tmp/project-mind-review-combined/packages/agent-host/test/record-worker.test.mjs:53:10)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: {
+      schemaVersion: 1,
+      nodes: [
+        [Object], [Object], [Object],
+        [Object], [Object], [Object],
+        [Object], [Object], [Object],
+        [Object], [Object], [Object],
+        [Object], [Object], [Object],
+        [Object], [Object], [Object],
+        [Object], [Object], [Object],
+        [Object]
+      ],
+      marks: [
+        [Object], [Object],
+        [Object], [Object],
+        [Object], [Object],
+        [Object]
+      ]
+    },
+    expected: {
+      schemaVersion: 1,
+      nodes: [
+        [Object], [Object], [Object],
+        [Object], [Object], [Object],
+        [Object], [Object], [Object],
+        [Object], [Object], [Object],
+        [Object], [Object], [Object],
+        [Object], [Object], [Object],
+        [Object], [Object], [Object],
+        [Object]
+      ],
+      marks: [
+        [Object], [Object],
+        [Object], [Object],
+        [Object], [Object],
+        [Object]
+      ]
+    },
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }

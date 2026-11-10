@@ -73,5 +73,35 @@
     "file": "worker-resource-receipt.json",
     "source": "/tmp/project-mind-review-warning-cleanup-final/output/warning-cleanup-final/resource-receipt.json",
     "sha256": "36dd4c3846ac6b9f6b9edb723f76fa8517e071dccd3f8e24e4f386e48354e676"
+  },
+  {
+    "file": "file-auth-red.log",
+    "source": "/tmp/project-mind-file-auth-order-red.log",
+    "sha256": "3fcc6355da77a89ddd543c477b662124741956c791256e7ee3cc033249cf843f"
+  },
+  {
+    "file": "file-auth-green.log",
+    "source": "/tmp/project-mind-file-auth-order-green.log",
+    "sha256": "e903f1b5c67da86f9b3e59e5574e455c6b5d31fe9a1de5cd912355494eab166b"
+  },
+  {
+    "file": "file-auth-object-red.log",
+    "source": "/tmp/project-mind-file-auth-order-object-red.log",
+    "sha256": "fbd888f5bfc7b8b8d3c40f51637c660061a634bf36c47badac5cb0ff69624ecc"
+  },
+  {
+    "file": "file-auth-alias-red.log",
+    "source": "/tmp/project-mind-file-auth-order-alias-red.log",
+    "sha256": "c2700709d7bbc6396558862e1d842ca6966f581922419c9023f23a464af3272b"
+  },
+  {
+    "file": "file-auth-final-green.log",
+    "source": "/tmp/project-mind-file-auth-order-final-green.log",
+    "sha256": "081b8462e532d2e12fb61acdf91bc12dd40d77d7999e01a358d32ca85265ae2c"
+  },
+  {
+    "file": "file-auth-all-targets-check.log",
+    "source": "/tmp/project-mind-file-auth-order-all-targets-check.log",
+    "sha256": "797aa442738bd6d6b2fa1d0a0add108e02f65c549d833e55f286ccd3e39f4845"
   }
 ]
