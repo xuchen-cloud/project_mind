@@ -76,6 +76,13 @@ fn success(result: RecordWithdrawalResult) -> OperationUndoBatchOutcome {
     OperationUndoBatchOutcome::Succeeded { result }
 }
 
+fn file_recovery_error(_: anyhow::Error) -> AgentError {
+    AgentError::new(
+        ErrorCode::IoFailed,
+        "File recovery is unavailable; its contents were retained",
+    )
+}
+
 impl Database {
     /// The service flushes Record editors and holds submission guards first.
     /// Replan and inspect every head/reference after acquiring the writer.
@@ -103,7 +110,7 @@ impl Database {
         // Recover before retaining any lease. Repeating a global scan while
         // holding earlier Files can wait on those same Files recursively.
         if !files.is_empty() {
-            self.file_version_recover_pending().map_err(io_error)?;
+            self.file_version_recover_pending().map_err(file_recovery_error)?;
         }
         let mut owners = BTreeSet::new();
         let mut targets = Vec::new();
@@ -111,7 +118,7 @@ impl Database {
             let id = group.object.id.parse::<i64>().map_err(|_| {
                 AgentError::new(ErrorCode::UndoConflict, "Invalid File receipt identity")
             })?;
-            owners.insert(self.document_record(id).map_err(io_error)?.project_id);
+            owners.insert(self.document_record(id).map_err(file_recovery_error)?.project_id);
             targets.push((group, id));
         }
         // Acquire each owner once, then every File, before lifecycle admission.
@@ -119,14 +126,14 @@ impl Database {
             .into_iter()
             .map(|owner| self.file_project_lock(owner, false))
             .collect::<anyhow::Result<Vec<_>>>()
-            .map_err(io_error)?;
+            .map_err(file_recovery_error)?;
         let mut file_locks = Vec::new();
         let mut locked_files = HashSet::new();
         let mut lock_errors = HashMap::new();
         for (group, id) in targets {
             let lease = self
                 .file_version_lock(id)
-                .map_err(io_error)
+                .map_err(file_recovery_error)
                 .and_then(|lease| {
                     self.file_working_require_recovered(id)?;
                     Ok(lease)
