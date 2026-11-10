@@ -9,7 +9,7 @@ import { desktopApi } from "../../services/desktopApi";
 import { RecordSaveCoordinator, RecordSaveFailure } from "../../lib/record-save-coordinator";
 import { RecordSaveCoordinatorProvider } from "../../lib/record-save-runtime";
 import { ProjectContentWorkspace, contentTabRoute } from "./ProjectContentWorkspace";
-import { prepareProjectContentClose, prepareWorkspaceContentClose, withProjectContentMove } from "../../lib/project-content-lifecycle";
+import { prepareContentOwnerMove, prepareProjectContentClose, prepareWorkspaceContentClose, withProjectContentMove } from "../../lib/project-content-lifecycle";
 import { openProjectContent } from "../../services/projectContentApi";
 import { recordDocumentApi } from "../../services/recordDocumentApi";
 import { fileDocumentApi } from "../../services/fileDocumentApi";
@@ -21,36 +21,40 @@ import voiceRecordIcon from "../../assets/icons/voice-record-color.svg";
 import { setDshWorkspaceRoot } from "../../lib/dsh-host-events";
 import { getContentLayout } from "../../lib/project-content-layout";
 
-const page = vi.hoisted(() => ({ mounts: vi.fn(), unmounts: vi.fn(), guard: vi.fn(async (_projectId: number | null, _recordId: number) => undefined) }));
+const page = vi.hoisted(() => ({ mounts: vi.fn(), unmounts: vi.fn(), fileUnmounts: vi.fn(), guard: vi.fn(async (_projectId: number | null, _recordId: number) => undefined) }));
+const nativeEvents = vi.hoisted(() => new Map<string, Set<(payload: unknown) => void>>());
 // Page internals are covered by WP3/4/5; exercise the real route, authority service and layout here.
 vi.mock("./ProjectNoteFocusPage", () => ({ ProjectNoteFocusPage: function RecordPage(props: {
   recordIdOverride: number; projectIdOverride: number; visible: boolean; focused: boolean;
-  registerCloseGuard: (guard: () => Promise<void>) => () => void;
+  registerCloseGuard: (guard: () => Promise<void>, strictSave?: () => Promise<void>) => () => void;
 }) {
   const [value, setValue] = useState("");
   const moved = useContext(ProjectContentMoveContext);
   useEffect(() => { page.mounts(props.projectIdOverride, props.recordIdOverride); }, []);
   useEffect(() => () => { page.unmounts(props.projectIdOverride, props.recordIdOverride, moved?.committed); }, []);
-  useEffect(() => props.registerCloseGuard(() => page.guard(props.projectIdOverride, props.recordIdOverride)), [props.registerCloseGuard]);
+  useEffect(() => props.registerCloseGuard(() => page.guard(props.projectIdOverride, props.recordIdOverride), () => page.guard(props.projectIdOverride, props.recordIdOverride)), [props.registerCloseGuard]);
   return <section aria-label={`Record ${props.recordIdOverride}`} data-visible={String(props.visible)} data-focused={String(props.focused)}>
     <input aria-label={`编辑${props.recordIdOverride}`} value={value} onChange={event => setValue(event.target.value)} />
   </section>;
 } }));
 vi.mock("../workspace/WorkspaceRecordFocusPage", () => ({ WorkspaceRecordFocusPage: function RecordPage(props: {
-  recordIdOverride: number; visible: boolean; focused: boolean; registerCloseGuard: (guard: () => Promise<void>) => () => void;
+  recordIdOverride: number; visible: boolean; focused: boolean; registerCloseGuard: (guard: () => Promise<void>, strictSave?: () => Promise<void>) => () => void;
 }) {
-  useEffect(() => props.registerCloseGuard(() => page.guard(null, props.recordIdOverride)), [props.registerCloseGuard]);
+  useEffect(() => props.registerCloseGuard(() => page.guard(null, props.recordIdOverride), () => page.guard(null, props.recordIdOverride)), [props.registerCloseGuard]);
   return <section aria-label={`Workspace Record ${props.recordIdOverride}`} data-visible={String(props.visible)} data-focused={String(props.focused)} />;
 } }));
-vi.mock("../document/ProjectFileContent", () => ({ ProjectFileContent: (props: { fileId: number; versionNumber?: number; line?: number; toolbarActions?: ReactNode }) =>
-  <section aria-label="文件页"><header aria-label="文件工具栏">{props.toolbarActions}</header><p>File {props.fileId} / {props.versionNumber ?? "latest"} / line {props.line ?? 1}</p></section> }));
+vi.mock("../document/ProjectFileContent", () => ({ ProjectFileContent: function FilePage(props: { fileId: number; versionNumber?: number; line?: number; toolbarActions?: ReactNode }) {
+  const moved = useContext(ProjectContentMoveContext);
+  useEffect(() => () => { page.fileUnmounts(props.fileId, moved?.committed, moved?.nativeSessionsClosed); }, []);
+  return <section aria-label="文件页"><header aria-label="文件工具栏">{props.toolbarActions}</header><p>File {props.fileId} / {props.versionNumber ?? "latest"} / line {props.line ?? 1}</p></section>;
+} }));
 vi.mock("../agent/ProjectSessionContent", () => ({ ProjectSessionContent: () => <section aria-label="会话正文" /> }));
 vi.mock("../../services/recordDocumentApi", () => ({ recordDocumentApi: { bindingGet: vi.fn(), editorGet: vi.fn() } }));
 vi.mock("../../services/fileDocumentApi", () => ({ fileDocumentApi: { versionsList: vi.fn() } }));
 vi.mock("../../services/agentApi", async importOriginal => ({ ...await importOriginal<typeof import("../../services/agentApi")>(),
   agentApi: { statusGet: async () => ({ binding }) },
 }));
-vi.mock("../../services/desktopApi", () => ({ desktopApi: { confirm: vi.fn() } }));
+vi.mock("../../services/desktopApi", () => ({ desktopApi: { confirm: vi.fn(), listenEvent: vi.fn() } }));
 const binding = { workspaceId: "workspace-tabs", generation: "open-1" };
 const workspaceRoot = "/tmp/tabs";
 function fixture(route = "/projects/7/records/1", client = new QueryClient({ defaultOptions: { queries: { retry: false } } }), coordinator?: RecordSaveCoordinator, projectId: number | null = 7) {
@@ -66,7 +70,13 @@ function fixture(route = "/projects/7/records/1", client = new QueryClient({ def
   return router;
 }
 beforeEach(() => {
+  nativeEvents.clear();
   vi.resetAllMocks(); page.guard.mockResolvedValue(undefined); useProjectContentStore.setState({ layouts: {} });
+  vi.mocked(desktopApi.listenEvent).mockImplementation(async (name, listener) => {
+    const listeners = nativeEvents.get(name) ?? new Set();
+    nativeEvents.set(name, listeners); listeners.add(listener);
+    return () => { listeners.delete(listener); };
+  });
   vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(1000);
   vi.mocked(recordDocumentApi.bindingGet).mockResolvedValue(binding);
   vi.mocked(recordDocumentApi.editorGet).mockImplementation(async (_binding, target: RecordTarget) => fixtureEditorState(target, {
@@ -77,6 +87,97 @@ beforeEach(() => {
   vi.mocked(fileDocumentApi.versionsList).mockImplementation(async (_binding, { object }) => ({ object, currentVersionNumber: 3, currentContentHash: "sha256:current", versions: [], nextCursor: null }));
 });
 afterEach(() => { setDshWorkspaceRoot(null); vi.restoreAllMocks(); });
+it("retains the source and refuses movement when its terminal notification subscription fails", async () => {
+  vi.mocked(desktopApi.listenEvent).mockRejectedValue(new Error("移动通知不可用"));
+  fixture();
+  await screen.findByLabelText("编辑1");
+  await screen.findByText(/移动通知不可用/);
+  const move = vi.fn(async () => {});
+  await expect(withProjectContentMove(workspaceRoot, 7, { kind: "record", id: 1 }, move)).rejects.toThrow("移动通知尚未就绪");
+  expect(move).not.toHaveBeenCalled(); expect(page.guard).not.toHaveBeenCalled();
+  expect(screen.getByRole("tab", { name: "Record 1" })).toBeInTheDocument();
+});
+it("closes only the native-confirmed moved source without saving again, including its persisted hidden Tab", async () => {
+  const router = fixture(); await screen.findByLabelText("编辑1");
+  await act(() => router.navigate("/projects/7/records/2"));
+  const other = await screen.findByLabelText("编辑2");
+  fireEvent.change(other, { target: { value: "保留另一条草稿" } });
+  const event = { binding, operationId: "native-move", source: { workspaceId: binding.workspaceId,
+    scope: { kind: "project", projectId: 7 }, kind: "record", id: "1" },
+    target: { workspaceId: binding.workspaceId, scope: { kind: "project", projectId: 8 }, kind: "record", id: "99" }, oldSessionsClosed: false };
+  await act(async () => { for (const listener of nativeEvents.get("content:owner-moved") ?? []) listener(event); });
+  await waitFor(() => expect(screen.queryByRole("tab", { name: "Record 1" })).not.toBeInTheDocument());
+  expect(page.guard).not.toHaveBeenCalled();
+  expect(page.unmounts).toHaveBeenCalledExactlyOnceWith(7, 1, true);
+  expect(other).toHaveValue("保留另一条草稿");
+  await act(async () => { for (const listener of nativeEvents.get("content:owner-moved") ?? []) listener(event); });
+  expect(page.unmounts).toHaveBeenCalledOnce();
+  expect(JSON.parse(localStorage.getItem("project-mind-project-content-layouts")!).state.layouts[JSON.stringify([binding.workspaceId, 7])].tabs.map((tab: {object: {id: number}}) => tab.object.id)).toEqual([2]);
+});
+
+it.each(["workspace", "generation", "source-workspace", "scope", "kind", "id"])("ignores a terminal event with another %s identity", async change => {
+  fixture(); const input = await screen.findByLabelText("编辑1");
+  const event = { binding: { ...binding }, operationId: "foreign", source: { workspaceId: binding.workspaceId,
+    scope: { kind: "project" as const, projectId: 7 }, kind: "record", id: "1" },
+    target: { workspaceId: binding.workspaceId, scope: { kind: "project", projectId: 8 }, kind: "record", id: "99" }, oldSessionsClosed: false };
+  if (change === "workspace") event.binding.workspaceId = "other";
+  if (change === "generation") event.binding.generation = "old";
+  if (change === "source-workspace") event.source.workspaceId = "other";
+  if (change === "scope") event.source.scope.projectId = 8;
+  if (change === "kind") event.source.kind = "file";
+  if (change === "id") event.source.id = "2";
+  await act(async () => { for (const listener of nativeEvents.get("content:owner-moved") ?? []) listener(event); });
+  expect(input).toBeInTheDocument(); expect(page.unmounts).not.toHaveBeenCalled(); expect(page.guard).not.toHaveBeenCalled();
+});
+
+it("holds a registered editor's target until release, then preserves its draft and unlocks only that page", async () => {
+  const router = fixture(); await screen.findByLabelText("编辑1");
+  await act(() => router.navigate("/projects/7/records/2")); await screen.findByLabelText("编辑2");
+  const first = screen.getByLabelText("编辑1").closest('[role="tabpanel"]')!;
+  const source = { workspaceId: binding.workspaceId, scope: { kind: "project" as const, projectId: 7 }, kind: "record" as const, id: "1" };
+  await act(async () => { await prepareContentOwnerMove(binding, source, "cancel-move", async () => {}); });
+  expect(first).toHaveAttribute("inert");
+  expect(screen.getByRole("button", { name: "关闭Record 1" })).toBeDisabled();
+  await act(async () => { for (const listener of nativeEvents.get("content:owner-move-released") ?? []) listener({ binding, operationId: "cancel-move", source }); });
+  expect(screen.getByRole("button", { name: "关闭Record 1" })).toBeEnabled();
+  expect(page.guard).not.toHaveBeenCalled(); expect(page.unmounts).not.toHaveBeenCalled();
+});
+
+it("does not let a previously accepted event close the new generation while its binding check is pending", async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  fixture(undefined, client); const input = await screen.findByLabelText("编辑1");
+  let resolve!: (value: typeof binding) => void;
+  vi.mocked(recordDocumentApi.bindingGet).mockReturnValueOnce(new Promise(done => { resolve = done; }));
+  const event = { binding, operationId: "late-completion", source: { workspaceId: binding.workspaceId,
+    scope: { kind: "project", projectId: 7 }, kind: "record", id: "1" },
+    target: { workspaceId: binding.workspaceId, scope: { kind: "project", projectId: 8 }, kind: "record", id: "99" }, oldSessionsClosed: false };
+  await act(async () => { for (const listener of nativeEvents.get("content:owner-moved") ?? []) listener(event); });
+  await act(async () => { client.setQueryData(queryKeys.projectContentBinding(workspaceRoot), { ...binding, generation: "open-2" }); });
+  await act(async () => { resolve(binding); });
+  expect(input).toBeInTheDocument(); expect(page.unmounts).not.toHaveBeenCalled();
+});
+
+it("closes a reopened File on its next move while duplicate old receipts cannot close the replacement Tab", async () => {
+  const scope = { workspaceId: binding.workspaceId, projectId: 7 };
+  const file = { kind: "file" as const, id: 11, title: "image.png" };
+  const tabId = useProjectContentStore.getState().open(scope, file);
+  fixture(`/projects/7?content=${tabId}`); await screen.findByLabelText("文件页");
+  const event = { binding, operationId: "first-move", source: { workspaceId: binding.workspaceId,
+    scope: { kind: "project", projectId: 7 }, kind: "file", id: "11" },
+    target: { workspaceId: binding.workspaceId, scope: { kind: "project", projectId: 8 }, kind: "file", id: "11" }, oldSessionsClosed: true };
+  const emit = async (operationId: string) => act(async () => {
+    for (const listener of nativeEvents.get("content:owner-moved") ?? []) listener({ ...event, operationId });
+  });
+  await emit("first-move");
+  await waitFor(() => expect(screen.queryByLabelText("文件页")).not.toBeInTheDocument());
+  expect(page.fileUnmounts).toHaveBeenCalledExactlyOnceWith(11, true, true);
+  act(() => { useProjectContentStore.getState().open(scope, file); });
+  await screen.findByLabelText("文件页");
+  await emit("first-move"); expect(screen.getByLabelText("文件页")).toBeInTheDocument();
+  await emit("second-move");
+  await waitFor(() => expect(screen.queryByLabelText("文件页")).not.toBeInTheDocument());
+  expect(page.fileUnmounts).toHaveBeenCalledTimes(2); expect(page.guard).not.toHaveBeenCalled();
+});
 it("saves and closes only the moved open Record while another Record cannot save", async () => {
   const router = fixture();
   await screen.findByLabelText("编辑1");

@@ -7,6 +7,7 @@ import { getContentLayout, type ContentScope } from "../../lib/project-content-l
 import { useProjectContentStore } from "../../state/project-content-store";
 import { ProjectContentLayoutView, type ContentPageProps } from "./ProjectContentLayoutView";
 import projectContentCss from "./project-content.css?raw";
+import { registerProjectContentCloseGuard, withProjectContentMove } from "../../lib/project-content-lifecycle";
 
 const scope = { workspaceId: "layout-workspace", projectId: 7 };
 let width = 1000;
@@ -111,6 +112,59 @@ it("retains the tab and draft when its close guard fails, then permits retry", a
   expect(screen.getByRole("tab", { name: "甲" })).toBeVisible(); expect(input).toHaveValue("必须保留");
   await act(async () => fireEvent.click(screen.getByRole("button", { name: "关闭甲" })));
   expect(screen.queryByRole("tab", { name: "甲" })).toBeNull(); expect(guard).toHaveBeenCalledTimes(2);
+});
+it("uses only the moved object's strict save and never its discard-capable close guard", async () => {
+  open(1, "目标记录"); open(2, "其他记录");
+  useProjectContentStore.getState().open(scope, { kind: "file", id: 1, title: "相同数字 ID 文件" });
+  const close = vi.fn(async () => undefined);
+  const strictSave = vi.fn(async (kind: string, id: number | string) => {
+    throw new Error(`${kind}:${id} 保存失败`);
+  });
+  function Page({ tab, registerCloseGuard }: ContentPageProps) {
+    useEffect(() => registerCloseGuard(close, () => strictSave(tab.object.kind, tab.object.id)), [registerCloseGuard]);
+    return <input aria-label={`内容${tab.object.title}`} defaultValue="必须保留的草稿" />;
+  }
+  const layout = getContentLayout(useProjectContentStore.getState(), scope);
+  render(<QueryClientProvider client={new QueryClient()}><ProjectContentLayoutView scope={scope} layout={layout} active onOverview={() => undefined}
+    onSelect={() => undefined} onClose={async (_id, guard) => { await guard?.(); }}
+    registerLeaveGuard={(prepare, lockObject, moved) => registerProjectContentCloseGuard({
+      workspaceRoot: "/strict-save", projectId: 7, prepare, lockObject, moved,
+    })} renderPage={props => <Page {...props} />} /></QueryClientProvider>);
+  const move = vi.fn(async () => undefined);
+  await act(async () => {
+    await expect(withProjectContentMove("/strict-save", 7, { kind: "record", id: 1 }, move)).rejects.toThrow("record:1 保存失败");
+  });
+  expect(strictSave).toHaveBeenCalledExactlyOnceWith("record", 1);
+  expect(close).not.toHaveBeenCalled();
+  expect(move).not.toHaveBeenCalled();
+  expect(screen.getByLabelText("内容目标记录")).toHaveValue("必须保留的草稿");
+  expect(screen.getAllByRole("tab")).toHaveLength(3);
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "关闭相同数字 ID 文件" })));
+  expect(close).toHaveBeenCalledOnce();
+  expect(strictSave).toHaveBeenCalledOnce();
+});
+it("keeps a page inert until both nested move barriers release it", () => {
+  open(1, "目标记录"); open(2, "其他记录");
+  let lock!: (object: { kind: "record" | "file"; id: number }) => () => void;
+  render(<ProjectContentLayoutView scope={scope} layout={getContentLayout(useProjectContentStore.getState(), scope)} active
+    onOverview={() => undefined} onSelect={() => undefined} onClose={async () => undefined}
+    registerLeaveGuard={(_prepare, lockObject) => { lock = lockObject; return () => undefined; }}
+    renderPage={props => <Editor {...props} />} />);
+  let releaseOuter!: () => void, releaseInner!: () => void;
+  act(() => { releaseOuter = lock({ kind: "record", id: 2 }); releaseInner = lock({ kind: "record", id: 2 }); });
+  const page = screen.getByLabelText("草稿其他记录").closest('[role="tabpanel"]')!;
+  expect(page).toHaveAttribute("inert");
+  expect(screen.getByRole("button", { name: "关闭其他记录" })).toBeDisabled();
+  act(() => releaseOuter());
+  expect(page).toHaveAttribute("inert");
+  expect(screen.getByRole("button", { name: "关闭其他记录" })).toBeDisabled();
+  // A repeated release must not consume another barrier's lock.
+  act(() => releaseOuter());
+  expect(page).toHaveAttribute("inert");
+  act(() => releaseInner());
+  expect(page).not.toHaveAttribute("inert");
+  expect(screen.getByRole("button", { name: "关闭其他记录" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "关闭目标记录" })).toBeEnabled();
 });
 it("keeps panes readable on resize without replacing the saved wide-window ratio", () => {
   open(1, "甲"); open(2, "乙"); useProjectContentStore.getState().split(scope);

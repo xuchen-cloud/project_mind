@@ -71,7 +71,7 @@ export interface ProjectNoteFocusPageProps {
   embedded?: boolean;
   searchParamsOverride?: URLSearchParams;
   onBack?: () => void;
-  registerCloseGuard?: (guard: () => Promise<void>) => () => void;
+  registerCloseGuard?: (close: () => Promise<void>, strictSave?: () => Promise<void>) => () => void;
 }
 
 interface ProjectRecordDraft {
@@ -503,11 +503,16 @@ export function ProjectNoteFocusPage({
   identityRef.current = `${projectId}:${recordId}`;
   useEffect(() => {
     const identity = `${projectId}:${recordId}`;
+    const strictSave = async () => {
+      if (identityRef.current !== identity) throw new Error("记录页面身份已变化");
+      await closeGuardRef.current();
+      if (identityRef.current !== identity) throw new Error("记录页面身份已变化");
+    };
     return registerCloseGuard?.(async () => {
       if (identityRef.current !== identity) throw new Error("记录页面身份已变化");
-      await deletedRecordClose.prepareClose(() => closeGuardRef.current());
+      await deletedRecordClose.prepareClose(strictSave);
       if (identityRef.current !== identity) throw new Error("记录页面身份已变化");
-    });
+    }, strictSave);
   }, [registerCloseGuard, projectId, recordId]);
 
   useEffect(() => {
