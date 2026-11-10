@@ -214,7 +214,20 @@ impl Database {
                 |r| r.get(0),
             )
             .map_err(io)?;
-        if pending || state.as_ref().is_some_and(|(_, j)| j.is_some()) {
+        // Restore journals retain the original owner and live path. A read-only
+        // baseline cannot migrate that recovery obligation to another owner.
+        let pending_restore = self
+            .table_exists("project_directory_restores")
+            .map_err(io)?
+            && self
+                .conn
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM project_directory_restores WHERE document_id=?1)",
+                    [id],
+                    |r| r.get::<_, bool>(0),
+                )
+                .map_err(io)?;
+        if pending || pending_restore || state.as_ref().is_some_and(|(_, j)| j.is_some()) {
             return Err(AgentError::new(
                 ErrorCode::SourceNotReady,
                 "File recovery must finish before moving",

@@ -740,3 +740,339 @@ fn changed_drop_keeps_directory_file_name_live_path_and_old_version_bytes() {
     }
     assert!(f.db.project_file_resolve(&object).is_ok());
 }
+
+#[test]
+fn review_drop_freezes_legacy_head_independently_of_external_hardlink() {
+    let mut f = fixture();
+    let file = import(&mut f);
+    let alias = f.external.path().join("external-alias.md");
+    fs::hard_link(&file.managed_path, &alias).unwrap();
+    let p = source(&f, "new.md", b"new body");
+    let prepared =
+        f.db.file_drop_prepare(&f.request, &f.binding, &p, update(&file))
+            .unwrap();
+    let result =
+        f.db.file_drop_commit(
+            &f.request,
+            &f.binding,
+            &prepared.intent_id,
+            &trash(&f, false),
+        )
+        .unwrap();
+    assert_eq!(result.version_number, 2);
+    fs::write(&alias, b"outside changed old inode").unwrap();
+    let versions =
+        f.db.document_list_versions(crate::models::DocumentListVersionsInput {
+            document_id: file.id,
+        })
+        .unwrap();
+    let old = versions.iter().find(|v| v.version_number == 1).unwrap();
+    assert_eq!(
+        fs::read(&old.managed_path).unwrap(),
+        b"original",
+        "external hardlink cannot mutate a retained version"
+    );
+    assert_ne!(
+        files::path_identity(Path::new(&old.managed_path)).unwrap(),
+        files::path_identity(&alias).unwrap()
+    );
+    assert_eq!(
+        fs::read(f.db.document_record(file.id).unwrap().managed_path).unwrap(),
+        b"new body"
+    );
+}
+fn move_drop_fixture(
+    f: &mut Fixture,
+    file: &crate::models::DocumentRecord,
+) -> crate::models::DocumentRecord {
+    let project =
+        f.db.project_create(crate::models::ProjectCreateInput {
+            name: "Destination".into(),
+            summary: None,
+            status: None,
+        })
+        .unwrap();
+    f.request.scope_grant.project_ids.push(project.id);
+    f.request.scope_grant.operations.push("file.move".into());
+    let baseline =
+        f.db.file_owner_move_baseline(&f.request, &f.binding, file.id, file.project_id)
+            .unwrap();
+    let mut request = f.request.clone();
+    request.request_id = "move-before-drop".into();
+    f.db.file_owner_move(
+        &request,
+        &f.binding,
+        &super::super::file_owner_move::FileOwnerMove {
+            document_id: file.id,
+            source_owner: file.project_id,
+            target_owner: Some(project.id),
+            expected_version: baseline.expected_version,
+            expected_working_revision: baseline.expected_working_revision,
+            expected_hash: baseline.expected_hash,
+        },
+    )
+    .unwrap();
+    f.db.document_record(file.id).unwrap()
+}
+#[test]
+fn review_drop_after_owner_move_replaces_on_live_volume_under_exdev_injection() {
+    let mut f = fixture();
+    let file = import(&mut f);
+    let moved = move_drop_fixture(&mut f, &file);
+    assert_eq!(moved.history_dir_path, file.history_dir_path);
+    let _volumes = f.db.directory_restore_test_volumes(
+        Path::new(&file.history_dir_path),
+        Path::new(&moved.managed_path).parent().unwrap(),
+    );
+    let p = source(&f, "new.md", b"new body");
+    let prepared =
+        f.db.file_drop_prepare(&f.request, &f.binding, &p, update(&moved))
+            .unwrap();
+    let result =
+        f.db.file_drop_commit(
+            &f.request,
+            &f.binding,
+            &prepared.intent_id,
+            &trash(&f, false),
+        )
+        .unwrap();
+    assert_eq!(result.version_number, 2);
+    assert!(!p.exists());
+    let versions =
+        f.db.document_list_versions(crate::models::DocumentListVersionsInput {
+            document_id: file.id,
+        })
+        .unwrap();
+    for version in versions {
+        assert_eq!(
+            fs::read(version.managed_path).unwrap(),
+            if version.version_number == 1 {
+                b"original".as_slice()
+            } else {
+                b"new body".as_slice()
+            }
+        );
+    }
+}
+#[test]
+#[ignore = "subprocess-only Drop review fixture"]
+fn review_drop_crash_fixture() {
+    let root = PathBuf::from(std::env::var("MIND_REVIEW_DROP_ROOT").unwrap());
+    let paths = crate::workspace::workspace_paths(&root);
+    let mut db = Database::open(&paths.db_path, &root, None).unwrap();
+    db.bind_file_commit_fence(std::sync::Arc::new(
+        crate::workspace_commit_fence::WorkspaceCommitFence::new(),
+    ));
+    let binding: WorkspaceBinding =
+        serde_json::from_str(&std::env::var("MIND_REVIEW_DROP_BINDING").unwrap()).unwrap();
+    let owner: Option<i64> =
+        serde_json::from_str(&std::env::var("MIND_REVIEW_DROP_OWNER").unwrap()).unwrap();
+    let request = RequestContext {
+        binding: binding.clone(),
+        request_id: "drop".into(),
+        caller: Caller::Gui,
+        scope_grant: ScopeGrant {
+            workspace_id: binding.workspace_id.clone(),
+            workspace_content: true,
+            project_ids: owner.into_iter().collect(),
+            operations: vec!["file.update".into(), "content.create".into()],
+            object_keys: None,
+        },
+    };
+    let adapter = Trash {
+        destination: root.join("should-not-trash"),
+        fail: true,
+        calls: std::cell::Cell::new(0),
+    };
+    let intent_id = std::env::var("MIND_REVIEW_DROP_INTENT").unwrap();
+    let _volumes = if std::env::var("MIND_REVIEW_DROP_EXDEV").as_deref() == Ok("1") {
+        let DropTarget::Update { document_id, .. } =
+            db.file_drop_target(&binding, "drop", &intent_id).unwrap()
+        else {
+            panic!("expected update")
+        };
+        let file = db.document_record(document_id).unwrap();
+        Some(db.directory_restore_test_volumes(
+            Path::new(&file.history_dir_path),
+            Path::new(&file.managed_path).parent().unwrap(),
+        ))
+    } else {
+        None
+    };
+    db.file_drop_commit(&request, &binding, &intent_id, &adapter)
+        .unwrap();
+    panic!("Drop crash hook not reached");
+}
+fn crash_drop(f: &Fixture, intent: &str, owner: Option<i64>, stage: u8, exdev: bool) {
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "db::file_drop::integration_tests::review_drop_crash_fixture",
+            "--ignored",
+            "--nocapture",
+        ])
+        .env("MIND_REVIEW_DROP_ROOT", f._root.path())
+        .env("MIND_REVIEW_DROP_EXDEV", if exdev { "1" } else { "0" })
+        .env(
+            "MIND_REVIEW_DROP_BINDING",
+            serde_json::to_string(&f.binding).unwrap(),
+        )
+        .env(
+            "MIND_REVIEW_DROP_OWNER",
+            serde_json::to_string(&owner).unwrap(),
+        )
+        .env("MIND_REVIEW_DROP_INTENT", intent)
+        .env("MIND_DIRECTORY_RESTORE_CRASH_STAGE", stage.to_string())
+        .output()
+        .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        assert_eq!(
+            output.status.signal(),
+            Some(9),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    #[cfg(not(unix))]
+    assert_eq!(output.status.code(), Some(91));
+}
+#[test]
+fn review_move_baseline_rejects_committed_drop_residue_without_writes() {
+    let mut f = fixture();
+    let file = import(&mut f);
+    let p = source(&f, "new.md", b"new body");
+    let prepared =
+        f.db.file_drop_prepare(&f.request, &f.binding, &p, update(&file))
+            .unwrap();
+    crash_drop(&f, &prepared.intent_id, None, 4, false);
+    f.request.scope_grant.operations.push("file.move".into());
+    assert_eq!(
+        f.db.document_record(file.id)
+            .unwrap()
+            .current_version_number,
+        2
+    );
+    assert_eq!(
+        f.db.conn
+            .query_row("SELECT count(*) FROM project_directory_restores", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+    let before = f.db.conn.total_changes();
+    assert_eq!(
+        f.db.file_owner_move_baseline(&f.request, &f.binding, file.id, None)
+            .unwrap_err()
+            .code,
+        ErrorCode::SourceNotReady
+    );
+    assert_eq!(
+        f.db.conn.total_changes(),
+        before,
+        "baseline cannot recover or mutate journal"
+    );
+    assert!(p.exists());
+    let object = ObjectRef {
+        workspace_id: f.binding.workspace_id.clone(),
+        scope: super::super::file_scope::scope(None),
+        kind: ObjectKind::File,
+        id: file.id.to_string(),
+    };
+    assert_eq!(f.db.project_file_resolve(&object).unwrap().state, "ready");
+    let current = f.db.document_record(file.id).unwrap();
+    let moved = move_drop_fixture(&mut f, &current);
+    let object = ObjectRef {
+        scope: super::super::file_scope::scope(moved.project_id),
+        ..object
+    };
+    assert_eq!(f.db.project_file_resolve(&object).unwrap().state, "ready");
+}
+
+#[test]
+fn review_drop_cross_volume_crashes_recover_snapshots_and_replay_once() {
+    for stage in 1..=4 {
+        let mut f = fixture();
+        let file = import(&mut f);
+        let moved = move_drop_fixture(&mut f, &file);
+        let alias = f.external.path().join("old-live-alias.md");
+        fs::hard_link(&moved.managed_path, &alias).unwrap();
+        let p = source(&f, "replacement.md", b"replacement");
+        let prepared =
+            f.db.file_drop_prepare(&f.request, &f.binding, &p, update(&moved))
+                .unwrap();
+        crash_drop(&f, &prepared.intent_id, moved.project_id, stage, true);
+        assert!(p.exists(), "source must survive every destination crash");
+        assert_eq!(
+            f.db.conn
+                .query_row("SELECT count(*) FROM project_directory_restores", [], |r| r
+                    .get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            f.db.file_owner_move_baseline(&f.request, &f.binding, file.id, moved.project_id)
+                .unwrap_err()
+                .code,
+            ErrorCode::SourceNotReady
+        );
+        let _volumes = f.db.directory_restore_test_volumes(
+            Path::new(&moved.history_dir_path),
+            Path::new(&moved.managed_path).parent().unwrap(),
+        );
+        let object = ObjectRef {
+            workspace_id: f.binding.workspace_id.clone(),
+            scope: super::super::file_scope::scope(moved.project_id),
+            kind: ObjectKind::File,
+            id: file.id.to_string(),
+        };
+        let resolved = f.db.project_file_resolve(&object).unwrap();
+        assert_eq!(resolved.state, "ready", "stage {stage}");
+        assert_eq!(resolved.version_number, if stage == 4 { 2 } else { 1 });
+        let adapter = trash(&f, false);
+        let result =
+            f.db.file_drop_commit(&f.request, &f.binding, &prepared.intent_id, &adapter)
+                .unwrap();
+        assert_eq!(result.version_number, 2);
+        assert!(result.cleanup_warning.is_none());
+        let replay =
+            f.db.file_drop_commit(&f.request, &f.binding, &prepared.intent_id, &adapter)
+                .unwrap();
+        assert_eq!(replay.version_number, 2);
+        assert_eq!(adapter.calls.get(), 1);
+        assert!(!p.exists());
+        fs::write(&alias, b"external edit after recovery").unwrap();
+        let versions =
+            f.db.document_list_versions(crate::models::DocumentListVersionsInput {
+                document_id: file.id,
+            })
+            .unwrap();
+        assert_eq!(versions.len(), 2);
+        for version in versions {
+            let expected = if version.version_number == 1 {
+                b"original".as_slice()
+            } else {
+                b"replacement".as_slice()
+            };
+            assert_eq!(
+                fs::read(&version.managed_path).unwrap(),
+                expected,
+                "stage {stage}, version {}",
+                version.version_number
+            );
+            let registered:String=f.db.conn.query_row("SELECT content_hash FROM source_file_version_hashes WHERE document_version_id=?1",[version.id],|r|r.get(0)).unwrap();
+            assert_eq!(
+                files::checksum(Path::new(&version.managed_path)).unwrap(),
+                registered
+            );
+        }
+        assert_eq!(
+            f.db.conn
+                .query_row("SELECT count(*) FROM project_directory_restores", [], |r| r
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+    }
+}
