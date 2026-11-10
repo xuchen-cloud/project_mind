@@ -89,6 +89,7 @@ impl Database {
             file_version: None,
         };
         let mut result = SourceNavigation::unavailable(source, SourceNavigationStatus::Current);
+        result.object = object.clone();
         match object.kind {
             ObjectKind::Record => {
                 let target = RecordTarget {

@@ -200,6 +200,24 @@ fn g13_cas_replay_binding_archive_and_transaction_failure() {
 #[test]
 fn g13_move_old_reads_actual_owner_and_stale_editor_writes_reject() {
     let (_dir, db, mut r, old) = setup();
+    let historic_revision = db
+        .source_record_fingerprint(
+            &r,
+            &r.binding,
+            &crate::source_service::SourceReadTarget {
+                object: ObjectRef {
+                    workspace_id: "test".into(),
+                    scope: old.scope.clone(),
+                    kind: ObjectKind::Record,
+                    id: old.record_id.to_string(),
+                },
+                revision: None,
+                record_version: Some(1),
+                file_version: None,
+            },
+        )
+        .unwrap()
+        .revision;
     let first = input(&db, &old, Scope::Project { project_id: 1 });
     let a = db.record_owner_move(&r, &r.binding, &first).unwrap();
     r.request_id = "second".into();
@@ -218,7 +236,7 @@ fn g13_move_old_reads_actual_owner_and_stale_editor_writes_reject() {
     };
     let historic_ref = crate::agent::models::SourceRef {
         object: old_object.clone(),
-        revision: first.body_hash.clone(),
+        revision: historic_revision,
         file_version: None,
         record_version: Some(1),
         block_id: None,
@@ -244,6 +262,8 @@ fn g13_move_old_reads_actual_owner_and_stale_editor_writes_reject() {
     let nav = db
         .agent_source_resolve(&r, &r.binding, &historic_ref)
         .unwrap();
+    assert_eq!(nav.object.scope, b.target.scope);
+    assert_eq!(nav.object.id, b.target.record_id.to_string());
     assert_eq!(
         nav.record_target.unwrap().key().unwrap(),
         b.target.key().unwrap()
@@ -337,7 +357,7 @@ fn g13_voice_active_rejects_finished_session_tracks_and_transcript_survive() {
         )
         .unwrap();
     std::fs::write(dir.path().join("track.wav"), b"voice").unwrap();
-    db.conn.execute("INSERT INTO voice_audio_chunks(session_id,source,epoch,chunk_index,start_sample,sample_count,sample_rate,channels,relative_path,byte_size,state) VALUES('session','microphone',1,0,0,3,16000,1,'track.wav',5,'ready')",[]).unwrap();
+    db.conn.execute("INSERT INTO voice_audio_chunks(session_id,source,epoch,chunk_index,start_sample,sample_count,sample_rate,channels,relative_path,byte_size,state,created_at) VALUES('session','microphone',1,0,0,3,16000,1,'track.wav',5,'complete','now')",[]).unwrap();
     db.conn.execute("INSERT INTO voice_transcript_segments(id,session_id,start_ms,end_ms,text,created_at) VALUES('segment','session',0,500,'保留转写','now')", []).unwrap();
     r.request_id = "ended".into();
     let moved = db.record_owner_move(&r, &r.binding, &i).unwrap();
