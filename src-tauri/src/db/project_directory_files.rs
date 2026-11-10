@@ -431,7 +431,7 @@ impl Database {
                 "File belongs to another Project",
             ));
         }
-        self.directory_require_no_pending(Path::new(&document.managed_path), project)?;
+        self.directory_require_file_no_pending(&document)?;
         Ok((document, root))
     }
     fn directory_hash(&self, id: i64, version: i64) -> Result<Option<String>> {

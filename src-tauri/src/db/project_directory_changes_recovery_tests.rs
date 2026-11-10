@@ -352,3 +352,103 @@ fn directory_recovery_external_links_are_local_conflicts() {
         assert!(db.workspace_page_get().is_ok());
     }
 }
+
+#[test]
+fn directory_pending_history_blocks_a_file_whose_original_has_moved_outside() {
+    let (_temp, db, binding, owner, source) = setup();
+    let file = db
+        .project_file_register(&binding.workspace_id, owner, "source/known.md")
+        .unwrap();
+    db.project_file_move(
+        &file.object,
+        "outside.md",
+        1,
+        file.content_hash.as_ref().unwrap(),
+    )
+    .unwrap();
+    let id: i64 = file.object.id.parse().unwrap();
+    let before = db.document_record(id).unwrap();
+    assert!(Path::new(&before.history_dir_path).starts_with(&source));
+    let root = db.workspace_root.clone();
+    let db_path = crate::workspace::workspace_paths(&root).db_path;
+    drop(db);
+    crash(&root, 2, "rename");
+    fs::create_dir(&source).unwrap();
+    let db = Database::open(&db_path, &root, None).unwrap();
+    let request = crate::agent::access::RequestContext {
+        binding: binding.clone(),
+        request_id: "blocked-history".into(),
+        caller: crate::agent::access::Caller::Gui,
+        scope_grant: crate::agent::access::ScopeGrant {
+            workspace_id: binding.workspace_id.clone(),
+            workspace_content: false,
+            project_ids: vec![owner],
+            operations: vec!["source.read".into(), "file.update".into()],
+            object_keys: None,
+        },
+    };
+    assert!(db
+        .file_working_begin_session(&request, &binding, &file.object)
+        .is_err());
+    assert_eq!(fs::read(&before.managed_path).unwrap(), b"retained history");
+    assert_eq!(fs::read_dir(root.join(JOURNALS)).unwrap().count(), 1);
+}
+
+#[test]
+fn directory_rename_cannot_enter_either_missing_path_of_a_pending_journal() {
+    let (_temp, db, binding, owner, source) = setup();
+    let root = db.workspace_root.clone();
+    let db_path = crate::workspace::workspace_paths(&root).db_path;
+    drop(db);
+    crash(&root, 2, "rename");
+    fs::rename(
+        source.with_file_name("target"),
+        root.join("retained-external"),
+    )
+    .unwrap();
+    let db = Database::open(&db_path, &root, None).unwrap();
+    let unrelated = source.with_file_name("unrelated");
+    fs::create_dir(&unrelated).unwrap();
+    let token = db
+        .project_directory_change_prepare(&binding, Some(owner), "unrelated")
+        .unwrap()
+        .token;
+    for name in ["source", "target"] {
+        let input = DirectoryChangeInput {
+            binding: binding.clone(),
+            project_id: Some(owner),
+            relative_path: "unrelated".into(),
+            token: token.clone(),
+            name: Some(name.into()),
+            confirmed: None,
+            request_id: format!("blocked-target-{name}"),
+        };
+        assert!(db
+            .project_directory_change_with(&input, |_| panic!("rename must not trash"))
+            .is_err());
+        assert!(unrelated.is_dir());
+        assert!(!source.with_file_name(name).exists());
+    }
+    assert_eq!(fs::read_dir(root.join(JOURNALS)).unwrap().count(), 1);
+}
+
+#[test]
+fn directory_journal_cleaned_after_enumeration_is_not_a_read_failure() {
+    let (_temp, db, _binding, _owner, _source) = setup();
+    let root = db.workspace_root.clone();
+    crash(&root, 0, "rename");
+    let directory = fs::read_dir(root.join(JOURNALS))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let path = directory.join("intent.json");
+    assert!(read_intent(&path).unwrap().is_some());
+    let cleaner = std::thread::spawn(move || clear(&directory).unwrap());
+    cleaner.join().unwrap();
+    assert!(read_intent(&path).unwrap().is_none());
+    db.project_directory_recover_pending(None).unwrap();
+    db.directory_require_no_pending(&root.join("unrelated"), None)
+        .unwrap();
+}

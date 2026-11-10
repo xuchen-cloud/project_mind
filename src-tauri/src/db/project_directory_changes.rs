@@ -239,24 +239,77 @@ fn lock_error(error: anyhow::Error) -> anyhow::Error {
         error
     }
 }
-fn read_intent(path: &Path) -> Result<Intent> {
+fn read_intent(path: &Path) -> Result<Option<Intent>> {
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(
+            (rustix::fs::OFlags::NOFOLLOW
+                | rustix::fs::OFlags::NONBLOCK
+                | rustix::fs::OFlags::CLOEXEC)
+                .bits() as i32,
+        );
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        options.custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    // Another owner may finish and remove its journal after enumeration. Once
+    // open, retain the descriptor through validation and parsing.
+    let file = match options.open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    let metadata = file.metadata()?;
+    if !metadata.is_file() {
+        bail!("Directory intent must be a regular file");
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        if metadata.file_attributes()
+            & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT
+            != 0
+        {
+            bail!("Directory intent cannot be a reparse point");
+        }
+    }
     let mut bytes = Vec::new();
-    crate::source_file_snapshot::open_regular(path)
-        .map_err(|e| anyhow!(e.message))?
-        .take(INTENT_LIMIT as u64 + 1)
-        .read_to_end(&mut bytes)?;
+    file.take(INTENT_LIMIT as u64 + 1).read_to_end(&mut bytes)?;
     if bytes.len() > INTENT_LIMIT {
         bail!("Directory intent exceeds budget");
     }
-    Ok(serde_json::from_slice(&bytes)?)
+    Ok(Some(serde_json::from_slice(&bytes)?))
 }
 impl Database {
+    pub(super) fn directory_require_file_no_pending(
+        &self,
+        document: &crate::models::DocumentRecord,
+    ) -> Result<()> {
+        self.directory_require_no_pending_for(
+            Path::new(&document.managed_path),
+            document.project_id,
+            Some(document.id),
+        )
+    }
     // Preparation is read-only. Unresolved paths remain blocked even when the
     // global recovery pass can continue opening unrelated Workspace content.
     pub(super) fn directory_require_no_pending(
         &self,
         source: &Path,
         project: Option<i64>,
+    ) -> Result<()> {
+        self.directory_require_no_pending_for(source, project, None)
+    }
+    fn directory_require_no_pending_for(
+        &self,
+        source: &Path,
+        project: Option<i64>,
+        file_id: Option<i64>,
     ) -> Result<()> {
         let base = self.workspace_root.join(JOURNALS);
         if !present(&base)? {
@@ -266,16 +319,16 @@ impl Database {
         for entry in fs::read_dir(base)? {
             let path = entry?.path().join("intent.json");
             files::relative(&self.workspace_root, &path)?;
-            if !present(&path)? {
+            let Some(intent) = read_intent(&path)? else {
                 continue;
-            }
-            let intent = read_intent(&path)?;
+            };
             if intent.input.project_id != project {
                 continue;
             }
             let pending_source = self.decode_path_ref(&intent.source);
             let overlaps = |other: &Path| source.starts_with(other) || other.starts_with(source);
-            if overlaps(&pending_source)
+            if file_id.is_some_and(|id| intent.members.iter().any(|member| member.id == id))
+                || overlaps(&pending_source)
                 || intent
                     .target
                     .as_ref()
@@ -870,20 +923,24 @@ impl Database {
             files::relative(&self.workspace_root, &directory)?;
             let name = entry.file_name();
             let name = name.to_string_lossy();
+            let file_type = match entry.file_type() {
+                Ok(file_type) => file_type,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error.into()),
+            };
             if name.len() != 32
                 || !name.bytes().all(|b| b.is_ascii_hexdigit())
-                || !entry.file_type()?.is_dir()
+                || !file_type.is_dir()
             {
                 bail!("Invalid directory journal");
             }
             let path = directory.join("intent.json");
-            if !present(&path)? {
+            let Some(intent) = read_intent(&path)? else {
                 // Crash before durable intent: no filesystem mutation occurred.
                 // A writer may still be publishing its intent. An orphan
                 // here has never moved business data and needs no recovery.
                 continue;
-            }
-            let intent = read_intent(&path)?;
+            };
             if project.is_some_and(|project| project != intent.input.project_id) {
                 continue;
             }
@@ -976,6 +1033,7 @@ impl Database {
             }
             let target = source.parent().unwrap().join(name);
             files::relative(&self.workspace_root, &target)?;
+            self.directory_require_no_pending(&target, input.project_id)?;
             if present(&target)? {
                 return Err(failure("revision_conflict", "同名文件夹或文件已存在"));
             }
