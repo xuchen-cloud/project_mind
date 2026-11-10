@@ -569,12 +569,13 @@ impl Database {
         relative: &str,
     ) -> Result<(PreparedDirectoryChange, Vec<Member>, PathBuf, PathBuf)> {
         let (root, source) = self.directory_change_source(binding, project, relative)?;
-        // A moved object's immutable history/resources may still live here.
-        // This runs for both menu preparation and the final fenced recheck.
-        self.file_owner_require_unshared_root(&source, project)?;
-        self.record_owner_require_unshared_root(&source, project)?;
         let before = directory_identity(&source)?;
         let members = self.directory_members(&source, project)?;
+        // A moved object's immutable history/resources may still live here.
+        // Validate current member ownership first; then protect retained paths
+        // for both menu preparation and the final fenced recheck.
+        self.file_owner_require_unshared_root(&source, project)?;
+        self.record_owner_require_unshared_root(&source, project)?;
         self.directory_require_closed(&members, &binding.generation)?;
         files::relative(&self.workspace_root, &source)?;
         if directory_identity(&source)? != before {
