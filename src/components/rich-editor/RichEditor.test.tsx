@@ -6174,6 +6174,60 @@ describe("RichEditor focus and blur persistence", () => {
     expect(onSave).toHaveBeenCalledTimes(1);
   });
 
+  it.each(["saved", "unknown native result"] as const)("settles a queued save when composition blocks its continuation after %s", async (nativeOutcome) => {
+    const user = userEvent.setup();
+    let finishNative!: () => void;
+    let rejectNative!: (reason: Error) => void;
+    const onSave = vi.fn(async (_value: import("./types").RichEditorValue) => {});
+    onSave.mockImplementationOnce(() => new Promise<void>((resolve, reject) => {
+      finishNative = resolve;
+      rejectNative = reject;
+    }));
+    const controllerRef = { current: null as RichEditorController | null };
+    const view = render(<RichEditor variant="bare" defaultHtml="<p>original</p>"
+      controllerRef={controllerRef} onSave={onSave} />);
+    try {
+      const surface = await getEditorSurface(view.container);
+      await waitFor(() => expect(controllerRef.current).not.toBeNull());
+      await user.click(surface);
+      act(() => controllerRef.current!.focus("end"));
+      await waitFor(() => expect(surface).toHaveFocus());
+      let first!: Promise<unknown>;
+      act(() => { first = controllerRef.current!.save({ force: true }); });
+      expect(onSave).toHaveBeenCalledTimes(1);
+      await user.keyboard(" B");
+      expect(surface).toHaveTextContent("original B");
+      expect(controllerRef.current!.getCommittedValue().markdown).toBe("original B");
+      expect(controllerRef.current!.hasUnsavedCommittedContent()).toBe(true);
+      let queued!: Promise<unknown>;
+      let outcome: { kind: "pending" | "saved" | "rejected"; error?: unknown } = { kind: "pending" };
+      act(() => { queued = controllerRef.current!.save({ allowReadOnly: true }); });
+      void queued.then(() => { outcome = { kind: "saved" }; }, error => { outcome = { kind: "rejected", error }; });
+      act(() => fireEvent.compositionStart(surface));
+      // A separate preflight failure must not settle the still-running native A
+      // or the B caller already waiting for that cycle.
+      await act(async () => { await expect(controllerRef.current!.save({ allowReadOnly: true })).rejects.toThrow("正在输入"); });
+      expect(outcome.kind).toBe("pending");
+      expect(onSave).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        if (nativeOutcome === "saved") finishNative();
+        else rejectNative(new Error("unknown native result"));
+        await first;
+      });
+      // Observe settlement without awaiting the broken promise itself.
+      await waitFor(() => expect(outcome.kind, "P2 queued settlement after native completion").toBe("rejected"));
+      expect(String(outcome.error)).toContain(nativeOutcome === "saved" ? "正在输入" : "unknown native result");
+      expect(onSave).toHaveBeenCalledTimes(1);
+      expect(view.container.querySelector(".ProseMirror")).toBe(surface);
+      expect(surface).toHaveTextContent("original B");
+      act(() => fireEvent.compositionEnd(surface));
+      await act(async () => { await controllerRef.current!.save({ allowReadOnly: true }); });
+      expect(onSave).toHaveBeenCalledTimes(2);
+      expect(onSave).toHaveBeenLastCalledWith(expect.objectContaining({ markdown: "original B" }));
+      expect(controllerRef.current!.hasUnsavedCommittedContent()).toBe(false);
+    } finally { view.unmount(); }
+  });
+
   it("keeps the undo history after autosave normalizes the saved snapshot", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn(async (value: unknown) => value);

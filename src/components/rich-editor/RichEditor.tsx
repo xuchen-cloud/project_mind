@@ -2072,8 +2072,15 @@ export function RichEditor({
           }
 
           if (latestSnapshot.html !== lastPersistedHtmlRef.current) {
-            void persistEditor("queued").catch(() => {
-              // The caller owns error presentation.
+            const queuedCycle = saveCycleRef.current;
+            void persistEditor("queued").catch((error) => {
+              // A queued preflight can fail before owning a native save/finally.
+              // Settle its waiting callers only if no later save took ownership.
+              if (queuedCycle && saveCycleRef.current === queuedCycle && !saveInFlightRef.current) {
+                saveCycleRef.current = null;
+                updatePersistState("error");
+                queuedCycle.reject(queuedCycle.error ?? error);
+              }
             });
             return;
           }
