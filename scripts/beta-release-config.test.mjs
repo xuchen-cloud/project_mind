@@ -80,6 +80,41 @@ describe("Beta release configuration", () => {
     ]);
   });
 
+  it("downloads and independently validates the updater manifest before channel advancement", async () => {
+    const workflow = await readFile(".github/workflows/publish-beta.yml", "utf8");
+    const download = workflow.indexOf("gh release download");
+    const validate = workflow.indexOf(
+      "node scripts/validate-updater-manifest.mjs updater-channel/latest.json",
+    );
+    const advance = workflow.indexOf("node scripts/advance-beta-channel.mjs ");
+
+    expect(download).toBeGreaterThan(-1);
+    expect(validate).toBeGreaterThan(download);
+    expect(advance).toBeGreaterThan(validate);
+  });
+
+  it("delegates Beta channel advancement to the version-aware CAS entrypoint", async () => {
+    const workflow = await readFile(".github/workflows/publish-beta.yml", "utf8");
+    const advance = workflow.indexOf(
+      "node scripts/advance-beta-channel.mjs release-repository updater-channel/latest.json",
+    );
+    const checkout = workflow.indexOf("path: release-repository");
+    const identity = workflow.indexOf('git config user.name "github-actions[bot]"');
+    const email = workflow.indexOf(
+      'git config user.email "41898282+github-actions[bot]@users.noreply.github.com"',
+    );
+
+    expect(advance).toBeGreaterThan(-1);
+    expect(workflow).toContain("ref: main");
+    expect(checkout).toBeGreaterThan(-1);
+    expect(identity).toBeGreaterThan(checkout);
+    expect(email).toBeGreaterThan(checkout);
+    expect(advance).toBeGreaterThan(identity);
+    expect(advance).toBeGreaterThan(email);
+    expect(workflow).not.toMatch(/^\s*cp\s+updater-channel\/latest\.json\s+/mu);
+    expect(workflow).not.toMatch(/^\s*git\s+(?:add|commit|push)\b/mu);
+  });
+
   it("supports a manual Windows-only patch release without advancing the Beta channel", async () => {
     const workflow = await readFile(
       ".github/workflows/publish-windows-patch.yml",
@@ -97,6 +132,7 @@ describe("Beta release configuration", () => {
     expect(workflow).not.toContain("macos-latest");
     expect(workflow).not.toContain("beta/latest.json");
     expect(workflow).not.toContain("publish-channel");
+    expect(workflow).not.toContain("advance-beta-channel.mjs");
   });
 
   it("provides protoc before building Windows CLI and desktop resources", async () => {
