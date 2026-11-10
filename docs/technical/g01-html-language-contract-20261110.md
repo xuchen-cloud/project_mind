@@ -94,3 +94,7 @@
 - `language-red.log` / `language-green.log` / `spacing-red.log` / `spacing-green.log` / `user-insertion-validation.log`：测试原始日志。
 
 浏览器命令使用 Playwright CLI 的 headless 默认模式；没有启动可见浏览器/Tauri GUI。重型测试均由共享 `with-build-lock.py` 串行执行，worker 为 1。语言提交为主会话创建的 `b847562f0094b1c25dc77dc64cff339720b6c87a`；本子包没有创建或 amend 提交。最终整体 Standards/Spec review 由主会话执行。
+
+## 后续实际 Record 验收
+
+上述稳定块开关的 Chromium 对照与原生 AI 编辑验收是不同场景。用户补充要求后，实际 macOS Record 页面进一步发现了局部 CSS 覆盖共享字号、行高及段距；该覆盖由 `ffdbb87` 移除。随后按用户确认，将默认正文段前距从12px收为8px；显式保存的历史设置不迁移。AI 接受、普通保存、关闭重开及默认/自定义块间距的原生结果单独见 [原记录 AI 保存与间距](records-ai-save-spacing-20261110.md)，不由本报告的24对 fixture 推导。
