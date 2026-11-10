@@ -44,6 +44,8 @@ import {
   canLeaveRecordFocus,
 } from "./lib/record-focus-save";
 import { parseRecordFocusRoute } from "./lib/record-focus-route";
+import { CanonicalRecordCreation, createBlankCanonicalRecord } from "./lib/canonical-record-creation";
+import { renameCanonicalRecord } from "./lib/canonical-record-metadata";
 import type { RecordSaveCoordinator } from "./lib/record-save-coordinator";
 import {
   createRecordSaveCoordinator,
@@ -526,7 +528,7 @@ export function WorkspaceLayout({
   >(null);
   const previousRecordSavePhaseRef = useRef(recordSaveStatus.phase);
   const reportedRecordSaveErrorRef = useRef<unknown>(null);
-  const projectRecordCreationRef = useRef<import("./lib/canonical-record-creation").CanonicalRecordCreation | null>(null);
+  const projectRecordCreationRef = useRef<CanonicalRecordCreation | null>(null);
   const voiceRecordCreatingRef = useRef(false);
   const [creatingVoiceRecord, setCreatingVoiceRecord] = useState(false);
   const [archiveDialogOpen, setArchiveDialogOpen] = useState(false);
@@ -930,7 +932,6 @@ export function WorkspaceLayout({
         return;
       }
 
-      const { renameCanonicalRecord } = await import("./lib/canonical-record-metadata");
       await renameCanonicalRecord(currentWorkspace?.rootPath ?? "", { scope: { kind: "project", projectId }, recordId: record.id }, title);
       await refreshProjectScope(queryClient, projectId);
     },
@@ -966,7 +967,6 @@ export function WorkspaceLayout({
       return;
     }
     try {
-      const { CanonicalRecordCreation, createBlankCanonicalRecord } = await import("./lib/canonical-record-creation");
       const creation = projectRecordCreationRef.current ??= new CanonicalRecordCreation();
       const { record } = await createBlankCanonicalRecord(currentWorkspace?.rootPath ?? "", { kind: "project", projectId: activeProjectId }, creation);
       await refreshProjectScope(queryClient, activeProjectId);
