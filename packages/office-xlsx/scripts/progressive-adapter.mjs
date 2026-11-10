@@ -21,6 +21,10 @@ export function adaptProgressiveApp(source) {
         }`)
 }
 export function adaptProgressiveSync(source) {
+  const mappedRead = 'return await readSheetRangeMappedOnce(state, sheetId, screenRange, sheet)'
+  if (source.split(mappedRead).length !== 3) throw Error('Mapped range read points changed')
+  source = source.replaceAll(mappedRead,
+    'return window.__projectMindSheetsHost.withReadyRangeCoverage(await readSheetRangeMappedOnce(state, sheetId, screenRange, sheet), screenRange)')
   const wipe = 'worksheet.getRange(clearStartRow, clearStartColumn, clearRows, clearColumns).setValues(wipe)'
   if (source.split(wipe).length !== 3) throw Error('Streamed eviction write points changed')
   source = source.replaceAll(wipe, `window.__projectMindSheetsHost.writeStreamedCells(worksheet,

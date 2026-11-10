@@ -13,7 +13,7 @@ import { gatewayChangesSchema } from './gateway-contract'
 import { installScrollMasks } from './scroll-masks'
 import {screenSourcesResultSchema,screenCaptureRequestSchema,screenCaptureResultSchema,workbookFileSchema,workbookExportCsvRequestSchema,workbookExportPdfRequestSchema,workbookRecalcRequestSchema,workbookRecalcResultSchema} from './vendor/apps/sheets/src/shared/desktop-api'
 import type { Edit, Model, OfficeViewRead } from './types'
-import {snapshotRange, createViewReader} from './view-source'
+import {snapshotRange, createViewReader, withReadyRangeCoverage} from './view-source'
 import {readView} from './renderer-view'
 import {parseViewResult} from './view-protocol'
 import {formulaClosureRevision, invalidateFormulaClosure, formulasWithEdits, formulaSheetExtent} from './formula-closure-edits'
@@ -188,6 +188,7 @@ export async function initialize(){options=await new Promise<Options>(resolve=>{
   invalidateFormulaClosure,
   formulasWithEdits,
   formulaSheetExtent,
+  withReadyRangeCoverage,
   writeStreamedCells(worksheet:any, range:{startRow:number;startColumn:number;endRow:number;endColumn:number}, matrix:Record<string,unknown>[][], pinned?:ReadonlySet<string>){
    const writes=streamedCellWrites(matrix,range.startRow,range.startColumn,pinned)
    if(Object.keys(writes).length)worksheet.getRange(range.startRow,range.startColumn,range.endRow-range.startRow+1,range.endColumn-range.startColumn+1).setValues(writes)

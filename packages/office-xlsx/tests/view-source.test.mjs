@@ -26,6 +26,17 @@ test('immutable complete snapshot is indexed once; subsequent viewports never wa
   assert.equal(snapshotRange(model,'sheet',{...area,startRow:19999,endRow:19999}).cells[0].value,19999)
   assert.throws(()=>snapshotRange({...model,coverage:{kind:'partial'}},'sheet',area),/live workbook/)
 })
+test('ready native reads cover requested blank rows without changing indexing progress or widening pending reads',()=>{
+  const requested={startRow:0,endRow:9,startColumn:0,endColumn:25}
+  const mapped={raw:{rangeReady:true,indexedThroughRow:2},indexedThroughScreen:2}
+  const ready=exports.withReadyRangeCoverage(mapped,requested)
+  assert.equal(ready.indexedThroughScreen,9)
+  assert.equal(ready.raw.indexedThroughRow,2)
+  assert.equal(mapped.indexedThroughScreen,2)
+  const pending={...mapped,raw:{rangeReady:false,indexedThroughRow:2}}
+  assert.equal(exports.withReadyRangeCoverage(pending,requested),pending)
+  assert.equal(exports.withReadyRangeCoverage(null,requested),null)
+})
 test('native range cache is bounded, coalesces reads, and does not freeze incomplete inventories or failures',async()=>{
   const calls=[]
   const reader=createViewReader(async request=>{calls.push(request);return {rangeReady:true}})

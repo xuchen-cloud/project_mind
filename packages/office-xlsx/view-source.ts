@@ -1,5 +1,11 @@
 import type { Area, Model, OfficeViewRead, Range } from './types'
 
+/** A ready bounded read also covers blank rows after the last indexed cell.
+ * Preserve native indexing progress; widen only this mapped viewport coverage. */
+export function withReadyRangeCoverage<T extends {raw:{rangeReady?:boolean};indexedThroughScreen:number|null}>(mapped:T|null, area:Area):T|null {
+  return mapped?.raw.rangeReady === true ? {...mapped,indexedThroughScreen:area.endRow} : mapped
+}
+
 /** One row index per immutable complete snapshot; the GUI normally reads native ranges. */
 const indices = new WeakMap<Range, { cells: Map<number, Range['cells']>; rows: Map<number, Range['rows'][number]> }>()
 export function snapshotRange(model: Model, sheetId: string, area: Area) {
