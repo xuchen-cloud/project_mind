@@ -525,17 +525,29 @@ pub(super) fn owned(root: &Path, value: &str) -> Result<PathBuf> {
     }
     Ok(path)
 }
+#[cfg(test)]
+thread_local! {
+    pub(super) static FILE_LEASE_ATTEMPT: std::cell::RefCell<Option<std::sync::mpsc::Sender<()>>> = const { std::cell::RefCell::new(None) };
+}
 impl Database {
     pub(super) fn file_version_lock(&self, document_id: i64) -> Result<File> {
+        #[cfg(test)]
+        FILE_LEASE_ATTEMPT.with(|hook| {
+            if let Some(sender) = hook.borrow_mut().take() {
+                let _ = sender.send(());
+            }
+        });
         self.file_storage_lock("file-version-locks", document_id, true)
     }
-    /// Lock order is Project, File, SQLite transaction. Project directory and
+    /// Lock order is Project, File, Workspace commit fence, SQLite transaction.
+    /// Recovery scans must run before retaining a commit permit. Project directory and
     /// Archive writers take the Project lock exclusively; Files take it shared.
     pub(super) fn file_project_lock(&self, project_id: impl Into<Option<i64>>, exclusive: bool) -> Result<File> {
         self.file_scope_storage_lock("file-project-locks", project_id.into(), exclusive)
     }
     pub(super) fn file_native_write_locks(&self, document_id: i64) -> Result<(File, File)> {
         let locks = self.file_recovery_write_locks(document_id)?;
+        self.file_working_require_recovered(document_id).map_err(CommitFailure)?;
         super::agent_file_undo::require_file_visible(&self.conn, document_id)
             .map_err(CommitFailure)?;
         Ok(locks)
@@ -884,6 +896,7 @@ impl Database {
                 .map(|id| self.file_project_lock(id, false))
                 .transpose()?;
             let _lock = self.file_version_lock(document_id)?;
+            let _permit = self.file_commit_permit().map_err(CommitFailure)?;
             if !directory.exists() {
                 continue;
             }

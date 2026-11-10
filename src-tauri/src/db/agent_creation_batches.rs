@@ -14,7 +14,7 @@ use crate::agent::{
     operations::OperationUndoResult,
 };
 use rusqlite::{Connection, Transaction, TransactionBehavior};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 fn check(
     db: &Database,
@@ -100,25 +100,48 @@ impl Database {
             })
             .collect();
         files.sort_by(|a, b| a.object_key.cmp(&b.object_key));
-        let mut file_locks = Vec::new();
-        let mut lock_errors = HashMap::new();
+        // Recover before retaining any lease. Repeating a global scan while
+        // holding earlier Files can wait on those same Files recursively.
+        if !files.is_empty() {
+            self.file_version_recover_pending().map_err(io_error)?;
+        }
+        let mut owners = BTreeSet::new();
+        let mut targets = Vec::new();
         for group in files {
             let id = group.object.id.parse::<i64>().map_err(|_| {
                 AgentError::new(ErrorCode::UndoConflict, "Invalid File receipt identity")
             })?;
-            match self.file_recovery_write_locks(id) {
-                Ok(locks) => file_locks.push(locks),
-                Err(_) => {
-                    lock_errors.insert(
-                        group.object_key.clone(),
-                        AgentError::new(
-                            ErrorCode::UndoConflict,
-                            "File recovery is busy or unavailable; its contents were retained",
-                        ),
-                    );
+            owners.insert(self.document_record(id).map_err(io_error)?.project_id);
+            targets.push((group, id));
+        }
+        // Acquire each owner once, then every File, before lifecycle admission.
+        let _owner_locks = owners
+            .into_iter()
+            .map(|owner| self.file_project_lock(owner, false))
+            .collect::<anyhow::Result<Vec<_>>>()
+            .map_err(io_error)?;
+        let mut file_locks = Vec::new();
+        let mut locked_files = HashSet::new();
+        let mut lock_errors = HashMap::new();
+        for (group, id) in targets {
+            let lease = self
+                .file_version_lock(id)
+                .map_err(io_error)
+                .and_then(|lease| {
+                    self.file_working_require_recovered(id)?;
+                    Ok(lease)
+                });
+            match lease {
+                Ok(lease) => {
+                    locked_files.insert(group.object_key.clone());
+                    file_locks.push(lease);
+                }
+                Err(error) => {
+                    lock_errors.insert(group.object_key.clone(), error);
                 }
             }
         }
+        let _permit = self.file_commit_permit()?;
         let tx = Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)
             .map_err(io_error)?;
         let plan = super::agent_operation_batches::plan(&tx, request, binding, input)?;
@@ -140,6 +163,17 @@ impl Database {
             match check(self, &tx, request, binding, group) {
                 Ok(Some(previous)) => outcomes[index] = Some(success(previous)),
                 Err(error) => outcomes[index] = Some(OperationUndoBatchOutcome::Failed { error }),
+                Ok(None)
+                    if group.object.kind == ObjectKind::File
+                        && !locked_files.contains(&group.object_key) =>
+                {
+                    outcomes[index] = Some(OperationUndoBatchOutcome::Failed {
+                        error: AgentError::new(
+                            ErrorCode::UndoConflict,
+                            "File changed while planning; retry with its current head",
+                        ),
+                    });
+                }
                 Ok(None) => match super::agent_creation_references::incoming_sources(
                     &tx,
                     binding,

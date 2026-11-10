@@ -894,6 +894,7 @@ impl Database {
                     return Ok(());
                 }
                 let _files = self.directory_member_leases(&intent.members)?;
+                let _permit = self.file_commit_permit()?;
                 self.directory_recover_locked(&directory, &intent)
             })();
             if let Err(error) = recovered {

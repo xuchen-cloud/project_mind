@@ -28,6 +28,22 @@
 - helper 的 stdin 使用父进程持有的 pipe，`Child.stdin` 随 owner 保留到正常完成/stop。helper 启动阻塞 EOF reader，父进程崩溃/强杀导致 EOF 时直接退出整个 helper，即使主线程正在同步 ONNX 推理也终止；正常返回不等待 reader，主入口直接 process::exit。不使用进程表轮询，Windows 沿用同一标准 pipe。
 - 退出/restart 在首次异步 teardown 之前，持 voice owner mutex 取得独立 closing lease 并确认 idle；模型/DSH teardown await 期间 voice 命令拒绝新 start。失败或 future 取消时 lease 自动释放，语音可再次使用；并发退出不能释放其它退出请求的 lease。最终授权仍在 voice mutex 下重查 idle，只在最终成功时设 exit_authorized；RunEvent 无 Workspace 自动退出沿用同一 fence，原有保存门禁保留。
 
+## 独立 Voice DB 的写入边界（2026-11-10，#306 / G05 N4）
+
+专用连接只将 Voice 操作彼此串行；普通 Record / File 连接仍可同时访问同一 SQLite 数据库。`voice_session_create` 在任何数据库读取之前使用 `BEGIN IMMEDIATE` 取得写入资格，并在同一事务内检查 request replay 与唯一未结束 Recording Session，再原子创建 Record 草稿、voice_records 和 recording_sessions。Project 存在性读取因此不会发生 DEFERRED 读事务升级；Workspace 共用同一准入协议。返回已有请求优先于拒绝另一个未结束 Session，保留既有请求身份语义。
+
+保留 rusqlite 默认 5 秒 busy timeout：短暂的普通 writer 可先提交；耗尽等待仍向调用方报告真实 SQLite 错误，不吞错或自动重试。缺失 Project、后续 INSERT 失败或锁等待失败都不保留半条草稿。这里的失败发生在 `VoiceRuntime::start` 调用实际采集之前，与已开始采集后暂停的 `capture_fault` 不同；不能将本次 SQLite 机制认定为 Windows 现场唯一根因。Windows 设备、安装包与用户现场尚未运行。
+
+回归位于 `src-tauri/src/db/voice_session_contention_tests.rs`，使用真实 rusqlite 数据库、`Database::open_runtime_connection` 和生产草稿函数；测试专用 SQLite trace / busy 回调安排两连接交错，无 sleep、无音频或 GUI。覆盖 Project 读取后另一 writer 尝试抢占、Workspace 对照、已有 writer 先提交、等待耗尽后显式重试、事务内幂等与单 owner、后段失败回滚和缺失 Project。原始 red：5 项中 3 失败，分别为 SQLite 5、请求唯一约束 2067 与两个未结束 Session；Workspace 对照和回滚通过。
+
+本轮 N4 的生产修改与 8 项回归已完成，Standards / Spec 自查无剩余发现；green 由主 agent 使用修复 File 接线构造器后的最终测试二进制统一执行，本段尚不代表 green 通过。独立排队的 green 命令已按主 agent 要求撤下以避免重复构建。测试基线为 `fe9fe9c188f05c23bae369074446e38c0859a0c8` 加本节 N4 修改；原始 red 在 File 生产修改之前执行，命令同下（当时 5 项）。
+
+N4 定向复跑命令（共享缓存和重型构建锁）：
+
+```sh
+python3 /Users/xuchen/.codex/task-handoffs/project-mind-review-20261110/with-build-lock.py env CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=/Users/xuchen/project_mind/src-tauri/target cargo test --manifest-path src-tauri/Cargo.toml --lib voice_session_contention_tests -- --test-threads=1
+```
+
 ## 已运行验证
 
 - 红例：`rustc --edition=2021 --test src-tauri/src/voice/recognition.rs -o $TMPDIR/perf-f-recognition-tests && $TMPDIR/perf-f-recognition-tests --exact tests::preview_audio_advances_without_replaying_the_whole_utterance`：失败，8秒输入累计预览20,000样本（1kHz测试夹具），超过9,050预算。

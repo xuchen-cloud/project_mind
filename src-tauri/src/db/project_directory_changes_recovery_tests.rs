@@ -101,6 +101,29 @@ fn directory_rename_recovers_all_process_crash_boundaries() {
         assert!(fs::read_dir(root.join(JOURNALS)).unwrap().next().is_none());
     }
 }
+
+#[test]
+fn directory_recovery_obeys_bound_workspace_fence_before_rollback() {
+    let (_temp, mut db, _binding, _owner, source) = setup();
+    let root = db.workspace_root.clone();
+    crash(&root, 2, "rename");
+    let target = source.with_file_name("target");
+    let fence = std::sync::Arc::new(crate::workspace_commit_fence::WorkspaceCommitFence::new());
+    fence.invalidate();
+    db.bind_file_commit_fence(fence);
+    assert!(db.project_directory_recover_pending(None).is_err());
+    assert!(!source.exists());
+    assert!(target.exists());
+    assert_eq!(fs::read_dir(root.join(JOURNALS)).unwrap().count(), 1);
+
+    db.bind_file_commit_fence(std::sync::Arc::new(
+        crate::workspace_commit_fence::WorkspaceCommitFence::new(),
+    ));
+    db.project_directory_recover_pending(None).unwrap();
+    assert!(source.exists());
+    assert!(!target.exists());
+    assert!(fs::read_dir(root.join(JOURNALS)).unwrap().next().is_none());
+}
 #[test]
 fn directory_trash_recovers_all_process_crash_boundaries_with_readable_history() {
     for phase in 0..=3 {

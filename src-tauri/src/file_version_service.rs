@@ -74,6 +74,7 @@ impl FileCommitHost {
         .map_err(file_io)?;
         db.bind_native_workspace(&self.binding.workspace_id)
             .map_err(file_io)?;
+        db.bind_file_commit_fence(self.fence.clone());
         Ok(db)
     }
     pub(crate) fn binding(&self) -> &WorkspaceBinding {
@@ -353,14 +354,7 @@ impl<'a, S: BoundFileCommitStore, R: FileBytesReader> FileVersionService<'a, S, 
         use sha2::{Digest, Sha256};
         let host = self.store.gui_commit_host(&request.binding)?;
         let patch_hash = patch.validate()?;
-        let mut db = crate::db::Database::open_runtime_connection(
-            &host.paths.db_path,
-            &host.paths.root_path,
-            host.secret_password,
-        )
-        .map_err(file_io)?;
-        db.bind_native_workspace(&host.binding.workspace_id)
-            .map_err(file_io)?;
+        let mut db = host.database()?;
         let mut update = FileVersionUpdate {
             object: patch.object.clone(),
             expected_version_number: patch.expected_version_number,
@@ -527,14 +521,7 @@ impl<'a, S: BoundFileCommitStore, R: FileBytesReader> FileVersionService<'a, S, 
         let host = self.store.gui_commit_host(binding)?;
         // Never reacquire current_workspace or runtime.db while holding File
         // leases: Project GUI writers may own those locks and wait for us.
-        let mut db = crate::db::Database::open_runtime_connection(
-            &host.paths.db_path,
-            &host.paths.root_path,
-            host.secret_password,
-        )
-        .map_err(file_io)?;
-        db.bind_native_workspace(&host.binding.workspace_id)
-            .map_err(file_io)?;
+        let mut db = host.database()?;
         let before = db.committed_change_watermark()?;
         let result = db.file_version_commit_gui_bound(
             &host.binding,

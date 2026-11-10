@@ -293,12 +293,11 @@ pub(crate) fn withdraw_created_file<S: BoundFileCommitStore>(
 ) -> AgentResult<RecordWithdrawalResult> {
     let host = store.gui_commit_host(&request.binding)?;
     let db = host.database()?;
-    let permit = host.fence().enter()?;
+    drop(host.fence().enter()?);
     let (result, changes) = capture_committed(host.binding(), &db, &request.request_id, || {
         db.agent_file_creation_withdraw(request, host.binding(), input)
     })?;
     drop(db);
-    drop(permit);
     if let Some(changes) = changes {
         store.publish_committed(changes);
     }
@@ -311,12 +310,11 @@ pub(crate) fn restore_created_file<S: BoundFileCommitStore>(
 ) -> AgentResult<RecordWithdrawalResult> {
     let host = store.gui_commit_host(&request.binding)?;
     let db = host.database()?;
-    let permit = host.fence().enter()?;
+    drop(host.fence().enter()?);
     let (result, changes) = capture_committed(host.binding(), &db, &request.request_id, || {
         db.agent_file_creation_restore(request, host.binding(), input)
     })?;
     drop(db);
-    drop(permit);
     if let Some(changes) = changes {
         store.publish_committed(changes);
     }
