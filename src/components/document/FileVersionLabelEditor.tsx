@@ -56,7 +56,10 @@ function VersionLabelForm({ version, onSave, disabled = false }: FileVersionLabe
         setSaved(true);
       }
     } catch (cause) {
-      if (active.current) setError(cause instanceof Error && cause.message ? cause.message : typeof cause === "string" && cause ? cause : "保存失败，请重试。");
+      if (active.current) {
+        const message = cause instanceof Error ? cause.message : typeof cause === "string" ? cause : "";
+        setError(message.trim() ? message : "保存失败，请重试。");
+      }
     } finally {
       saving.current = false;
       if (active.current) setPending(false);

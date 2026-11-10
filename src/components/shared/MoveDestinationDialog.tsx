@@ -63,7 +63,8 @@ export function MoveDestinationDialog({
       await onMove(selected);
     } catch (cause) {
       if (!active.current) return;
-      setMoveError(cause instanceof Error ? cause.message : typeof cause === "string" ? cause : "移动失败，请重试。");
+      const message = cause instanceof Error ? cause.message : typeof cause === "string" ? cause : "";
+      setMoveError(message.trim() ? message : "移动失败，请重试。");
       submitting.current = false;
       setPending(false);
       return;

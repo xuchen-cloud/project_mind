@@ -1,6 +1,6 @@
 import { act } from "react";
 import { render, renderHook, screen, waitFor } from "@testing-library/react";
-import { useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 type DragDropPayload =
@@ -365,5 +365,84 @@ describe("useWindowFileDrop", () => {
     expect(onDrop).not.toHaveBeenCalled();
     expect(onHoverPosition).toHaveBeenLastCalledWith(null);
     expect(onHoverChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it("delivers only one drop per drag even while pending, after completion, or after leave", async () => {
+    let finish!: () => void;
+    const pending = new Promise<void>((resolve) => { finish = resolve; });
+    const onDrop = vi.fn(() => pending);
+    renderHook(() => useWindowFileDrop({ onDrop }));
+    const payload: DragDropPayload = { type: "drop", paths: ["/tmp/file.pdf"], position: { x: 10, y: 20 } };
+    let first: void | Promise<void>;
+    act(() => { first = tauriWindowMocks.emit({ payload }); });
+    let duplicate: void | Promise<void>;
+    act(() => { duplicate = tauriWindowMocks.emit({ payload }); });
+    expect(onDrop).toHaveBeenCalledTimes(1);
+    await act(async () => { finish(); await first; await duplicate; });
+    await act(async () => {
+      await tauriWindowMocks.emit({ payload });
+      await tauriWindowMocks.emit({ payload: { type: "leave" } });
+      await tauriWindowMocks.emit({ payload });
+    });
+    expect(onDrop).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["enter", "over"] as const)("allows the next drag after a new %s event", async (type) => {
+    const onDrop = vi.fn();
+    renderHook(() => useWindowFileDrop({ onDrop }));
+    const position = { x: 10, y: 20 };
+    const payload: DragDropPayload = { type: "drop", paths: ["/tmp/file.pdf"], position };
+    await act(async () => {
+      await tauriWindowMocks.emit({ payload });
+      await tauriWindowMocks.emit({ payload: type === "enter" ? { type, paths: ["/tmp/file.pdf"], position } : { type, position } });
+      await tauriWindowMocks.emit({ payload });
+      await tauriWindowMocks.emit({ payload });
+    });
+    expect(onDrop).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["throw", "reject"])("does not retry a failed %s until the user drags in again", async (failureMode) => {
+    const failure = new Error("Import failed");
+    const onDrop = vi.fn<() => void | Promise<unknown>>(() => undefined);
+    onDrop.mockImplementationOnce(() => {
+      if (failureMode === "throw") throw failure;
+      return Promise.reject(failure);
+    });
+    renderHook(() => useWindowFileDrop({ onDrop }));
+    const payload: DragDropPayload = { type: "drop", paths: ["/tmp/file.pdf"], position: { x: 10, y: 20 } };
+    await act(async () => {
+      await expect(tauriWindowMocks.emit({ payload })).rejects.toBe(failure);
+      await tauriWindowMocks.emit({ payload });
+      await tauriWindowMocks.emit({ payload: { type: "leave" } });
+      await tauriWindowMocks.emit({ payload });
+    });
+    expect(onDrop).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await tauriWindowMocks.emit({ payload: { type: "over", position: { x: 10, y: 20 } } });
+      await tauriWindowMocks.emit({ payload });
+    });
+    expect(onDrop).toHaveBeenCalledTimes(2);
+  });
+
+  it("ignores native events after disable commits but before passive cleanup", async () => {
+    const onDrop = vi.fn();
+    const onHoverPosition = vi.fn();
+    const onHoverChange = vi.fn();
+    const { rerender } = renderHook(({ enabled }) => {
+      useWindowFileDrop({ enabled, onDrop, onHoverPosition, onHoverChange });
+      useLayoutEffect(() => {
+        if (!enabled) {
+          expect(unlisten).not.toHaveBeenCalled();
+          void tauriWindowMocks.emit({ payload: { type: "over", position: { x: 10, y: 20 } } });
+          void tauriWindowMocks.emit({ payload: { type: "drop", paths: ["/tmp/file.pdf"], position: { x: 10, y: 20 } } });
+        }
+      }, [enabled]);
+    }, { initialProps: { enabled: true } });
+    const unlisten = await tauriWindowMocks.onDragDropEvent.mock.results[0].value;
+    rerender({ enabled: false });
+    expect(onDrop).not.toHaveBeenCalled();
+    expect(onHoverPosition.mock.calls).toEqual([[null]]);
+    expect(onHoverChange.mock.calls).toEqual([[false]]);
+    expect(unlisten).toHaveBeenCalledOnce();
   });
 });
