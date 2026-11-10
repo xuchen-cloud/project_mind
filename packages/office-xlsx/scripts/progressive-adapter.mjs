@@ -33,10 +33,13 @@ export function adaptProgressiveSync(source) {
   source = replace(source,
     'worksheet.getRange(range.startRow, range.startColumn, rows, columns).setValues(matrix)',
     'window.__projectMindSheetsHost.writeStreamedCells(worksheet, range, matrix, pinnedKeys)')
+  source = replace(source, '    worksheet\n      .getRange(row, column, 1, 1)\n      .setValues([',
+    '    window.__projectMindSheetsHost.writeStreamedCells(worksheet,\n      {startRow: row, endRow: row, startColumn: column, endColumn: column}, [')
   source = replace(source, '    const cellRange = worksheet.getRange(entry.row, entry.column, 1, 1)',
-    `    const cellRange = worksheet.getRange(entry.row, entry.column, 1, 1)
+    `    const replayValues = (matrix: ICellData[][]) => window.__projectMindSheetsHost.writeStreamedCells(worksheet,
+      {startRow: entry.row, endRow: entry.row, startColumn: entry.column, endColumn: entry.column}, matrix)
     // Formatting replay must carry the current formula through SetRangeValues.
-    const replayStyle = (patch: ICellData) => cellRange.setValues([[{
+    const replayStyle = (patch: ICellData) => replayValues([[{
       ...worksheet.getSheet().getCellRaw(entry.row, entry.column), ...patch,
     }]])`)
   source = replace(source, 'cellRange.setValues([[{ s: null } as unknown as ICellData]])', 'replayStyle({ s: null })')
@@ -44,6 +47,16 @@ export function adaptProgressiveSync(source) {
     'replayStyle({ s: fromNeutralStyle(entry.style) as IStyleData })')
   source = replace(source, 'cellRange.setValues([[{ custom: { ...existing, ...flags } }]])',
     'replayStyle({ custom: { ...existing, ...flags } })')
+  source = replace(source, 'worksheet.getRange(startRow, startColumn, rows, columns).setValues(matrix)',
+    'window.__projectMindSheetsHost.writeStreamedCells(worksheet, {startRow, startColumn, endRow, endColumn}, matrix)')
+  const overlayStart = source.indexOf('export function applyJournalOverlay(')
+  const overlayEnd = source.indexOf('\n/// Formulas that use defined names', overlayStart)
+  if (overlayStart < 0 || overlayEnd < 0) throw Error('Journal projection integration point changed')
+  const overlay = source.slice(overlayStart, overlayEnd)
+    .replaceAll('cellRange.setValues(', 'replayValues(')
+    .replace('cellRange.clearContent()', 'replayValues([[{ v: null, p: null, f: null, si: null, custom: null }]])')
+  if (overlay.includes('cellRange.')) throw Error('Journal projection still uses editing commands')
+  source = source.slice(0, overlayStart) + overlay + source.slice(overlayEnd)
   source = source.replaceAll('if (result.indexingComplete) captureSheetFileState(state, sheetId, result)',
     'if (result.indexingComplete || result.metadataReady) captureSheetFileState(state, sheetId, result)')
   source = replace(source, '      if (result.indexingComplete) {\n        applySheetFilter(',

@@ -179,17 +179,78 @@ test('sparse viewport writes omit pinned formulas even when banding adds a style
   assert.equal(formulas.getValue(6,3),undefined)
 })
 
+test('readonly projection authorization rejects other commands, copied params and late reuse',()=>{
+  const gate=new streamedWrites.ProjectionMutationGate()
+  const id=streamedWrites.STREAMED_CELL_MUTATION
+  const params={unitId:'book',subUnitId:'sheet',cellValue:{6:{2:{v:8}}}}
+  assert.equal(gate.permits(id,params),false)
+  assert.throws(()=>gate.run(params,()=>{
+    assert.equal(gate.permits(id,params),true)
+    assert.equal(gate.permits('sheet.mutation.remove-worksheet',params),false)
+    assert.equal(gate.permits(id,{...params}),false)
+    assert.equal(gate.permits(id,null),false)
+    assert.equal(gate.permits(id,{...params},{onlyLocal:true}),false)
+    assert.equal(gate.permits(id,{...params,unitId:'other'},{onlyLocal:true,fromFormula:true}),false)
+    assert.equal(gate.permits('formula.mutation.set-formula-data',{formulaData:{other:{sheet:{}}}},{onlyLocal:true}),false)
+    throw Error('projection interrupted')
+  }),/projection interrupted/)
+  assert.equal(gate.permits(id,params),false,'failure revokes authorization synchronously')
+  gate.run(params,()=>assert.equal(gate.permits(id,params),true))
+  assert.equal(gate.permits(id,params),false,'success also revokes authorization')
+})
+
+test('readonly projection permits the shipped formula observer children within their source scope',()=>{
+  const source=readFileSync(new URL('../node_modules/@univerjs/sheets-formula/lib/es/index.js',import.meta.url),'utf8')
+  const start=source.indexOf('\t_handleSetRangeValuesMutation(params) {'),end=source.indexOf('\n\t_handleWorkbookDisposed(',start)
+  assert(start>=0&&end>start)
+  const api={}
+  runInNewContext('exports.observe=function(params) {'+source.slice(start,end).split('\n').slice(1,-1).join('\n')+'\n}',{exports:api,
+    SetRangeValuesMutation:{id:streamedWrites.STREAMED_CELL_MUTATION},SetFormulaDataMutation:{id:'formula.mutation.set-formula-data'},SetArrayFormulaDataMutation:{id:'formula.mutation.set-array-formula-data'},formulaDataToCellData:()=>({6:{2:{f:'=A1+1'}}})})
+  const gate=new streamedWrites.ProjectionMutationGate(),params={unitId:'book',subUnitId:'sheet',cellValue:{6:{2:{f:'=A1+1'}}}},children=[]
+  const arrays={book:{sheet:{}}}
+  const observer={_formulaDataModel:{updateFormulaData:()=>({6:{2:{f:'=A1+1'}}}),updateArrayFormulaCellData:()=>false,updateArrayFormulaRange:()=>false,getArrayFormulaRange:()=>arrays,getArrayFormulaCellData:()=>arrays,updateImageFormulaData(){}},
+    _commandService:{executeCommand(id,child,options){assert.equal(gate.permits(id,child,options),true,id);children.push({id,child,options})}}}
+  gate.run(params,()=>api.observe.call(observer,params))
+  assert.equal(children.length,3)
+  for(const child of children)assert.equal(gate.permits(child.id,child.child,child.options),false,'observer authorization expires with projection')
+})
+
 test('journal formatting replay preserves formula identity through style reset and protection flags',()=>{
   const source=adaptProgressiveSync(readFileSync(new URL('../vendor/apps/sheets/src/renderer/univer-sync.ts',import.meta.url),'utf8'))
   const start=source.indexOf('export function applyJournalOverlay('),end=source.indexOf('\n/// Formulas that use defined names',start)
   const api={}
   const cell={f:'=B5000+1',v:8,s:{bl:0}}
-  const worksheet={getSheetId:()=> 'sheet',getSheet:()=>({getCellRaw:()=>cell}),getRange:()=>({setValues(matrix){const next=matrix[0][0];if(!next.f)delete cell.f;Object.assign(cell,next)}})}
+  const worksheet={getSheetId:()=> 'sheet',getSheet:()=>({getCellRaw:()=>cell}),getRange(){throw Error('journal projection used editing facade')}}
   const code=ts.transpileModule(source.slice(start,end),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText
-  runInNewContext(code,{exports:api,journalEntriesInRange:()=>[{row:6,column:2,hasValue:false,styleReset:true,style:{bold:true,protectionLocked:true}}],fromNeutralStyle:()=>({bl:1}),CELL_LOCKED_KEY:'locked',CELL_HIDDEN_KEY:'hidden'})
+  runInNewContext(code,{exports:api,window:{__projectMindSheetsHost:{writeStreamedCells(_sheet,_range,matrix){const next=matrix[0][0];if(!next.f)delete cell.f;Object.assign(cell,next)}}},journalEntriesInRange:()=>[{row:6,column:2,hasValue:false,styleReset:true,style:{bold:true,protectionLocked:true}}],fromNeutralStyle:()=>({bl:1}),CELL_LOCKED_KEY:'locked',CELL_HIDDEN_KEY:'hidden'})
   api.applyJournalOverlay(worksheet,{bulkConstantFills:new Map()},{startRow:6,endRow:6,startColumn:2,endColumn:2})
   assert.equal(cell.f,'=B5000+1')
   assert.equal(cell.v,8)
   assert.equal(cell.s.bl,1)
   assert.equal(cell.custom.locked,true)
+})
+
+test('journal value, formula, clear and bulk-fill replay use projection writes in readonly views',()=>{
+  const source=adaptProgressiveSync(readFileSync(new URL('../vendor/apps/sheets/src/renderer/univer-sync.ts',import.meta.url),'utf8'))
+  const start=source.indexOf('export function applyJournalOverlay('),end=source.indexOf('\n/// Formulas that use defined names',start)
+  const api={},writes=[]
+  const worksheet={getSheetId:()=> 'sheet',getRange(){throw Error('journal projection used editing facade')}}
+  runInNewContext(ts.transpileModule(source.slice(start,end),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:api,
+    window:{__projectMindSheetsHost:{writeStreamedCells(_sheet,range,matrix){writes.push([range.startRow,matrix[0][0]])}}},bulkConstantFillValueAt:()=>({found:true,value:5}),
+    journalEntriesInRange:()=>[{row:0,column:0,hasValue:true,formula:'=A2+1'},{row:1,column:0,hasValue:true,value:null},{row:2,column:0,hasValue:true,value:9}]})
+  api.applyJournalOverlay(worksheet,{bulkConstantFills:new Map([['sheet',[{startRow:10,endRow:10,startColumn:0,endColumn:0}]]])},{startRow:0,endRow:10,startColumn:0,endColumn:0})
+  assert.deepEqual(JSON.parse(JSON.stringify(writes)),[[10,{v:5}],[0,{f:'=A2+1'}],[1,{v:null,p:null,f:null,si:null,custom:null}],[2,{v:9}]])
+})
+
+test('native recalculation overlays project after result delivery and viewport reload without editing commands',()=>{
+  const source=adaptProgressiveSync(readFileSync(new URL('../vendor/apps/sheets/src/renderer/univer-sync.ts',import.meta.url),'utf8'))
+  const start=source.indexOf('function applyPinnedOverlay('),end=source.indexOf('\nexport function applyJournalOverlay(',start)
+  const api={},writes=[]
+  const worksheet={getRange(){throw Error('native result projection used editing facade')}}
+  runInNewContext(ts.transpileModule(source.slice(start,end)+'\nexports.apply=applyPinnedOverlay',{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:api,
+    window:{__projectMindSheetsHost:{writeStreamedCells(_sheet,range,matrix){writes.push([range.startRow,matrix[0][0]])}}},cachedFormulaCellData:(f,v)=>({f,v}),CellValueType:{STRING:1}})
+  const overlay=new Map([['6:2',{f:'=A1+1',v:8}],['499:1',{v:9}],['999:0',{v:10}]])
+  api.apply(worksheet,overlay,undefined,{startRow:0,endRow:10,startColumn:0,endColumn:2})
+  api.apply(worksheet,overlay,{startRow:0,endRow:10,startColumn:0,endColumn:2},{startRow:490,endRow:510,startColumn:0,endColumn:2})
+  assert.deepEqual(JSON.parse(JSON.stringify(writes)),[[6,{f:'=A1+1',v:8}],[6,{f:'=A1+1',v:8}],[499,{v:9}]])
 })
