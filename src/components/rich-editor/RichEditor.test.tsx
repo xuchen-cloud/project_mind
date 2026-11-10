@@ -5081,6 +5081,43 @@ describe("RichEditor context menus", () => {
     ensureSyncSpy.mockRestore();
   });
 
+  it.each([
+    [false, "接受"], [true, "接受"], [false, "撤销"], [true, "撤销"],
+  ] as const)("preserves authored empties through a terminal heading preview (stable=%s, %s)", async (stable, action) => {
+    const user = userEvent.setup();
+    const job = mockEditorSkillJob(54);
+    const onAiCommit = vi.fn();
+    const { container } = render(<RichEditor variant="bare"
+      recordKey={stable ? "workspace/record/stream-tail" : undefined}
+      defaultHtml="<p>Before</p><p></p><p>hello world</p>" onAiCommit={onAiCommit}
+      aiSettings={{ profiles: [], bindings: [], hasUsableDefault: true,
+        securityMode: "workspace_password_encrypted", aiSecretsUnlocked: true,
+        execution: { maxConcurrency: 1 }, network: { mode: "system", proxyUrl: null, username: null, hasStoredPassword: false },
+        editorSkills: [{id: "stream-tail", name: "润色", icon: null, description: null, prompt: "请润色",
+          resultMode: "modify", showInTextMenu: true, sortOrder: 1, enabled: true, createdAt: "", updatedAt: ""}],
+      }} />);
+    const surface = await waitFor(() => container.querySelector(".ProseMirror") as HTMLElement);
+    const text = surface.querySelector("p:last-child")!.firstChild as Text;
+    fireEvent.focus(surface); selectTextContent(text, 0, 5);
+    fireEvent.contextMenu(text.parentElement!, {clientX: 20, clientY: 20});
+    await user.click(within(await screen.findByRole("menu", {name: "文本操作"})).getByRole("menuitem", {name: "润色"}));
+    await waitFor(() => expect(job.getTargetKey()).toContain("editor-skill:"));
+    const base = {id: 54, kind: "editor_skill" as const, targetKey: job.getTargetKey(), queuedAt: "", startedAt: "", errorMessage: null};
+    useAiJobStore.getState().upsertJob({...base, status: "running", finishedAt: null, streamText: "## Inserted heading", result: null});
+    await waitFor(() => expect(surface.querySelector("h2")?.textContent).toBe("Inserted heading"));
+    const markdown = "## Inserted heading\n\nFinal authored paragraph.";
+    useAiJobStore.getState().upsertJob({...base, status: "succeeded", finishedAt: "", streamText: markdown,
+      result: {kind: "editor_skill", rewrite: {skillId: "stream-tail", resultMode: "modify", content: markdown, resolvedModel: "mock"}}});
+    await waitFor(() => expect(screen.getByRole("button", {name: action})).toBeEnabled());
+    await user.click(screen.getByRole("button", {name: action}));
+    await waitFor(() => expect([...surface.querySelectorAll("p")].map(p => p.textContent)).toEqual(
+      action === "接受" ? ["Before", "", "Final authored paragraph."] : ["Before", "", "hello world"],
+    ));
+    expect(surface.lastElementChild?.textContent).toBe(action === "接受" ? "Final authored paragraph." : "hello world");
+    expect(onAiCommit).toHaveBeenCalledTimes(action === "接受" ? 1 : 0);
+    job.restore();
+  });
+
   it("keeps the original AI Modification visible until streamed Markdown is complete and visible", async () => {
     const user = userEvent.setup();
     const job = mockEditorSkillJob(53);
@@ -5391,13 +5428,13 @@ describe("RichEditor context menus", () => {
       startedAt: "",
       finishedAt: "",
       errorMessage: null,
-      streamText: "## 分析\n- 第一条\n- 第二条",
+      streamText: "## 分析\n- 第一条\n- 第二条\n\n| 名称 | 状态 |\n| --- | --- |\n| Alpha | 完成 |",
       result: {
         kind: "editor_skill",
         rewrite: {
           skillId: "explain",
           resultMode: "answer",
-          content: "## 分析\n- 第一条\n- 第二条",
+          content: "## 分析\n- 第一条\n- 第二条\n\n| 名称 | 状态 |\n| --- | --- |\n| Alpha | 完成 |",
           resolvedModel: "mock-model",
         },
       },
@@ -5407,6 +5444,10 @@ describe("RichEditor context menus", () => {
 
     await waitFor(() => {
       expect(container.querySelector(".ProseMirror h2")?.textContent).toBe("分析");
+      const table = container.querySelector(".ProseMirror blockquote table");
+      expect(table?.querySelectorAll("th")).toHaveLength(2);
+      expect(table?.querySelectorAll("td")).toHaveLength(2);
+      expect(table?.textContent).toContain("Alpha完成");
       expect(Array.from(container.querySelectorAll(".ProseMirror li")).map((item) => item.textContent)).toEqual([
         "第一条",
         "第二条",
@@ -6172,6 +6213,60 @@ describe("RichEditor focus and blur persistence", () => {
     await secondSave;
     expect(secondFinished).toBe(true);
     expect(onSave).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["saved", "unknown native result"] as const)("settles a queued save when composition blocks its continuation after %s", async (nativeOutcome) => {
+    const user = userEvent.setup();
+    let finishNative!: () => void;
+    let rejectNative!: (reason: Error) => void;
+    const onSave = vi.fn(async (_value: import("./types").RichEditorValue) => {});
+    onSave.mockImplementationOnce(() => new Promise<void>((resolve, reject) => {
+      finishNative = resolve;
+      rejectNative = reject;
+    }));
+    const controllerRef = { current: null as RichEditorController | null };
+    const view = render(<RichEditor variant="bare" defaultHtml="<p>original</p>"
+      controllerRef={controllerRef} onSave={onSave} />);
+    try {
+      const surface = await getEditorSurface(view.container);
+      await waitFor(() => expect(controllerRef.current).not.toBeNull());
+      await user.click(surface);
+      act(() => controllerRef.current!.focus("end"));
+      await waitFor(() => expect(surface).toHaveFocus());
+      let first!: Promise<unknown>;
+      act(() => { first = controllerRef.current!.save({ force: true }); });
+      expect(onSave).toHaveBeenCalledTimes(1);
+      await user.keyboard(" B");
+      expect(surface).toHaveTextContent("original B");
+      expect(controllerRef.current!.getCommittedValue().markdown).toBe("original B");
+      expect(controllerRef.current!.hasUnsavedCommittedContent()).toBe(true);
+      let queued!: Promise<unknown>;
+      let outcome: { kind: "pending" | "saved" | "rejected"; error?: unknown } = { kind: "pending" };
+      act(() => { queued = controllerRef.current!.save({ allowReadOnly: true }); });
+      void queued.then(() => { outcome = { kind: "saved" }; }, error => { outcome = { kind: "rejected", error }; });
+      act(() => fireEvent.compositionStart(surface));
+      // A separate preflight failure must not settle the still-running native A
+      // or the B caller already waiting for that cycle.
+      await act(async () => { await expect(controllerRef.current!.save({ allowReadOnly: true })).rejects.toThrow("正在输入"); });
+      expect(outcome.kind).toBe("pending");
+      expect(onSave).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        if (nativeOutcome === "saved") finishNative();
+        else rejectNative(new Error("unknown native result"));
+        await first;
+      });
+      // Observe settlement without awaiting the broken promise itself.
+      await waitFor(() => expect(outcome.kind, "P2 queued settlement after native completion").toBe("rejected"));
+      expect(String(outcome.error)).toContain(nativeOutcome === "saved" ? "正在输入" : "unknown native result");
+      expect(onSave).toHaveBeenCalledTimes(1);
+      expect(view.container.querySelector(".ProseMirror")).toBe(surface);
+      expect(surface).toHaveTextContent("original B");
+      act(() => fireEvent.compositionEnd(surface));
+      await act(async () => { await controllerRef.current!.save({ allowReadOnly: true }); });
+      expect(onSave).toHaveBeenCalledTimes(2);
+      expect(onSave).toHaveBeenLastCalledWith(expect.objectContaining({ markdown: "original B" }));
+      expect(controllerRef.current!.hasUnsavedCommittedContent()).toBe(false);
+    } finally { view.unmount(); }
   });
 
   it("keeps the undo history after autosave normalizes the saved snapshot", async () => {

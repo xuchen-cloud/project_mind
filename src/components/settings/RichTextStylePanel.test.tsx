@@ -92,6 +92,22 @@ describe("RichTextStylePanel", () => {
     expect(screen.getAllByText("默认与正文同号、加粗").length).toBeGreaterThan(0);
   });
 
+  it("persists the whole default profile even when settings close immediately after reset", async () => {
+    richTextStyleSnapshot.body.fontSizePx = 17;
+    richTextStyleSnapshot.body.paragraphSpacingBeforePx = 19;
+    richTextStyleSnapshot.headings.h2SizePx = 27;
+    richTextStyleSnapshot.list.lineHeight = 1.9;
+    const user = userEvent.setup();
+    const panel = renderPanel();
+    const reset = await screen.findByRole("button", { name: "恢复默认" });
+    await waitFor(() => expect(reset).toBeEnabled());
+    await user.click(reset);
+    panel.unmount();
+    await waitFor(() => expect(mockRichTextStyleUpsert.mock.calls.at(-1)?.[0]).toEqual(DEFAULT_RICH_TEXT_STYLE_SETTINGS));
+    expect(richTextStyleSnapshot).toEqual(DEFAULT_RICH_TEXT_STYLE_SETTINGS);
+    expect(richTextStyleSnapshot.body.paragraphSpacingBeforePx).toBe(8);
+  });
+
   it("saves a system font selection when the current device reports installed fonts", async () => {
     const user = userEvent.setup();
 

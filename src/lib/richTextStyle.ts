@@ -11,7 +11,7 @@ export const DEFAULT_RICH_TEXT_STYLE_SETTINGS: RichTextStyleSettings = {
     fontFamily: createPresetFontSelection("workspace_sans"),
     fontSizePx: 14,
     lineHeight: 1.6,
-    paragraphSpacingBeforePx: 12,
+    paragraphSpacingBeforePx: 8,
     paragraphSpacingAfterPx: 0,
   },
   headings: {

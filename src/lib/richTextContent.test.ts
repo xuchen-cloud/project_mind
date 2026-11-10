@@ -27,6 +27,33 @@ describe("renderMarkdownToHtml", () => {
     expect(renderMarkdownToHtml("   ")).toBe(EMPTY_RICH_TEXT_HTML);
   });
 
+  it("keeps an AI answer table inside its quote with surrounding prose", () => {
+    const html = renderMarkdownToHtml([
+      "> 说明", ">", "> | 名称 | 状态 |", "> | --- | --- |",
+      "> | Alpha | **完成** |", ">", "> 后续说明",
+    ].join("\n"));
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const quote = doc.body.querySelector("blockquote");
+    expect(quote?.querySelectorAll("table")).toHaveLength(1);
+    expect(quote?.querySelectorAll("th")).toHaveLength(2);
+    expect(quote?.querySelector("td strong")?.textContent).toBe("完成");
+    expect(quote?.firstElementChild?.textContent).toBe("说明");
+    expect(quote?.lastElementChild?.textContent).toBe("后续说明");
+    expect(doc.body.children).toHaveLength(1);
+  });
+
+  it("renders nested quoted tables while leaving fenced table examples as code", () => {
+    const html = renderMarkdownToHtml([
+      "> 外层", ">", "> > | Name | Value |", "> > | --- | ---: |", "> > | A | 2 |",
+      "", "```md", "| Literal | Code |", "| --- | --- |", "| B | 3 |", "```",
+    ].join("\n"));
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    expect(doc.querySelectorAll("blockquote blockquote table")).toHaveLength(1);
+    expect(doc.querySelectorAll("table")).toHaveLength(1);
+    expect(doc.querySelector("td[style='text-align:right']")?.textContent).toBe("2");
+    expect(doc.querySelector("pre code")?.textContent).toContain("| Literal | Code |");
+  });
+
   it("restores contacts alongside internal references", () => {
     const html = renderMarkdownToHtml(
       "联系 @[contact:7|张三]，查看 [[note:12|访谈记录]]，标签 #[tag:5|客户|blue]。",

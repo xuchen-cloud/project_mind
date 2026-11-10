@@ -10769,7 +10769,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
         assert_eq!(settings.body.font_family.value, "workspace_sans");
         assert_eq!(settings.body.font_size_px, 14);
         assert_eq!(settings.body.line_height, 1.6);
-        assert_eq!(settings.body.paragraph_spacing_before_px, 12);
+        assert_eq!(settings.body.paragraph_spacing_before_px, 8);
         assert_eq!(settings.body.paragraph_spacing_after_px, 0);
         assert_eq!(settings.headings.h1_size_px, 24);
         assert_eq!(settings.headings.h2_size_px, 20);
@@ -12847,7 +12847,7 @@ fn default_rich_text_style_settings() -> RichTextStyleSettings {
             font_family: preset_font_selection("workspace_sans"),
             font_size_px: 14,
             line_height: 1.6,
-            paragraph_spacing_before_px: 12,
+            paragraph_spacing_before_px: 8,
             paragraph_spacing_after_px: 0,
         },
         headings: crate::models::RichTextHeadingStyleSettings {

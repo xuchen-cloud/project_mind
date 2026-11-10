@@ -1,3 +1,4 @@
+import { flushPendingEditorDom, setEditablePreservingPendingDom } from "./pending-editor-dom";
 import { buildEditorTextContextMenuActions, buildTableContextMenuActions, buildTableToolbarGroups } from "./editorContextMenu";
 import { validateInternalReferenceSourceRef } from "../../lib/internalReferences";
 import { agentApi } from "../../services/agentApi";
@@ -1980,8 +1981,12 @@ export function RichEditor({
         return undefined;
       }
 
+      if (editor.isDestroyed) throw new Error("编辑器已关闭，无法保存");
       if (options?.allowReadOnly && (editor.view.composing || assetBusyRef.current !== null)) {
         throw new Error("QuickNote 正在输入或处理附件，请稍后重试保存");
+      }
+      if (!flushPendingEditorDom(editor)) {
+        throw new Error("编辑器正在输入，请稍后重试保存");
       }
       clearChangePublishTimer();
       clearPersistTimer();
@@ -2059,8 +2064,15 @@ export function RichEditor({
           }
 
           if (latestSnapshot.html !== lastPersistedHtmlRef.current) {
-            void persistEditor("queued").catch(() => {
-              // The caller owns error presentation.
+            const queuedCycle = saveCycleRef.current;
+            void persistEditor("queued").catch((error) => {
+              // A queued preflight can fail before owning a native save/finally.
+              // Settle its waiting callers only if no later save took ownership.
+              if (queuedCycle && saveCycleRef.current === queuedCycle && !saveInFlightRef.current) {
+                saveCycleRef.current = null;
+                updatePersistState("error");
+                queuedCycle.reject(queuedCycle.error ?? error);
+              }
             });
             return;
           }
@@ -2231,7 +2243,7 @@ export function RichEditor({
       return;
     }
 
-    editor.setEditable(!effectiveReadOnly);
+    setEditablePreservingPendingDom(editor, !effectiveReadOnly);
   }, [editor, effectiveReadOnly]);
 
   useEffect(() => {
@@ -2508,7 +2520,7 @@ export function RichEditor({
         ? Object.keys(EDITOR_REWRITE_PROTECTION_PLUGIN_KEY.getState(editor.state) ?? {}).length
         : 0,
       getPendingAiReviewCount: () => rewriteSessionsRef.current.length,
-      hasUnsavedCommittedContent: () => !!editor && captureCommittedValue(editor).html !== lastPersistedHtmlRef.current,
+      hasUnsavedCommittedContent: () => !!editor && (!flushPendingEditorDom(editor) || captureCommittedValue(editor).html !== lastPersistedHtmlRef.current),
       acknowledgeCommittedContent: (value) => {
         lastPersistedHtmlRef.current = value.html;
         if (editor && captureCommittedValue(editor).html === value.html) updatePersistState("saved");
@@ -2566,7 +2578,7 @@ export function RichEditor({
         publishChangeSnapshot(snapshot, { immediate: true, sync: true });
         updatePersistState(nextHtml === EMPTY_RICH_EDITOR_HTML ? "idle" : "saved");
       },
-      setEditable: (editable) => editor?.setEditable(editable && !effectiveReadOnly),
+      setEditable: (editable) => { if (editor) setEditablePreservingPendingDom(editor, editable && !effectiveReadOnly); },
     };
 
     return () => {

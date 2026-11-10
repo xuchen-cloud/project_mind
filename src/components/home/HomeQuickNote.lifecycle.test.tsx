@@ -1,3 +1,4 @@
+import { flushSync } from "react-dom";
 import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeAll, expect, it, vi } from "vitest";
@@ -114,6 +115,102 @@ it("retains a real QuickNote draft while nested shutdown holds block editing and
     expect(persist).toHaveBeenLastCalledWith(expect.objectContaining({ markdown: expect.stringContaining("AFTER ABORT") }));
     expect(view.container.querySelector(".ProseMirror")).toBe(surface);
   } finally { first(); second(); view.unmount(); }
+});
+
+it.each(["close", "hide", "hold"] as const)("retains pending browser DOM input across immediate %s and failed persistence", async (transition) => {
+  const scope = { workspaceRoot: "/pending-browser-input", projectId: 1 };
+  const controllerRef = { current: null as RichEditorController | null };
+  const initial = { html: "<p>original</p>", markdown: "original", text: "original" };
+  let failing = true;
+  const persist = vi.fn(async (value: typeof initial) => {
+    if (failing) throw new Error("native save rejection");
+    return value;
+  });
+  const ui = (visible: boolean) => <HomeQuickNote identity="pending-browser-input" scope={scope}
+    editorControllerRef={controllerRef} initialValue={initial} records={[]} persist={persist}
+    commit={async () => ({})} onClear={() => {}}
+    renderEditor={options => <RichEditor variant="bare" html={initial.html} controllerRef={options.controllerRef}
+      readOnly={!visible || options.readOnly} onSave={options.onSave} onChange={options.onChange}
+      onPersistStateChange={options.onPersistStateChange} autosave={{ delay: 120000, onBlur: true }} />} />;
+  const view = render(ui(true));
+  let release = () => {};
+  try {
+    await waitFor(() => expect(controllerRef.current).not.toBeNull());
+    const surface = view.container.querySelector<HTMLElement>(".ProseMirror")!;
+    const button = view.container.querySelector<HTMLButtonElement>('button[aria-label="展开 QuickNote"]')!;
+    let saving!: Promise<void>;
+    act(() => {
+      surface.focus();
+      // A browser edit changes DOM before MutationObserver has delivered it to PM.
+      surface.querySelector("p")!.firstChild!.textContent = "original PENDING DOM";
+      button.focus(); // PM blur queues the unread mutations on its 20ms timer.
+      if (transition === "hold") release = holdQuickNotes();
+      if (transition === "hide") flushSync(() => view.rerender(ui(false)));
+      saving = flushQuickNotes(scope); // Deliberately no await since the DOM edit.
+    });
+    await act(async () => { await expect(saving).rejects.toThrow("native save rejection"); });
+    expect(view.container.querySelector(".ProseMirror")).toBe(surface);
+    expect(surface).toHaveTextContent("original PENDING DOM");
+    expect(persist).toHaveBeenLastCalledWith(expect.objectContaining({ markdown: "original PENDING DOM" }));
+    failing = false;
+    await act(async () => { await flushQuickNotes(scope); });
+    expect(controllerRef.current!.hasUnsavedCommittedContent()).toBe(false);
+    expect(persist).toHaveBeenLastCalledWith(expect.objectContaining({ markdown: "original PENDING DOM" }));
+    act(() => { release(); view.rerender(ui(true)); });
+    expect(surface).toHaveAttribute("contenteditable", "true");
+    expect(surface).toHaveTextContent("original PENDING DOM");
+  } finally { release(); view.unmount(); }
+});
+
+it.each(["hide", "hold", "hold-through-end"] as const)("fails closed during composition across %s without ending or discarding input", async (transition) => {
+  const scope = { workspaceRoot: "/composing-browser-input", projectId: 1 };
+  const controllerRef = { current: null as RichEditorController | null };
+  const initial = { html: "<p>original</p>", markdown: "original", text: "original" };
+  const persist = vi.fn(async (value: typeof initial) => value);
+  const ui = (visible: boolean) => <HomeQuickNote identity="composing-browser-input" scope={scope}
+    editorControllerRef={controllerRef} initialValue={initial} records={[]} persist={persist}
+    commit={async () => ({})} onClear={() => {}}
+    renderEditor={options => <RichEditor variant="bare" html={initial.html} controllerRef={options.controllerRef}
+      readOnly={!visible || options.readOnly} onSave={options.onSave} onChange={options.onChange}
+      onPersistStateChange={options.onPersistStateChange} autosave={{ delay: 120000 }} />} />;
+  const view = render(ui(true));
+  let release = () => {};
+  try {
+    await waitFor(() => expect(controllerRef.current).not.toBeNull());
+    const surface = view.container.querySelector<HTMLElement>(".ProseMirror")!;
+    act(() => {
+      surface.focus();
+      fireEvent.compositionStart(surface);
+      surface.querySelector("p")!.firstChild!.textContent = "original 输入";
+      if (transition !== "hide") release = holdQuickNotes();
+      else flushSync(() => view.rerender(ui(false)));
+    });
+    // Let readonly effects and PM's delayed work run while the real IME session
+    // remains open: a hold must not implicitly finish that session.
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)); });
+    await act(async () => { await expect(flushQuickNotes(scope)).rejects.toThrow("正在输入"); });
+    expect(persist).not.toHaveBeenCalled();
+    expect(surface).toHaveAttribute("contenteditable", "true");
+    expect(surface).toHaveTextContent("original 输入");
+    expect(() => assertQuickNotesSaved(scope)).toThrow("未保存");
+    if (transition !== "hold-through-end") {
+      act(() => { release(); view.rerender(ui(true)); });
+      await act(async () => { await expect(flushQuickNotes(scope)).rejects.toThrow("正在输入"); });
+    }
+    act(() => fireEvent.compositionEnd(surface));
+    await act(async () => { await flushQuickNotes(scope); });
+    if (transition === "hold-through-end") {
+      expect(surface).toHaveAttribute("contenteditable", "false");
+      act(() => release());
+    }
+    expect(persist).toHaveBeenLastCalledWith(expect.objectContaining({ markdown: "original 输入" }));
+    expect(view.container.querySelector(".ProseMirror")).toBe(surface);
+    expect(surface).toHaveAttribute("contenteditable", "true");
+    act(() => controllerRef.current!.focus("end"));
+    await userEvent.setup().keyboard(" AFTER ABORT");
+    await act(async () => { await flushQuickNotes(scope); });
+    expect(persist).toHaveBeenLastCalledWith(expect.objectContaining({ markdown: "original 输入 AFTER ABORT" }));
+  } finally { release(); view.unmount(); }
 });
 
 beforeAll(() => {

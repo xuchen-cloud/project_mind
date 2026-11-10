@@ -20,6 +20,8 @@ import { MermaidCodeBlock } from "./extensions/MermaidCodeBlock";
 import { ManagedTable } from "./extensions/ManagedTable";
 import { TagMention } from "./extensions/TagMention";
 import { StableRecordBlocks, type RecordClipboardOptions } from "./extensions/StableRecordBlocks";
+import { TextCaret } from "./extensions/TextCaret";
+import { PreviewTrailingNode } from "./extensions/PreviewTrailingNode";
 import { codeLanguageLabel, highlightCodeRanges, normalizeCodeLanguage } from "./codeHighlight";
 
 export const RICH_EDITOR_CODE_LANGUAGE_OPEN_EVENT =
@@ -180,12 +182,14 @@ export function buildRichEditorExtensions(placeholder: string, options: RecordCl
   return [
     StarterKit.configure({
       link: false,
+      trailingNode: false,
       heading: {
         levels: [1, 2, 3, 4],
       },
       codeBlock: false,
     }),
     MermaidCodeBlock.configure({ HTMLAttributes: { class: "rich-editor__code-block" } }),
+    PreviewTrailingNode,
     Highlight.configure({
       multicolor: false,
       HTMLAttributes: {
@@ -227,6 +231,7 @@ export function buildRichEditorExtensions(placeholder: string, options: RecordCl
     attachment,
     CodeBlockLanguageMetadata,
     CodeHighlightDecorations,
+    TextCaret,
     ...(options.stableBlocks ? [StableRecordBlocks.configure({ recordKey: options.recordKey ?? null,
       clipboardPayload: options.clipboardPayload, onCopied: options.onCopied,
       cutTransport: options.cutTransport, pasteCut: options.pasteCut })] : []),
