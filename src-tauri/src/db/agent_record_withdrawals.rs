@@ -281,11 +281,13 @@ fn require_no_incoming(conn: &Connection, object: &ObjectRef) -> AgentResult<()>
         if kind == target_kind && id == target_id {
             continue;
         }
-        if super::parse_internal_reference_tokens(&text)
-            .iter()
-            .any(|(kind, id)| kind == target_kind && *id == target_id)
-        {
-            return Err(conflict("Other objects now reference this Record"));
+        for (kind, id) in super::parse_internal_reference_tokens(&text) {
+            if !matches!(kind.as_str(), "note" | "workspace_record") { continue; }
+            if let Some(target) = super::record_owner_moves::resolve_legacy(conn, &kind, id)? {
+                if target.object_key(&object.workspace_id)? == key {
+                    return Err(conflict("Other objects now reference this Record"));
+                }
+            }
         }
     }
     Ok(())

@@ -63,7 +63,7 @@ impl Database {
         validate(source)?;
         // Authorize the current binding before disclosing even an unavailable
         // destination. The source reader then checks actual ownership/policy.
-        if source.object.kind != ObjectKind::Record {
+        if !matches!(source.object.kind, ObjectKind::Record | ObjectKind::Transcript) {
             request.authorize(binding, &source.object.scope, "source.read")?;
         }
         let authorized =

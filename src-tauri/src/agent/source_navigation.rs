@@ -147,7 +147,7 @@ pub(crate) fn agent_source_resolve(
                 "Workspace binding is no longer current",
             ));
         }
-        if input.data.object.kind == super::models::ObjectKind::Record {
+        if matches!(input.data.object.kind, super::models::ObjectKind::Record | super::models::ObjectKind::Transcript) {
             if let Some(actual) =
                 db.agent_resolve_object(&input.data.object, &binding.workspace_id)?
             {

@@ -26,7 +26,7 @@ impl Database {
         operation: &str,
     ) -> AgentResult<ObjectRef> {
         object.key()?;
-        if object.kind == ObjectKind::Record {
+        if matches!(object.kind, ObjectKind::Record | ObjectKind::Transcript) {
             if object.workspace_id != binding.workspace_id {
                 return Err(AgentError::new(ErrorCode::ScopeDenied, "Source is outside this Workspace"));
             }
