@@ -1097,12 +1097,8 @@ body:has(.workspace-topbar button[aria-label="切换右侧栏"]) .home-rail.is-c
 .home-note-page .rich-editor--page .rich-editor__frame,
 .home-note-page .rich-editor--page .rich-editor__surface { background:transparent; border:0; border-radius:0; box-shadow:none; }
 .home-note-page .rich-editor--page .rich-editor__surface { min-height:220px; padding:0 0 96px; }
-.home-note-page .rich-editor--page .ProseMirror { font-size:15px; line-height:1.75; color:var(--color-text); }
-.home-note-page .rich-editor--page .ProseMirror p { margin-block:0 12px; }
-.home-note-page .rich-editor--page .ProseMirror :is(h1,h2,h3,h4) { font-weight:600; line-height:1.4; margin:26px 0 10px; }
-.home-note-page .rich-editor--page .ProseMirror h1 { font-size:24px; }
-.home-note-page .rich-editor--page .ProseMirror h2 { font-size:21px; }
-.home-note-page .rich-editor--page .ProseMirror :is(h3,h4) { font-size:18px; }
+.home-note-page .rich-editor--page .ProseMirror { color:var(--color-text); }
+.home-note-page .rich-editor--page .ProseMirror :is(h1,h2,h3,h4) { font-weight:600; }
 .home-note-page .rich-editor--page .ProseMirror li { margin-block:6px; }
 .home-note-page .rich-editor--page .ProseMirror > :first-child { margin-top:0; }
 .home-window-shell .home-note-page .home-record-dock { top:calc(var(--home-sticky-gap) + 30px); }
