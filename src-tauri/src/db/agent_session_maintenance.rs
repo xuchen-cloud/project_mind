@@ -1,6 +1,6 @@
 //! Session message source events share the native change outbox.
 use super::{
-    agent_operations::{io_error, parse_scope_key},
+    agent_operations::io_error,
     Database,
 };
 use crate::agent::{
@@ -8,10 +8,13 @@ use crate::agent::{
     models::{ObjectKind, ObjectRef, Scope, WorkspaceBinding},
 };
 use chrono::Utc;
-use rusqlite::{params, Connection, Transaction, TransactionBehavior};
+use rusqlite::{params, Transaction, TransactionBehavior};
+#[cfg(test)]
+use {super::agent_operations::parse_scope_key, rusqlite::Connection};
 
 const UNSEEDED_CONDITION: &str = "r.object_key IS NULL OR r.deleted_at IS NOT NULL OR (r.event_revision!=i.text_hash AND COALESCE((SELECT l.revision FROM agent_change_log l WHERE l.object_key=r.object_key AND l.operation='session.message.index' ORDER BY l.seq DESC LIMIT 1),'')!=i.text_hash)";
 
+#[cfg(test)]
 fn session_scope(conn: &Connection, session_id: &str) -> AgentResult<Scope> {
     let key: String = conn
         .query_row(
@@ -42,6 +45,7 @@ fn append_event(
     Ok(())
 }
 
+#[cfg(test)]
 pub(super) fn session_message_changed(
     tx: &Transaction<'_>,
     workspace_id: &str,
@@ -53,6 +57,7 @@ pub(super) fn session_message_changed(
     append_event(tx, workspace_id, &scope, message_id, text_hash)
 }
 
+#[cfg(test)]
 pub(super) fn session_messages_deleted(
     tx: &Transaction<'_>,
     workspace_id: &str,

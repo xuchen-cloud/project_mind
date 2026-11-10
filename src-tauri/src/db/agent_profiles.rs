@@ -162,6 +162,7 @@ impl Database {
         })
     }
 
+    #[cfg(test)]
     /// Read by the trusted Host before deciding whether a real tool probe is needed.
     /// `supports_text` alone never creates a verification receipt.
     pub(crate) fn agent_profile_verified(&self, fingerprint: &str) -> AgentResult<bool> {

@@ -6,10 +6,13 @@ use super::{
 use crate::agent::{
     access::{Caller, RequestContext},
     errors::{AgentError, AgentResult, ErrorCode},
-    models::{ObjectKind, ObjectRef, Scope, WorkspaceBinding},
+    models::{ObjectRef, Scope, WorkspaceBinding},
 };
+#[cfg(test)]
+use crate::agent::models::ObjectKind;
 use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
 use std::collections::HashSet;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -257,6 +260,7 @@ impl Database {
         }
         tx.commit().map_err(io_error)
     }
+    #[cfg(test)]
     pub(crate) fn agent_run_provenance_begin(
         &self,
         request: &RequestContext,
@@ -316,6 +320,7 @@ impl Database {
         };
         self.agent_run_provenance_sources_visible(request, binding, &sources)
     }
+    #[cfg(test)]
     pub(crate) fn agent_run_context_check(
         &self,
         request: &RequestContext,
@@ -443,6 +448,7 @@ impl Database {
         tx.commit().map_err(io_error)?;
         Ok(allowed)
     }
+    #[cfg(test)]
     fn provenance_insert(
         &self,
         tx: &Transaction<'_>,

@@ -42,7 +42,7 @@ fn no_change(entry: &OperationEntry) -> bool {
 fn add_conflict(
     group: &mut OperationUndoGroup,
     reason: OperationBatchConflictReason,
-    ids: Vec<String>,
+    #[cfg(test)] ids: Vec<String>,
     message: &str,
 ) {
     let code = if reason == OperationBatchConflictReason::UnsupportedKind {
@@ -52,6 +52,7 @@ fn add_conflict(
     };
     group.conflicts.push(OperationBatchConflict {
         reason,
+        #[cfg(test)]
         operation_ids: ids,
         error: AgentError::new(code, message),
     });
@@ -163,6 +164,7 @@ pub(super) fn plan(
             add_conflict(
                 group,
                 OperationBatchConflictReason::UnsupportedKind,
+                #[cfg(test)]
                 vec![receipt.entry.operation_id.clone()],
                 "This receipt is not an original Record, Todo or File business operation",
             );
@@ -181,6 +183,7 @@ pub(super) fn plan(
                 add_conflict(
                     group,
                     OperationBatchConflictReason::CreationBoundary,
+                    #[cfg(test)]
                     vec![entry.operation_id.clone()],
                     "Object creation must begin the selected native operation chain",
                 );
@@ -199,6 +202,7 @@ pub(super) fn plan(
                 add_conflict(
                     group,
                     OperationBatchConflictReason::IncompleteBaseline,
+                    #[cfg(test)]
                     vec![entry.operation_id.clone()],
                     "Native receipt is missing its immutable revision baseline",
                 );
@@ -208,6 +212,7 @@ pub(super) fn plan(
                     add_conflict(
                         group,
                         OperationBatchConflictReason::RevisionGap,
+                        #[cfg(test)]
                         vec![previous.operation_id.clone(), entry.operation_id.clone()],
                         "Selected operations do not form a continuous native revision chain",
                     );
@@ -217,6 +222,7 @@ pub(super) fn plan(
                     add_conflict(
                         group,
                         OperationBatchConflictReason::SnapshotGap,
+                        #[cfg(test)]
                         vec![previous.operation_id.clone(), entry.operation_id.clone()],
                         "Immutable Todo or File snapshots differ at the same revision boundary",
                     );
@@ -269,6 +275,7 @@ pub(super) fn plan(
                 } else {
                     OperationBatchConflictReason::MissingLaterOperation
                 },
+                #[cfg(test)]
                 vec![id],
                 "A later native modification to this object is outside the selected chain",
             );

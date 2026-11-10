@@ -9,6 +9,7 @@ mod ai_network;
 mod agent_sessions;
 mod agent_session_maintenance;
 mod agent_session_summary;
+#[cfg(test)]
 pub(crate) mod agent_session_search;
 mod agent_session_search_schema;
 pub(crate) mod agent_run_provenance;

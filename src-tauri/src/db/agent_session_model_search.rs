@@ -4,17 +4,22 @@ use super::{
     Database,
 };
 use crate::agent::{
-    access::{Caller, RequestContext},
+    access::RequestContext,
     errors::{AgentError, AgentResult, ErrorCode},
     models::{ObjectKind, ObjectRef, Scope, SourceLocator, SourceRef, WorkspaceBinding},
 };
+#[cfg(test)]
+use crate::agent::access::Caller;
 use crate::source_service::SourceReadTarget;
 use rusqlite::{params, OptionalExtension};
+#[cfg(test)]
 use serde::{Deserialize, Serialize};
 
+#[cfg(test)]
 fn default_limit() -> u16 {
     8
 }
+#[cfg(test)]
 fn default_budget() -> usize {
     4000
 }
@@ -28,6 +33,7 @@ fn valid_id(id: &str) -> bool {
             .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct ModelHistorySearchInput {
@@ -47,6 +53,7 @@ pub(crate) struct ModelHistorySearchInput {
     pub budget_chars: usize,
 }
 
+#[cfg(test)]
 impl ModelHistorySearchInput {
     pub(crate) fn validate(&self) -> AgentResult<()> {
         if self.query.trim().is_empty()
@@ -72,6 +79,7 @@ impl ModelHistorySearchInput {
 #[path = "agent_session_model_search_tests.rs"]
 mod tests;
 
+#[cfg(test)]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ModelHistorySearchMatch {
@@ -83,6 +91,7 @@ pub(crate) struct ModelHistorySearchMatch {
     pub source_ref: SourceRef,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ModelHistorySearchPage {
@@ -91,6 +100,7 @@ pub(crate) struct ModelHistorySearchPage {
     pub coverage: ModelHistoryCoverage,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ModelHistoryCoverage {
@@ -173,6 +183,7 @@ impl Database {
         }
         Ok(record)
     }
+    #[cfg(test)]
     pub(crate) fn agent_model_session_source_record(
         &self,
         request: &RequestContext,
@@ -299,6 +310,7 @@ impl Database {
         Ok(record)
     }
 
+    #[cfg(test)]
     pub(crate) fn agent_model_session_search(
         &self,
         request: &RequestContext,

@@ -35,6 +35,7 @@ pub(crate) mod record_list;
 pub(crate) mod listing;
 pub(crate) mod file_list;
 pub(crate) mod record_outputs;
+#[cfg(test)]
 pub(crate) mod record_write_tools;
 pub mod repository;
 pub(crate) mod run_commands;

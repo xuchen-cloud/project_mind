@@ -1,11 +1,13 @@
 //! File read/upload wire DTOs and descriptors. Content writes remain outputs.
-use super::{
-    models::ObjectRef,
-    tools::{array, integer, nullable, object, object_ref_schema, text, ReadToolDescription},
-};
+use super::models::ObjectRef;
+#[cfg(test)]
+use super::tools::{array, integer, nullable, object, object_ref_schema, text, ReadToolDescription};
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
 use serde_json::{json, Value};
+#[cfg(test)]
 const SAFE_INTEGER: u64 = 9_007_199_254_740_991;
+#[cfg(test)]
 const CONTENT_BYTES: usize = 2 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
@@ -79,23 +81,29 @@ pub(crate) struct FileContentIdInput {
     #[schemars(length(min = 32, max = 32))]
     pub staged_content_id: String,
 }
+#[cfg(test)]
 pub(super) fn file_ref_schema() -> Value {
     let mut value = object_ref_schema();
     value["properties"]["kind"] = json!({"type":"string","maxLength":4,"const":"file"});
     value
 }
+#[cfg(test)]
 fn content_hash() -> Value {
     json!({"type":"string","minLength":71,"maxLength":71,"pattern":"^sha256:[0-9a-f]{64}$"})
 }
+#[cfg(test)]
 fn stage_id() -> Value {
     json!({"type":"string","minLength":32,"maxLength":32,"pattern":"^[0-9a-f]{32}$"})
 }
+#[cfg(test)]
 fn version_id() -> Value {
     json!({"type":"string","minLength":1,"maxLength":19,"pattern":"^[1-9][0-9]*$"})
 }
+#[cfg(test)]
 fn file_reference() -> Value {
     json!({"$ref":"#/$defs/FileObjectRef"})
 }
+#[cfg(test)]
 pub(super) fn file_intent_schemas() -> Vec<Value> {
     let mut old_text = text(1024 * 1024);
     old_text["minLength"] = json!(1);
@@ -155,9 +163,11 @@ pub(super) fn file_intent_schemas() -> Vec<Value> {
         ),
     ]
 }
+#[cfg(test)]
 pub(super) fn file_schema_definitions() -> Value {
     json!({"FileObjectRef":file_ref_schema()})
 }
+#[cfg(test)]
 pub(crate) fn file_tool_descriptions() -> Vec<ReadToolDescription> {
     let tool = |method: &'static str, description: &'static str, parameters| ReadToolDescription {
         name: format!("mind_{}", method.replace('.', "_")),

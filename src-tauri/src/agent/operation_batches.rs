@@ -72,6 +72,7 @@ pub(crate) enum OperationBatchUndoState {
 #[derive(Debug, Clone)]
 pub(crate) struct OperationBatchConflict {
     pub reason: OperationBatchConflictReason,
+    #[cfg(test)]
     pub operation_ids: Vec<String>,
     pub error: AgentError,
 }

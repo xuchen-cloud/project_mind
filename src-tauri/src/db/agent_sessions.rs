@@ -8,13 +8,17 @@ use crate::agent::{
     conversation::*,
     errors::{AgentError, AgentResult, ErrorCode},
     models::{Scope, WorkspaceBinding},
-    runtime::{RunEvent, RunEventKind, RunState},
 };
+#[cfg(test)]
+use crate::agent::runtime::{RunEvent, RunEventKind, RunState};
 use chrono::Utc;
+#[cfg(test)]
 use rand::RngCore;
 use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use serde_json::{json, Value};
+#[cfg(test)]
 use sha2::{Digest, Sha256};
+#[cfg(test)]
 use std::collections::HashSet;
 
 fn invalid(message: &str) -> AgentError {
@@ -30,6 +34,7 @@ fn validate_id(id: &str) -> AgentResult<()> {
     }
     Ok(())
 }
+#[cfg(test)]
 fn random_id() -> String {
     let mut bytes = [0u8; 16];
     rand::thread_rng().fill_bytes(&mut bytes);
@@ -41,6 +46,7 @@ fn limit_check(limit: u16, max: u16) -> AgentResult<()> {
     }
     Ok(())
 }
+#[cfg(test)]
 fn json_string(value: &impl serde::Serialize) -> AgentResult<String> {
     serde_json::to_string(value).map_err(|_| invalid("Invalid conversation payload"))
 }
@@ -48,6 +54,7 @@ fn stored_json(raw: &str) -> AgentResult<Value> {
     serde_json::from_str(raw)
         .map_err(|_| AgentError::new(ErrorCode::IoFailed, "Invalid stored conversation payload"))
 }
+#[cfg(test)]
 fn state_sql(state: RunState) -> &'static str {
     match state {
         RunState::Preparing => "preparing",
@@ -111,6 +118,7 @@ fn read_run(conn: &Connection, id: &str) -> AgentResult<StoredRun> {
         error_code: row.8,
     })
 }
+#[cfg(test)]
 fn projection_validate(projection: &VerifiedSessionProjection) -> AgentResult<()> {
     let cp = &projection.checkpoint;
     if cp.schema_version != 1
@@ -154,6 +162,7 @@ fn projection_validate(projection: &VerifiedSessionProjection) -> AgentResult<()
     }
     Ok(())
 }
+#[cfg(test)]
 fn projection_write(
     tx: &Transaction<'_>,
     workspace_id: &str,
@@ -263,6 +272,7 @@ impl Database {
         self.conversation_session(request, current, &run.session_id, operation)?;
         Ok(run)
     }
+    #[cfg(test)]
     /// Narrow trusted local GUI adapter: scope comes from the stored session,
     /// never from an object-ID command's arguments. Connections do not use this.
     pub(crate) fn agent_gui_session_request(
@@ -298,6 +308,7 @@ impl Database {
             .collect();
         Ok(request)
     }
+    #[cfg(test)]
     pub(crate) fn agent_gui_run_request(
         &self,
         binding: &WorkspaceBinding,
@@ -324,6 +335,7 @@ impl Database {
         let run = read_run(&self.conn, run_id)?;
         self.agent_gui_session_request(binding, current, request_id, &run.session_id, operations)
     }
+    #[cfg(test)]
     pub(crate) fn agent_session_create(
         &self,
         request: &RequestContext,
@@ -347,6 +359,7 @@ impl Database {
         self.conn.execute("INSERT INTO agent_sessions(id,scope_key,title,runtime_id,profile_override_id,state,session_path,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,'active',?6,?7,?7)",params![id,scope.key(),title,runtime_id,profile_override_id,format!(".project-mind/agent/sessions/{id}/session.jsonl"),now]).map_err(io_error)?;
         read_session(&self.conn, &id)
     }
+    #[cfg(test)]
     pub(crate) fn agent_sessions_list(
         &self,
         request: &RequestContext,
@@ -495,6 +508,7 @@ impl Database {
             next_ordinal,
         })
     }
+    #[cfg(test)]
     pub(crate) fn agent_session_archive(
         &self,
         request: &RequestContext,
@@ -532,6 +546,7 @@ impl Database {
         tx.commit().map_err(io_error)?;
         Ok(result)
     }
+    #[cfg(test)]
     pub(crate) fn agent_session_delete(
         &self,
         request: &RequestContext,
@@ -558,6 +573,7 @@ impl Database {
         tx.commit().map_err(io_error)?;
         Ok(deleted)
     }
+    #[cfg(test)]
     pub(crate) fn agent_run_prepare(
         &self,
         request: &RequestContext,
@@ -635,6 +651,7 @@ impl Database {
     ) -> AgentResult<StoredRun> {
         self.conversation_run(request, current, id, "session.read")
     }
+    #[cfg(test)]
     fn conversation_transition(
         &self,
         request: &RequestContext,
@@ -661,6 +678,7 @@ impl Database {
         }
         read_run(&self.conn, id)
     }
+    #[cfg(test)]
     pub(crate) fn agent_run_start(
         &self,
         request: &RequestContext,
@@ -669,6 +687,7 @@ impl Database {
     ) -> AgentResult<StoredRun> {
         self.conversation_transition(request, current, id, RunState::Running, "run.start")
     }
+    #[cfg(test)]
     pub(crate) fn agent_run_mark_cancelling(
         &self,
         request: &RequestContext,
@@ -677,6 +696,7 @@ impl Database {
     ) -> AgentResult<StoredRun> {
         self.conversation_transition(request, current, id, RunState::Cancelling, "run.cancel")
     }
+    #[cfg(test)]
     pub(crate) fn agent_run_settle(
         &self,
         request: &RequestContext,
@@ -744,6 +764,7 @@ impl Database {
         tx.commit().map_err(io_error)?;
         Ok(result)
     }
+    #[cfg(test)]
     pub(crate) fn agent_session_restore_projection(
         &self,
         request: &RequestContext,
@@ -766,22 +787,7 @@ impl Database {
         projection_write(&tx, &current.workspace_id, id, None, projection)?;
         tx.commit().map_err(io_error)
     }
-    pub(crate) fn agent_session_mark_read_only(
-        &self,
-        request: &RequestContext,
-        current: &WorkspaceBinding,
-        id: &str,
-    ) -> AgentResult<()> {
-        self.conversation_session(request, current, id, "session.write")?;
-        host_only(request, None)?;
-        self.conn
-            .execute(
-                "UPDATE agent_sessions SET state='read_only',updated_at=?2 WHERE id=?1",
-                params![id, Utc::now().to_rfc3339()],
-            )
-            .map_err(io_error)?;
-        Ok(())
-    }
+    #[cfg(test)]
     pub(crate) fn agent_run_event_append(
         &self,
         request: &RequestContext,
@@ -853,6 +859,7 @@ impl Database {
             event,
         })
     }
+    #[cfg(test)]
     pub(crate) fn agent_run_events_list(
         &self,
         request: &RequestContext,
