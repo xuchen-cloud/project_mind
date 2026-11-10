@@ -147,6 +147,7 @@ impl Database {
         Ok(intent.prepare.target)
     }
 
+    #[cfg(test)]
     pub(crate) fn file_drop_owner(
         &self,
         binding: &WorkspaceBinding,

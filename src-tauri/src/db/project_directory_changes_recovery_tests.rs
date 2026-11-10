@@ -5,7 +5,7 @@ fn setup() -> (tempfile::TempDir, Database, WorkspaceBinding, i64, PathBuf) {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().canonicalize().unwrap();
     let (metadata, paths) = crate::workspace::create_workspace(&root, "fixture").unwrap();
-    let mut db = Database::open(&paths.db_path, &root, None).unwrap();
+    let db = Database::open(&paths.db_path, &root, None).unwrap();
     let project = db
         .project_create(ProjectCreateInput {
             name: "Folders".into(),
@@ -237,7 +237,7 @@ fn directory_recovery_external_file_or_missing_ancestor_keeps_workspace_availabl
             }
             _ => fs::rename(source.parent().unwrap(), root.join("retained-owner")).unwrap(),
         }
-        let mut db = Database::open(&db_path, &root, None).unwrap();
+        let db = Database::open(&db_path, &root, None).unwrap();
         assert_eq!(fs::read_dir(root.join(JOURNALS)).unwrap().count(), 1);
         let unrelated = db
             .project_create(ProjectCreateInput {

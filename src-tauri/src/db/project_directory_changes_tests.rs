@@ -678,7 +678,7 @@ fn directory_changes_repeated_trash_calls_os_once_even_when_source_has_been_recr
 
 #[test]
 fn directory_changes_foreign_workspace_or_member_owner_is_rejected() {
-    let mut f = fixture(true);
+    let f = fixture(true);
     let object = register(&f, "folder/note.md", b"original");
     let prepared = prepare(&f, "folder");
     let mut binding = f.binding.clone();
