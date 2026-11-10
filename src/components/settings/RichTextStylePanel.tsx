@@ -152,16 +152,33 @@ export function RichTextStylePanel({ open }: RichTextStylePanelProps) {
             统一正文、四级标题与列表的阅读节奏。更改会自动保存，并立即应用到所有 Record 和 QuickNote。
           </p>
         </div>
-        <div
-          className="inline-flex items-center gap-2 rounded-[var(--radius-6)] bg-bg-subtle px-2.5 py-1.5 text-ui text-text-muted"
-          role="status"
-        >
-          {saveMutation.isPending || isDirty ? (
-            <LoaderCircle className="spin text-warning" size={13} />
-          ) : (
-            <Check className="text-success" size={13} />
-          )}
-          {saveMutation.isPending ? "正在保存" : isDirty ? "等待保存" : "已保存"}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            disabled={saveMutation.isPending || (!isDirty && draftSignature === styleSignature(DEFAULT_RICH_TEXT_STYLE_SETTINGS))}
+            onClick={() => {
+              const defaults = cloneRichTextStyleSettings(DEFAULT_RICH_TEXT_STYLE_SETTINGS);
+              lastSubmittedSignatureRef.current = styleSignature(defaults);
+              setDraft(defaults);
+              saveMutation.mutate(defaults);
+            }}
+          >
+            <RotateCcw size={13} />
+            恢复默认
+          </Button>
+          <div
+            className="inline-flex items-center gap-2 rounded-[var(--radius-6)] bg-bg-subtle px-2.5 py-1.5 text-ui text-text-muted"
+            role="status"
+          >
+            {saveMutation.isPending || isDirty ? (
+              <LoaderCircle className="spin text-warning" size={13} />
+            ) : (
+              <Check className="text-success" size={13} />
+            )}
+            {saveMutation.isPending ? "正在保存" : isDirty ? "等待保存" : "已保存"}
+          </div>
         </div>
       </header>
 
@@ -450,16 +467,6 @@ export function RichTextStylePanel({ open }: RichTextStylePanelProps) {
 
             <div className="flex items-center justify-between gap-3 border-t border-border bg-bg-subtle px-3.5 py-3 sm:px-4">
               <p className="text-ui text-text-soft">标题默认使用加粗字重</p>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                disabled={styleSignature(draft) === styleSignature(DEFAULT_RICH_TEXT_STYLE_SETTINGS)}
-                onClick={() => setDraft(cloneRichTextStyleSettings(DEFAULT_RICH_TEXT_STYLE_SETTINGS))}
-              >
-                <RotateCcw size={13} />
-                恢复默认
-              </Button>
             </div>
           </SurfaceCard>
         </div>

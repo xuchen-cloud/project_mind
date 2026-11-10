@@ -5081,6 +5081,43 @@ describe("RichEditor context menus", () => {
     ensureSyncSpy.mockRestore();
   });
 
+  it.each([
+    [false, "接受"], [true, "接受"], [false, "撤销"], [true, "撤销"],
+  ] as const)("preserves authored empties through a terminal heading preview (stable=%s, %s)", async (stable, action) => {
+    const user = userEvent.setup();
+    const job = mockEditorSkillJob(54);
+    const onAiCommit = vi.fn();
+    const { container } = render(<RichEditor variant="bare"
+      recordKey={stable ? "workspace/record/stream-tail" : undefined}
+      defaultHtml="<p>Before</p><p></p><p>hello world</p>" onAiCommit={onAiCommit}
+      aiSettings={{ profiles: [], bindings: [], hasUsableDefault: true,
+        securityMode: "workspace_password_encrypted", aiSecretsUnlocked: true,
+        execution: { maxConcurrency: 1 }, network: { mode: "system", proxyUrl: null, username: null, hasStoredPassword: false },
+        editorSkills: [{id: "stream-tail", name: "润色", icon: null, description: null, prompt: "请润色",
+          resultMode: "modify", showInTextMenu: true, sortOrder: 1, enabled: true, createdAt: "", updatedAt: ""}],
+      }} />);
+    const surface = await waitFor(() => container.querySelector(".ProseMirror") as HTMLElement);
+    const text = surface.querySelector("p:last-child")!.firstChild as Text;
+    fireEvent.focus(surface); selectTextContent(text, 0, 5);
+    fireEvent.contextMenu(text.parentElement!, {clientX: 20, clientY: 20});
+    await user.click(within(await screen.findByRole("menu", {name: "文本操作"})).getByRole("menuitem", {name: "润色"}));
+    await waitFor(() => expect(job.getTargetKey()).toContain("editor-skill:"));
+    const base = {id: 54, kind: "editor_skill" as const, targetKey: job.getTargetKey(), queuedAt: "", startedAt: "", errorMessage: null};
+    useAiJobStore.getState().upsertJob({...base, status: "running", finishedAt: null, streamText: "## Inserted heading", result: null});
+    await waitFor(() => expect(surface.querySelector("h2")?.textContent).toBe("Inserted heading"));
+    const markdown = "## Inserted heading\n\nFinal authored paragraph.";
+    useAiJobStore.getState().upsertJob({...base, status: "succeeded", finishedAt: "", streamText: markdown,
+      result: {kind: "editor_skill", rewrite: {skillId: "stream-tail", resultMode: "modify", content: markdown, resolvedModel: "mock"}}});
+    await waitFor(() => expect(screen.getByRole("button", {name: action})).toBeEnabled());
+    await user.click(screen.getByRole("button", {name: action}));
+    await waitFor(() => expect([...surface.querySelectorAll("p")].map(p => p.textContent)).toEqual(
+      action === "接受" ? ["Before", "", "Final authored paragraph."] : ["Before", "", "hello world"],
+    ));
+    expect(surface.lastElementChild?.textContent).toBe(action === "接受" ? "Final authored paragraph." : "hello world");
+    expect(onAiCommit).toHaveBeenCalledTimes(action === "接受" ? 1 : 0);
+    job.restore();
+  });
+
   it("keeps the original AI Modification visible until streamed Markdown is complete and visible", async () => {
     const user = userEvent.setup();
     const job = mockEditorSkillJob(53);
