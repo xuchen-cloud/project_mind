@@ -242,7 +242,7 @@ it.each([
 async function assertSharedReplacement(delivery: 'local' | 'native', first?: 0 | 1) {
   vi.mocked(projectFileApi.resolve).mockResolvedValue({object,name:'sample.docx',relativePath:'sample.docx',versionNumber:2,contentHash:'hash2',state:'ready',reason:null});
   vi.mocked(fileDocumentApi.versionsList).mockResolvedValue({object,currentVersionNumber:2,currentContentHash:'hash2',versions:[{...version(2),name:'sample.docx'}],nextCursor:null});
-  vi.mocked(officeFileApi.inspect).mockResolvedValue({model:{format:'docx',nodes:[{id:'p0',text:'原文'}]}} as never);
+  vi.mocked(officeFileApi.inspectView).mockResolvedValue({model:{format:'docx',nodes:[{id:'p0',text:'原文'}]}} as never);
   let sessions=0;
   vi.mocked(fileWorkingApi.open).mockImplementation(async()=>({...workingStatus(),sessionId:`session-${++sessions}`,name:'sample.docx',base64:'UEs=',format:'docx',model:{format:'docx',nodes:[{id:'p0',text:`会话${sessions}`} ]}} as never));
   vi.mocked(fileWorkingApi.saveOffice).mockResolvedValue({...workingStatus(),revision:3,contentHash:'saved'});
@@ -448,16 +448,16 @@ it('keeps the selected immutable history renderer after replacement and only ref
   vi.mocked(fileWorkingApi.saveOffice).mockResolvedValue({...workingStatus(),revision:3,contentHash:'saved'});
   await chooseVersion(1);
   await screen.findByLabelText('Office 正文');
-  await waitFor(()=>expect(officeFileApi.inspect).toHaveBeenCalled());
+  await waitFor(()=>expect(officeFileApi.inspectView).toHaveBeenCalled());
   const historical=screen.getByLabelText('Office 正文');
-  const sourceReadCount=vi.mocked(officeFileApi.inspect).mock.calls.length;
+  const sourceReadCount=vi.mocked(officeFileApi.inspectView).mock.calls.length;
   vi.mocked(fileWorkingApi.close).mockClear();vi.mocked(fileWorkingApi.saveOffice).mockClear();vi.mocked(fileWorkingApi.open).mockClear();
   vi.mocked(fileDocumentApi.versionsList).mockResolvedValue({object,currentVersionNumber:3,currentContentHash:'replacement-hash',versions:[{...version(3),name:'sample.docx',contentHash:'replacement-hash'},{...version(1),name:'sample.docx',displayName:'保留历史',isImportant:true,metadataRevision:1}],nextCursor:null});
   const request=await requestFileFlush();
   await waitFor(()=>expect(fileEditorApi.reply).toHaveBeenCalledWith(binding,expect.objectContaining({outcome:'saved'})));
   await sendFileReplaced(request.operationId);
   expect(screen.getByLabelText('Office 正文')).toBe(historical);
-  expect(officeFileApi.inspect).toHaveBeenCalledTimes(sourceReadCount);
+  expect(officeFileApi.inspectView).toHaveBeenCalledTimes(sourceReadCount);
   expect(fileWorkingApi.open).not.toHaveBeenCalled();expect(fileWorkingApi.saveOffice).not.toHaveBeenCalled();expect(fileWorkingApi.close).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button',{name:'文件查看版本'}));
   expect(screen.getByRole('menuitemradio',{name:/v1/})).toHaveAttribute('aria-checked','true');
@@ -506,18 +506,18 @@ it('replies failed to a File save event without confirming discard when the nati
 it('registers a readonly File early but cannot acknowledge saved until its loaded editor is ready', async () => {
   let resolveVersions!: (value: Awaited<ReturnType<typeof fileDocumentApi.versionsList>>) => void;
   vi.mocked(fileDocumentApi.versionsList).mockReturnValueOnce(new Promise(resolve => { resolveVersions = resolve; }));
-  let resolveInspect!: (value: Awaited<ReturnType<typeof officeFileApi.inspect>>) => void;
-  vi.mocked(officeFileApi.inspect).mockReturnValueOnce(new Promise(resolve => { resolveInspect = resolve; }));
+  let resolveInspect!: (value: Awaited<ReturnType<typeof officeFileApi.inspectView>>) => void;
+  vi.mocked(officeFileApi.inspectView).mockReturnValueOnce(new Promise(resolve => { resolveInspect = resolve; }));
   view({...input,versionNumber:1} as typeof input);
   await requestFileFlush();
   await waitFor(()=>expect(fileEditorApi.reply).toHaveBeenCalledWith(binding,expect.objectContaining({outcome:'busy'})));
   vi.mocked(fileEditorApi.reply).mockClear();
   await act(async()=>resolveVersions({object,currentVersionNumber:2,currentContentHash:'hash2',versions:[{...version(1),name:'sample.docx'}],nextCursor:null}));
-  await waitFor(()=>expect(officeFileApi.inspect).toHaveBeenCalled());
+  await waitFor(()=>expect(officeFileApi.inspectView).toHaveBeenCalled());
   await requestFileFlush();
   await waitFor(()=>expect(fileEditorApi.reply).toHaveBeenCalledWith(binding,expect.objectContaining({outcome:'busy'})));
   vi.mocked(fileEditorApi.reply).mockClear();
-  await act(async()=>resolveInspect({model:{format:'docx',nodes:[{id:'p0',text:'历史正文'}]}} as Awaited<ReturnType<typeof officeFileApi.inspect>>));
+  await act(async()=>resolveInspect({model:{format:'docx',nodes:[{id:'p0',text:'历史正文'}]}} as Awaited<ReturnType<typeof officeFileApi.inspectView>>));
   await screen.findByLabelText('Office 正文');
   await requestFileFlush();
   await waitFor(()=>expect(fileEditorApi.reply).toHaveBeenCalledWith(binding,expect.objectContaining({outcome:'saved'})));
@@ -909,11 +909,11 @@ it.each(['current','hidden','history'] as const)('refreshes invalidated File met
   const rendered=await editedOffice();
   if(mode==='history'){
     vi.mocked(fileWorkingApi.saveOffice).mockResolvedValue({...workingStatus(),revision:3,contentHash:'saved'});
-    await chooseVersion(1);await waitFor(()=>expect(officeFileApi.inspect).toHaveBeenCalled());
+    await chooseVersion(1);await waitFor(()=>expect(officeFileApi.inspectView).toHaveBeenCalled());
   }
   const editor=await screen.findByLabelText('Office 正文');
   if(mode==='hidden')rendered.hide();
-  vi.mocked(fileDocumentApi.versionsList).mockClear();vi.mocked(fileWorkingApi.saveOffice).mockClear();vi.mocked(fileWorkingApi.close).mockClear();vi.mocked(fileWorkingApi.open).mockClear();vi.mocked(officeFileApi.inspect).mockClear();
+  vi.mocked(fileDocumentApi.versionsList).mockClear();vi.mocked(fileWorkingApi.saveOffice).mockClear();vi.mocked(fileWorkingApi.close).mockClear();vi.mocked(fileWorkingApi.open).mockClear();vi.mocked(officeFileApi.inspectView).mockClear();
   for (const revision of [7,8]) {
     const versions=[2,1].map(n=>({...version(n),name:'sample.docx',displayName:`新名称${n}-${revision}`,isImportant:revision===8,metadataRevision:revision,metadataTarget:{binding,object}}));
     vi.mocked(fileDocumentApi.versionsList).mockResolvedValue({object,currentVersionNumber:2,currentContentHash:'hash2',versions,nextCursor:null});
@@ -929,7 +929,7 @@ it.each(['current','hidden','history'] as const)('refreshes invalidated File met
   expect(row.querySelector('svg')).toHaveAttribute('fill','currentColor');
   if(mode==='history')expect(row).toHaveAttribute('aria-checked','true');
   else expect(screen.getByRole('menuitemradio',{name:'当前内容'})).toHaveAttribute('aria-checked','true');
-  expect(fileWorkingApi.saveOffice).not.toHaveBeenCalled();expect(fileWorkingApi.close).not.toHaveBeenCalled();expect(fileWorkingApi.open).not.toHaveBeenCalled();expect(officeFileApi.inspect).not.toHaveBeenCalled();
+  expect(fileWorkingApi.saveOffice).not.toHaveBeenCalled();expect(fileWorkingApi.close).not.toHaveBeenCalled();expect(fileWorkingApi.open).not.toHaveBeenCalled();expect(officeFileApi.inspectView).not.toHaveBeenCalled();
   // The actual metadata dialog must receive the refreshed CAS revision too.
   vi.mocked(fileDocumentApi.versionMetadataUpdate).mockResolvedValue({object,versionId:String(selected),displayName:'再命名',isImportant:true,metadataRevision:9});
   fireEvent.click(screen.getByRole('menuitem',{name:`编辑 V${selected} 标记`}));
