@@ -1902,6 +1902,23 @@ textarea {
   list-style-type: decimal;
 }
 
+/* Distinguish depth even when ordered and unordered lists are mixed. */
+.rich-editor__surface :is(ul, ol) ul:not([data-type="taskList"]) {
+  list-style-type: circle;
+}
+
+.rich-editor__surface :is(ul, ol) :is(ul, ol) ul:not([data-type="taskList"]) {
+  list-style-type: square;
+}
+
+.rich-editor__surface :is(ul, ol) ol {
+  list-style-type: lower-alpha;
+}
+
+.rich-editor__surface :is(ul, ol) :is(ul, ol) ol {
+  list-style-type: lower-roman;
+}
+
 .rich-editor__surface ul:not([data-type="taskList"]) li::marker,
 .rich-editor__surface ol li::marker {
   color: var(--color-text-soft);
