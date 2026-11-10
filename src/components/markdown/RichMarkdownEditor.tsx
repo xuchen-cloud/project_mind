@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { EditorContent, useEditor } from '@tiptap/react';
 import type { Editor } from '@tiptap/core';
 import { EditorState, TextSelection, type Selection } from '@tiptap/pm/state';
@@ -76,7 +76,9 @@ export function RichMarkdownEditor({value,documentKey,readOnly,resources,zoom,sp
       latest.current.onReady(null,null);
     };
   },[editor]);
-  useEffect(()=>{
+  // Reconcile committed props before another input can advance source.current.
+  // A delayed local echo must not be loaded as an external history baseline.
+  useLayoutEffect(()=>{
     if(!editor||(value===source.current&&key.current===documentKey))return;
     cancelContext();key.current=documentKey;
     closeMathEditor(editor);pending('composition',false);loaded.current=false;const envelope=parseDocText(value);

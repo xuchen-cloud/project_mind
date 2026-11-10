@@ -1,3 +1,4 @@
+import { useLayoutEffect, useState } from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { EditorView } from '@codemirror/view';
@@ -211,6 +212,45 @@ it('performs actual rich table row/column context commands and disables mutation
   expect(within(menu).getByRole('button',{name:'复制'})).toBeEnabled();
   expect(within(menu).queryByRole('menuitem',{name:'下方插入行'})).toBeNull();
   expect(text).toBe(saved);expect(change).toHaveBeenCalledTimes(calls);
+});
+
+it('keeps table history when undo precedes the previous controlled value passive effect',async()=>{
+  let undoOnCommit=false;
+  const firstUndo=vi.fn();
+  function Host(){
+    const [revision,setRevision]=useState(0);
+    // Pin the observed race: an input arrives after the column edit commits,
+    // before its passive value effect runs. Commands and history stay real.
+    useLayoutEffect(()=>{
+      if(!undoOnCommit)return;
+      undoOnCommit=false;
+      screen.getByRole('button',{name:'撤销'}).click();
+      firstUndo();
+    },[revision]);
+    return <MarkdownEditor value="" onChange={()=>setRevision(value=>value+1)} initialView={{mode:'rich'}}/>;
+  }
+  render(<Host/>);
+  const rich=await screen.findByRole('textbox',{name:'Markdown 块编辑'});
+  fireEvent.click(screen.getByRole('button',{name:'表格'}));
+  expect(rich.querySelectorAll('tr')).toHaveLength(3);
+  let menu=openRichContext(rich.querySelector('td,th')!);
+  await act(async()=>{fireEvent.click(within(menu).getByRole('menuitem',{name:'下方插入行'}));});
+  await waitFor(()=>expect(rich.querySelectorAll('tr')).toHaveLength(4));
+  menu=openRichContext(rich.querySelector('td,th')!);
+  undoOnCommit=true;
+  fireEvent.click(within(menu).getByRole('menuitem',{name:'右侧插入列'}));
+  await waitFor(()=>expect(firstUndo).toHaveBeenCalledTimes(1));
+  expect(rich.querySelectorAll('tr')).toHaveLength(4);
+  expect(rich.querySelector('tr')?.children).toHaveLength(3);
+  fireEvent.click(screen.getByRole('button',{name:'撤销'}));
+  expect(rich.querySelectorAll('tr')).toHaveLength(3);
+  expect(rich.querySelector('tr')?.children).toHaveLength(3);
+  fireEvent.click(screen.getByRole('button',{name:'重做'}));
+  expect(rich.querySelectorAll('tr')).toHaveLength(4);
+  expect(rich.querySelector('tr')?.children).toHaveLength(3);
+  fireEvent.click(screen.getByRole('button',{name:'重做'}));
+  expect(rich.querySelectorAll('tr')).toHaveLength(4);
+  expect(rich.querySelector('tr')?.children).toHaveLength(4);
 });
 
 it('pastes linked Markdown at an empty rich caret through its context menu and saves the actual target',async()=>{
