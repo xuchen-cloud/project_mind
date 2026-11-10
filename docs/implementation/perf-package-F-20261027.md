@@ -36,7 +36,7 @@
 
 回归位于 `src-tauri/src/db/voice_session_contention_tests.rs`，使用真实 rusqlite 数据库、`Database::open_runtime_connection` 和生产草稿函数；测试专用 SQLite trace / busy 回调安排两连接交错，无 sleep、无音频或 GUI。覆盖 Project 读取后另一 writer 尝试抢占、Workspace 对照、已有 writer 先提交、等待耗尽后显式重试、事务内幂等与单 owner、后段失败回滚和缺失 Project。原始 red：5 项中 3 失败，分别为 SQLite 5、请求唯一约束 2067 与两个未结束 Session；Workspace 对照和回滚通过。
 
-本轮 N4 的生产修改与 8 项回归已完成，Standards / Spec 自查无剩余发现；green 由主 agent 使用修复 File 接线构造器后的最终测试二进制统一执行，本段尚不代表 green 通过。独立排队的 green 命令已按主 agent 要求撤下以避免重复构建。测试基线为 `fe9fe9c188f05c23bae369074446e38c0859a0c8` 加本节 N4 修改；原始 red 在 File 生产修改之前执行，命令同下（当时 5 项）。
+N4 的 8 项真实双连接回归已在 macOS 通过。测试基线为 `fe9fe9c188f05c23bae369074446e38c0859a0c8` 加本节 N4 修改；原始 red 在 File 生产修改之前执行，命令同下（当时 5 项）。这只验证 SQLite 草稿事务边界，不代表 Windows 录音现场或音频采集已验收。
 
 N4 定向复跑命令（共享缓存和重型构建锁）：
 
