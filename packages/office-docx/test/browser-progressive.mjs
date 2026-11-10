@@ -114,11 +114,25 @@ for (const kind of process.env.OFFICE_BROWSERS?.split(',') ?? ['chromium']) {
       await dialog.getByRole('button', {name: '确定', exact: true}).click();
       await dialog.waitFor({state: 'hidden'});
     }
+    const geometry = (await (await page.request.get(url + '/model')).json()).page;
+    const fitResults = [];
+    async function expectedFit(mode) {
+      const pane = await previewFrame.locator('.editor-scroll').evaluate(node => ({width: node.clientWidth - 48, height: node.clientHeight - 48}));
+      const width = mode === '文字宽度' ? geometry.width - geometry.margins.left - geometry.margins.right : geometry.width;
+      // Multiple Pages fits two physical page slots and their 28px page gutter.
+      const ratio = mode === '多页' ? Math.min(pane.width / (2 * width + 28), pane.height / geometry.height) :
+        mode === '页宽' || mode === '文字宽度' ? pane.width / width : Math.min(pane.width / width, pane.height / geometry.height);
+      const expected = Math.max(50, Math.min(150, Math.floor(ratio * 100)));
+      return expected;
+    }
     await dialogZoom(-10); await expectZoom(50);
     await dialogZoom(500); await expectZoom(150);
     for (const value of ['150%', '100%', '75%']) { await dialogZoom(value); await expectZoom(Number.parseInt(value)); }
     for (const value of ['页宽', '文字宽度', '整页', '多页']) {
-      await dialogZoom(value); assert.ok(await zoom() >= 50 && await zoom() <= 150, value);
+      const expected = await expectedFit(value);
+      await dialogZoom(expected === 113 ? 117 : 113);
+      await dialogZoom(value); await expectZoom(expected);
+      fitResults.push({entrance: 'dialog', mode: value, expected});
     }
     // Dispatch to the actual installed non-passive wheel handler, including its
     // fractional Ctrl-wheel pinch path. This is not an OS gesture claim.
@@ -144,8 +158,11 @@ for (const kind of process.env.OFFICE_BROWSERS?.split(',') ?? ['chromium']) {
     await ribbon.getByRole('button', {name: '缩小', exact: true}).click(); await expectZoom(75);
     await ribbon.getByRole('button', {name: '缩放到 100%', exact: true}).click(); await expectZoom(100);
     for (const name of ['页宽', '整页', '多页']) {
+      const expected = await expectedFit(name);
+      await dialogZoom(expected === 113 ? 117 : 113);
       await ribbon.getByRole('button', {name, exact: true}).click();
-      assert.ok(await zoom() >= 50 && await zoom() <= 150, 'ribbon ' + name);
+      await expectZoom(expected);
+      fitResults.push({entrance: 'ribbon', mode: name, expected});
     }
     await ribbon.getByRole('button', {name: '缩放', exact: true}).click();
     await previewFrame.locator('.zoom-dialog').getByRole('radio', {name: '75%', exact: true}).check();
@@ -167,6 +184,7 @@ for (const kind of process.env.OFFICE_BROWSERS?.split(',') ?? ['chromium']) {
       firstContentMs: initial.firstContent - navigationAt, firstEditableMs: initial.firstEditable - navigationAt,
       editConfirmedMs, loadedBlocksAtFirstEditable: initial.blocks, appendedFixtureBlocks: APPENDED_BLOCKS,
       twoSavesReopen: true, untouchedEntriesEqual: true, previewEdit: true, initialPreviewTail: true, zoomBounds: [50, 150],
+      fitResults,
       zoomPaths: ['slider keyboard', 'step buttons', 'dialog percent clamp', 'dialog presets', 'four fit modes', 'Ctrl-wheel notch', 'fractional Ctrl-wheel pinch', 'ribbon steps/100%/fit/dialog', 'preview-edit preserves zoom', 'preview capture/restore and clamp', 'viewport resize'],
       platformGaps: ['Native zoom menu accelerators are not wired to DOM keydown in this embedded renderer; native OS menu/shortcut and physical trackpad input require platform acceptance.'], errors});
   } finally { await browser.close(); }

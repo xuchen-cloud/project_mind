@@ -56,10 +56,10 @@ The opt-in `test/progressive-server.mjs` and `test/browser-progressive.mjs` use 
 - `node packages/office-docx/test/browser-progressive.mjs` against the opt-in progressive server: real Chromium and WebKit headless **both passed**, including the final post-`e84e573` test-only zoom delta below. Each observed an editable 64-block prefix before the unvisited tail, performed two saves against evolving File baselines in the same editor, reopened the saved bytes, compared every untouched archive entry, switched preview/edit, and materialized an initially read-only preview. Errors were empty. Server was stopped. Log: `/tmp/mind-docx-browser-progressive.log`; structured local evidence: `test/output/browser/progressive-results.json`.
 - `git diff --check -- packages/office-docx`: passed.
 
-| One navigation sample, 1440×1000, macOS arm64 / Node 26.8.1 | First visible content | First editable content | Real keyboard edit confirmed | Parsed blocks at readiness |
+| Latest navigation sample, 1440×1000, macOS arm64 / Node 24.21.0 | First visible content | First editable content | Real keyboard edit confirmed | Parsed blocks at readiness |
 | --- | ---: | ---: | ---: | ---: |
-| Chromium headless | 416.7 ms | 416.7 ms | 449 ms | 64 |
-| WebKit headless | 490 ms | 490 ms | 618 ms | 64 |
+| Chromium headless | 435.1 ms | 435.1 ms | 489 ms | 64 |
+| WebKit headless | 549 ms | 549 ms | 584 ms | 64 |
 
 These are single navigation samples including the test HTTP model fetch and renderer startup, with no cache-clearing or percentile claim. They do not include native working open, IPC, CAS or platform filesystem cost and cannot be compared directly with the older Tauri cold-open measurements. The fixture adds 320 paragraphs to the real simple DOCX and includes opaque parts and unused media/relationships. Large indivisible tables/SDTs and field-code dependencies can exceed the nominal initial element limit. ZIP/UTF admission, metadata, notes and embedded font preparation still precede first content.
 
@@ -75,6 +75,8 @@ The final Chromium and WebKit browser regressions both passed every row below, e
 | Wheel | Real DOM wheel handler receives Ctrl line-notch events to both endpoints, then fractional Ctrl pixel events through its pinch classifier to both endpoints |
 | View ribbon | Separate step, 100%, three fit callbacks and dialog entrance pass through actual button clicks |
 | Preview view | Preview/edit transitions preserve 75%; real capture/restore restores 75% and clamps out-of-range stored values |
+
+The final Spec review found that the first fit assertions checked only bounds and could pass on a no-op. The strengthened regression sets a different explicit zoom before each fit, derives the expected value from the source page geometry and actual pane dimensions, and verifies both slider and rendered CSS zoom. Chromium and WebKit passed all seven dialog/ribbon fits: dialog width/text 150%, whole page 87%, multiple pages 83%; expanded ribbon width 150%, whole/multiple 76%. The narrower height with the ribbon open is measured independently. Log: `/tmp/mind-office-docx-fit-browser.log`; the initial incorrect two-pages-at-height assumption is retained in `/tmp/mind-office-docx-fit-browser-geometry-setup-failure.log`. This correction changed tests only. Earlier Node 26.8.1 samples remain in the earlier browser log; the table reports the final Node 24.21.0 run.
 
 Native menu accelerators (`⌘=`, `⌘-`, `⌘0` in the pinned source) do not have a DOM keydown binding in this embedded renderer; this browser host has no native menu event source. Actual OS menu/shortcut delivery and physical trackpad gestures remain platform acceptance gaps. Dispatching DOM wheel events exercises the real renderer handler but is not physical-device acceptance. No fake native callback is substituted.
 
