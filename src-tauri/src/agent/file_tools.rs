@@ -36,6 +36,9 @@ pub(crate) struct FileVersionsGetInput {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct FileVersionMetadata {
+    pub display_name: Option<String>,
+    pub is_important: bool,
+    pub metadata_revision: i64,
     pub id: String,
     pub version_number: u32,
     pub name: String,

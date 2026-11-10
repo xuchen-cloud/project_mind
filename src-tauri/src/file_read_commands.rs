@@ -339,3 +339,43 @@ mod tests {
         );
     }
 }
+
+/// Trusted GUI version metadata only; uses the current Host connection and fence.
+#[tauri::command]
+pub(crate) async fn file_version_metadata_update(
+    state: State<'_, AppState>,
+    input: FileReadCommandInput<crate::db::file_version_metadata::VersionMetadataUpdate>,
+) -> Result<ApiResponse<crate::db::file_version_metadata::VersionMetadataResult>, String> {
+    let id = input.request_id.clone();
+    let app = state.app_handle.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let request = request(&state, &input, &input.data.object, &["file.version.metadata.update"])?;
+        crate::file_working::with_db(&*state, &request, |db| {
+            db.file_version_metadata_update(&request, &request.binding, &input.data)
+        })
+    }).await.unwrap_or_else(|_| Err(AgentError::new(ErrorCode::IoFailed, "Version metadata task failed")));
+    Ok(ApiResponse::from_result(id, result))
+}
+
+#[cfg(test)]
+mod metadata_wire_tests {
+    use super::*;
+    #[test]
+    fn g15_metadata_input_envelope_is_bound_and_strict() {
+        let mut wire = serde_json::json!({
+            "binding": {"workspaceId":"workspace", "generation":"open-1"},
+            "requestId":"edit-version",
+            "data": {"object":{"workspaceId":"workspace","scope":{"kind":"workspace"},"kind":"file","id":"7"},
+                "versionId":"12","expectedMetadataRevision":0,"displayName":null,"isImportant":true}
+        });
+        type Input = FileReadCommandInput<crate::db::file_version_metadata::VersionMetadataUpdate>;
+        let parsed: Input = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(parsed.binding.generation, "open-1");
+        assert_eq!(parsed.request_id, "edit-version");
+        assert_eq!(parsed.data.version_id, "12");
+        assert!(parsed.data.is_important);
+        wire["data"]["expectedVersionNumber"] = serde_json::json!(3);
+        assert!(serde_json::from_value::<Input>(wire).is_err());
+    }
+}

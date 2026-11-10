@@ -37,6 +37,9 @@ fn metadata(row: &rusqlite::Row<'_>) -> rusqlite::Result<FileVersionMetadata> {
         created_at: row.get(3)?,
         content_hash: row.get(4)?,
         is_current: row.get(5)?,
+        display_name: row.get(6)?,
+        is_important: row.get(7)?,
+        metadata_revision: row.get(8)?,
     })
 }
 fn registered(hash: &Option<String>) -> AgentResult<()> {
@@ -152,7 +155,7 @@ impl Database {
         }
         let (current_version_number, current_content_hash) = self.file_read_current(id)?;
         registered(&current_content_hash)?;
-        let mut query=self.conn.prepare("SELECT v.id,v.version_number,v.name,v.created_at,h.content_hash,v.version_number=?3 FROM document_versions v LEFT JOIN source_file_version_hashes h ON h.document_version_id=v.id WHERE v.document_id=?1 AND (?2 IS NULL OR v.version_number<?2) ORDER BY v.version_number DESC LIMIT ?4").map_err(io)?;
+        let mut query=self.conn.prepare("SELECT v.id,v.version_number,v.name,v.created_at,h.content_hash,v.version_number=?3,v.display_name,v.is_important,v.metadata_revision FROM document_versions v LEFT JOIN source_file_version_hashes h ON h.document_version_id=v.id WHERE v.document_id=?1 AND (?2 IS NULL OR v.version_number<?2) ORDER BY v.version_number DESC LIMIT ?4").map_err(io)?;
         let mut versions = query
             .query_map(
                 params![
@@ -210,7 +213,7 @@ impl Database {
         }
         let (current_version_number, current_content_hash) = self.file_read_current(id)?;
         registered(&current_content_hash)?;
-        let version=self.conn.query_row("SELECT v.id,v.version_number,v.name,v.created_at,h.content_hash,v.version_number=?3 FROM document_versions v LEFT JOIN source_file_version_hashes h ON h.document_version_id=v.id WHERE v.document_id=?1 AND v.id=?2",params![id,input.version_id,current_version_number],metadata).optional().map_err(io)?.ok_or_else(||AgentError::new(ErrorCode::NotFound,"File Version is no longer retained"))?;
+        let version=self.conn.query_row("SELECT v.id,v.version_number,v.name,v.created_at,h.content_hash,v.version_number=?3,v.display_name,v.is_important,v.metadata_revision FROM document_versions v LEFT JOIN source_file_version_hashes h ON h.document_version_id=v.id WHERE v.document_id=?1 AND v.id=?2",params![id,input.version_id,current_version_number],metadata).optional().map_err(io)?.ok_or_else(||AgentError::new(ErrorCode::NotFound,"File Version is no longer retained"))?;
         registered(&version.content_hash)?;
         let result = FileVersionResult {
             object,

@@ -69,7 +69,7 @@ pub(crate) struct GuiFileVersionIntent {
     pub new_content_hash: String,
     pub source_path: Option<String>,
 }
-fn agent_failure(error: anyhow::Error) -> AgentError {
+pub(super) fn agent_failure(error: anyhow::Error) -> AgentError {
     match error.downcast::<CommitFailure>() {
         Ok(failure) => failure.0,
         Err(_) => AgentError::new(ErrorCode::IoFailed, "Cannot prepare or commit File Version"),
