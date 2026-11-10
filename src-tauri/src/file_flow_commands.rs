@@ -122,7 +122,6 @@ pub(crate) async fn file_owner_move(
     request_id: String,
     input: FileOwnerMove,
 ) -> AgentResult<FileOwnerMoveResult> {
-    caller_scope(&caller, input.source_owner)?;
     let app = state.app_handle.clone();
     let window = caller.label().to_owned();
     let coordinator = state.file_editors.clone();
@@ -131,7 +130,9 @@ pub(crate) async fn file_owner_move(
         let actual = db
             .agent_resolve_object(&source, &binding.workspace_id)?
             .ok_or_else(|| AgentError::new(ErrorCode::NotFound, "File is no longer present"))?;
-        if !coordinator.can_confirm(binding, &source, id, &window)? {
+        if coordinator.can_confirm(binding, &source, id, &window)? {
+            caller_scope(&caller, input.source_owner)?;
+        } else {
             caller_scope(&caller, crate::db::file_scope::owner(&actual.scope))?;
         }
         let mut request = gui_request(

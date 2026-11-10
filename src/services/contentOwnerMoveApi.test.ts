@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { AgentApiError, callAgentCommand } from "./agentApi";
 import { recordDocumentApi } from "./recordDocumentApi";
-import { registerProjectContentCloseGuard } from "../lib/project-content-lifecycle";
+import { completeContentOwnerMove, hasPendingContentOwnerMove, prepareContentOwnerMove, registerProjectContentCloseGuard, withProjectContentMove } from "../lib/project-content-lifecycle";
 import { fixtureEditorState } from "../test/recordDocumentFixture";
 import { moveContentOwner } from "./contentOwnerMoveApi";
 import { desktopApi } from "./desktopApi";
@@ -98,4 +98,100 @@ it("confirms a lost Record move response with the identical native request inste
   expect(callAgentCommand).toHaveBeenCalledTimes(2);
   expect(vi.mocked(callAgentCommand).mock.calls[0]).toEqual(vi.mocked(callAgentCommand).mock.calls[1]);
   expect(prepare).toHaveBeenCalledOnce(); expect(recordDocumentApi.editorsFlush).toHaveBeenCalledOnce(); expect(closeMoved).toHaveBeenCalledOnce();
+});
+
+it.each(["record", "file"] as const)("completes a %s move from its response when the terminal event is lost, using the original request identity", async kind => {
+  const object = { workspaceId: binding.workspaceId, scope: source.scope, kind, id: "7" };
+  let locked = false;
+  let viewId: string | undefined = "old-source-tab";
+  const unlock = vi.fn(() => { locked = false; });
+  const closeMoved = vi.fn(async () => { viewId = undefined; });
+  stops.push(registerProjectContentCloseGuard({ workspaceRoot: input.workspaceRoot, projectId: 2, binding,
+    prepare: async () => {}, viewIdentity: () => viewId, closeMoved,
+    lockObject: () => { expect(locked).toBe(false); locked = true; return unlock; } }));
+  let operationId = "";
+  const capture = async (requestId: string) => {
+    operationId = requestId;
+    await prepareContentOwnerMove(binding, object, requestId, async () => {});
+  };
+  if (kind === "record") {
+    vi.mocked(callAgentCommand).mockImplementation(async (_command, requestId) => {
+      await capture(requestId);
+      return { ...result, operationId: "independent-durable-receipt" };
+    });
+  } else {
+    vi.mocked(fileEditorApi.flush).mockImplementation(async (_binding, _object, requestId) => { await capture(requestId); return null; });
+    vi.mocked(desktopApi.fileCommand).mockImplementation(async (command, args) => command === "file_owner_move_baseline"
+      ? { expectedVersion: 4, expectedWorkingRevision: 9, expectedHash: "saved" }
+      : { documentId: 7, projectId: 3, sourceScope: source.scope, targetScope: destination, operationId: args.requestId, oldSessionsClosed: true });
+  }
+  await moveContentOwner({ ...input, object: { kind, id: 7 } });
+  expect(closeMoved).toHaveBeenCalledOnce();
+  expect(locked).toBe(false);
+  expect(unlock).toHaveBeenCalledOnce();
+  // A late duplicate must not close a new source view with the same File/Record ID.
+  viewId = "reopened-source-tab";
+  await completeContentOwnerMove({ binding, source: object, operationId,
+    target: { ...object, scope: destination, id: kind === "record" ? "99" : "7" }, oldSessionsClosed: kind === "file" });
+  expect(closeMoved).toHaveBeenCalledOnce();
+  expect(viewId).toBe("reopened-source-tab");
+  await withProjectContentMove(input.workspaceRoot, 2, { kind, id: 7 }, async () => {});
+  expect(closeMoved).toHaveBeenCalledTimes(2);
+  expect(locked).toBe(false);
+});
+
+it.each([
+  ["record", "REVISION_CONFLICT"], ["file", "REVISION_CONFLICT"],
+  ["record", "CANCELLED"], ["file", "CANCELLED"],
+  ["record", "unknown"], ["file", "unknown"],
+  ["record", "RUNTIME_INCOMPATIBLE"],
+] as const)("preserves the %s source after %s and releases only a confirmed native failure", async (kind, outcome) => {
+  const object = { workspaceId: binding.workspaceId, scope: source.scope, kind, id: "7" };
+  let locked = false;
+  let pageOpen = true;
+  let draft = "保留的草稿";
+  const closeMoved = vi.fn(async () => { pageOpen = false; draft = ""; });
+  const moved = vi.fn();
+  const unlock = vi.fn(() => { locked = false; });
+  stops.push(registerProjectContentCloseGuard({ workspaceRoot: input.workspaceRoot, projectId: 2, binding,
+    prepare: async () => {}, moved, closeMoved,
+    lockObject: () => { locked = true; return unlock; } }));
+  const failure = outcome === "unknown" ? new Error("IPC response lost")
+    : new AgentApiError({ code: outcome, message: "native move rejected", retryable: false });
+  let operationId = "";
+  let submits = 0;
+  let lockedBeforeReleaseAck: boolean | undefined;
+  if (kind === "record") {
+    vi.mocked(callAgentCommand).mockImplementation(async (_command, requestId) => {
+      if (++submits === 1) {
+        operationId = requestId;
+        await prepareContentOwnerMove(binding, object, requestId, async () => {});
+      }
+      throw failure;
+    });
+  } else {
+    vi.mocked(fileEditorApi.release).mockImplementation(async () => { lockedBeforeReleaseAck = locked; return null; });
+    vi.mocked(fileEditorApi.flush).mockImplementation(async (_binding, _object, requestId) => {
+      operationId = requestId;
+      await prepareContentOwnerMove(binding, object, requestId, async () => {});
+      return null;
+    });
+    vi.mocked(desktopApi.fileCommand).mockImplementation(async command => {
+      if (command === "file_owner_move_baseline") return { expectedVersion: 4, expectedWorkingRevision: 9, expectedHash: "saved" };
+      ++submits;
+      if (outcome === "unknown") throw failure;
+      throw { code: outcome, message: failure.message };
+    });
+  }
+  await expect(moveContentOwner({ ...input, object: { kind, id: 7 } })).rejects.toMatchObject({ message: failure.message });
+  const confirmed = outcome !== "unknown" && outcome !== "RUNTIME_INCOMPATIBLE";
+  expect(submits).toBe(outcome === "unknown" ? 2 : 1);
+  if (kind === "file") expect(lockedBeforeReleaseAck).toBe(true);
+  expect(hasPendingContentOwnerMove({ binding, source: object, operationId })).toBe(!confirmed);
+  expect(locked).toBe(!confirmed);
+  expect(unlock).toHaveBeenCalledTimes(confirmed ? 1 : 0);
+  expect(moved).not.toHaveBeenCalled();
+  expect(closeMoved).not.toHaveBeenCalled();
+  expect(pageOpen).toBe(true);
+  expect(draft).toBe("保留的草稿");
 });

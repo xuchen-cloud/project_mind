@@ -1,9 +1,9 @@
 import type { AgentScope, AgentWorkspaceBinding } from "../lib/agent-types";
 import type { RecordTarget } from "../lib/record-document-types";
-import { withProjectContentMove, type MovingContentObject } from "../lib/project-content-lifecycle";
+import { releaseContentOwnerMove, withProjectContentMove, type MovingContentObject } from "../lib/project-content-lifecycle";
 import { fileOwnerScope, sameFileOwner } from "../lib/file-types";
 import { invalidateInternalReferenceSearch } from "../lib/internal-reference-events";
-import { callAgentCommand } from "./agentApi";
+import { AgentApiError, callAgentCommand } from "./agentApi";
 import { recordDocumentApi } from "./recordDocumentApi";
 import { desktopApi } from "./desktopApi";
 import { ProjectFileError } from "./projectFileApi";
@@ -62,9 +62,18 @@ export async function moveContentOwner(input: ContentOwnerMoveInput): Promise<vo
     if (current.workspaceId !== input.binding.workspaceId || current.generation !== input.binding.generation) throw new Error("工作区已切换，移动已取消。");
   };
   await checkBinding();
+  const requestId = crypto.randomUUID();
+  // Terminal events use requestId; a Record result's operationId is its receipt ID.
+  const moveIdentity = { binding: input.binding, operationId: requestId,
+    source: { workspaceId: input.binding.workspaceId, scope: sourceScope, kind: input.object.kind, id: String(input.object.id) } };
+  const releaseConfirmedFailure = (failure: unknown) => {
+    // A mismatched ApiResponse is not confirmation that native rejected the move.
+    if ((failure instanceof AgentApiError || failure instanceof ProjectFileError) && failure.code !== "RUNTIME_INCOMPATIBLE") {
+      releaseContentOwnerMove(moveIdentity);
+    }
+  };
   await withProjectContentMove(input.workspaceRoot, input.sourceProjectId, input.object, async () => {
     await checkBinding();
-    const requestId = crypto.randomUUID();
     if (input.object.kind === "record") {
       const source = { scope: sourceScope, recordId: input.object.id };
       const saved = await recordDocumentApi.editorsFlush(input.binding, source);
@@ -74,12 +83,16 @@ export async function moveContentOwner(input: ContentOwnerMoveInput): Promise<vo
         binding: input.binding, requestId, data: { source, destination, headRevision: saved.head.headRevision,
           bodyHash: saved.head.projection.bodyHash, metadataRevision: saved.metadata.revision },
       } };
-      const result = await confirmMove(() => callAgentCommand<RecordOwnerMoveResult>("record_owner_move", requestId, args));
+      const result = await confirmMove(() => callAgentCommand<RecordOwnerMoveResult>("record_owner_move", requestId, args)).catch(failure => {
+        releaseConfirmedFailure(failure);
+        throw failure;
+      });
       if (result.source.recordId !== source.recordId || !sameFileOwner(result.source.scope, sourceScope)
         || !Number.isSafeInteger(result.target.recordId) || result.target.recordId <= 0 || !sameFileOwner(result.target.scope, destination)
         || !result.operationId) throw new Error("移动回执与请求身份不符，请核对移动结果。");
     } else {
-      const object = { workspaceId: input.binding.workspaceId, scope: sourceScope, kind: "file" as const, id: String(input.object.id) };
+      const object = moveIdentity.source;
+      let failure: unknown;
       try {
         await fileEditorApi.flush(input.binding, object, requestId);
         const baseline = await fileCommand<FileOwnerMoveBaseline>("file_owner_move_baseline", {
@@ -93,9 +106,11 @@ export async function moveContentOwner(input: ContentOwnerMoveInput): Promise<vo
         if (result.documentId !== input.object.id || result.projectId !== input.destinationProjectId
           || !sameFileOwner(result.sourceScope, sourceScope) || !sameFileOwner(result.targetScope, destination)
           || result.operationId !== requestId || result.oldSessionsClosed !== true) throw new Error("移动回执与文件身份不符，请核对移动结果。");
-      } finally {
+      } catch (cause) { failure = cause; throw cause; }
+      finally {
         // Native releases an uncommitted seal; a completed move is already terminal.
-        await fileEditorApi.release(input.binding, object, requestId).catch(() => undefined);
+        await fileEditorApi.release(input.binding, object, requestId)
+          .then(() => releaseConfirmedFailure(failure)).catch(() => undefined);
       }
     }
     await checkBinding();
@@ -104,7 +119,7 @@ export async function moveContentOwner(input: ContentOwnerMoveInput): Promise<vo
       notifyProjectFilesChanged(input.sourceProjectId, input.workspaceRoot);
       notifyProjectFilesChanged(input.destinationProjectId, input.workspaceRoot);
     }
-  }, { nativeSessionsClosed: input.object.kind === "file" });
+  }, { nativeSessionsClosed: input.object.kind === "file", moveIdentity });
 }
 
 function expireReferences(source: AgentScope, destination: AgentScope) {
