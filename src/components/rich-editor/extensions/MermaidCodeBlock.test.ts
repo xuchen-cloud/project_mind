@@ -75,16 +75,16 @@ afterEach(() => {
 });
 
 describe("MermaidCodeBlock", () => {
-  it("keeps ordinary code DOM, configured attributes, language widget and highlighting", () => {
-    const editor = create("typescript");
+  it.each(["typescript", "wavedrom"])("keeps ordinary %s code DOM, attributes, language widget and highlighting", language => {
+    const editor = create(language);
     expect(pre(editor).tagName).toBe("PRE");
     expect(pre(editor).firstElementChild).toBe(code(editor));
     expect(pre(editor)).toHaveClass("configured-code");
     expect(pre(editor)).toHaveAttribute("data-language-explicit", "true");
-    expect(code(editor)).toHaveClass("language-typescript");
+    expect(code(editor)).toHaveClass(`language-${language}`);
     expect(code(editor).hidden).toBe(false);
     expect(code(editor).querySelector(".test-highlight")).not.toBeNull();
-    expect(code(editor).querySelector("button")?.textContent).toBe("typescript");
+    expect(code(editor).querySelector("button")?.textContent).toBe(language);
     expect(renderSafeDiagram).not.toHaveBeenCalled();
     expect(filterCodeLanguageOptions("mermaid").map((option) => option.id)).toEqual(["mermaid"]);
   });

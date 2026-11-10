@@ -1,9 +1,8 @@
 type NewImage = { base64: string; mime: string; widthPx: number; heightPx: number; align: string }
 import { MERMAID_LANGUAGE, renderMermaid } from './mermaid'
-import { WAVEDROM_LANGUAGE, renderWavedrom } from './wavedrom'
 
 /** Fenced-code languages that render as a picture instead of source */
-export const DIAGRAM_LANGUAGES = [MERMAID_LANGUAGE, WAVEDROM_LANGUAGE] as const
+export const DIAGRAM_LANGUAGES = [MERMAID_LANGUAGE] as const
 export type DiagramLanguage = (typeof DIAGRAM_LANGUAGES)[number]
 
 export type DiagramResult = { ok: true; svg: string } | { ok: false; error: string }
@@ -14,8 +13,8 @@ export function diagramLanguage(language: unknown): DiagramLanguage | null {
     : null
 }
 
-export function renderDiagram(language: DiagramLanguage, source: string, theme: 'light' | 'dark' = 'light'): Promise<DiagramResult> {
-  return language === WAVEDROM_LANGUAGE ? renderWavedrom(source) : renderMermaid(source, theme)
+export function renderDiagram(_language: DiagramLanguage, source: string, theme: 'light' | 'dark' = 'light'): Promise<DiagramResult> {
+  return renderMermaid(source, theme)
 }
 
 const VIEWBOX_RE =

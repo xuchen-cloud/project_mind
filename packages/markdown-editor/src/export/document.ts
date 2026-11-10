@@ -23,30 +23,6 @@ function assertEmbeddedSvg(doc:Document){
   }
   for(const style of doc.querySelectorAll('style,[style]'))for(const url of (style.getAttribute('style')??style.textContent??'').matchAll(/url\(\s*["']?([^\s"')]+)/gu))if(!/^(?:data:|#)/u.test(url[1]))throw Error(`打印图表包含不能内嵌的资源：${url[1]}`);
 }
-/** The pinned WaveDrom skin instances local <g>/<path> definitions. WK's
- * sandboxed srcdoc print loses those instances, even with SVG2 href. Inline
- * the same vector geometry; keep text, classes and instance transforms. */
-function expandWaveformUses(svg:Element){
-  const targets=new Map(Array.from(svg.querySelectorAll('[id]'),node=>[node.id,node]));
-  function expand(use:Element,ancestors:Set<Element>):Element{
-    const href=use.getAttribute('href')??use.getAttribute('xlink:href')??'';
-    const target=href.startsWith('#')?targets.get(href.slice(1)):undefined;
-    if(!target)throw Error(`打印波形引用不存在：${href||'空引用'}`);
-    if(ancestors.has(target))throw Error(`打印波形包含循环引用：${href}`);
-    if(target.localName!=='g'&&target.localName!=='path')throw Error(`打印波形不支持引用元素：${target.localName}`);
-    const instance=svg.ownerDocument.createElementNS('http://www.w3.org/2000/svg','g');
-    for(const attribute of Array.from(use.attributes))if(!['href','xlink:href','x','y','width','height','id'].includes(attribute.name))instance.setAttribute(attribute.name,attribute.value);
-    const clone=target.cloneNode(true) as Element;
-    clone.removeAttribute('id');for(const node of clone.querySelectorAll('[id]'))node.removeAttribute('id');
-    const next=new Set(ancestors);next.add(target);
-    for(const nested of clone.querySelectorAll('use'))nested.replaceWith(expand(nested,next));
-    const x=use.getAttribute('x'),y=use.getAttribute('y');
-    if(x||y){const offset=svg.ownerDocument.createElementNS('http://www.w3.org/2000/svg','g');offset.setAttribute('transform',`translate(${x??0} ${y??0})`);offset.append(clone);instance.append(offset);}
-    else instance.append(clone);
-    return instance;
-  }
-  for(const use of svg.querySelectorAll('use'))use.replaceWith(expand(use,new Set()));
-}
 /** Native print WebViews allow inline CSS and data resources, with no app asset/network access. */
 export async function embedPrintDocument(exported:ExportDocument):Promise<MarkdownPrintDocument>{
   const doc=new DOMParser().parseFromString(exported.html,'text/html');doc.querySelector('base')?.remove();
@@ -62,7 +38,6 @@ export async function embedPrintDocument(exported:ExportDocument):Promise<Markdo
   }
   for(const svg of doc.querySelectorAll('svg')){
     assertEmbeddedSvg(new DOMParser().parseFromString(svg.outerHTML,'image/svg+xml'));
-    if(svg.classList.contains('WaveDrom'))expandWaveformUses(svg);
   }
   const embedded=new Map<string,string>();
   for(const style of doc.querySelectorAll('style')){

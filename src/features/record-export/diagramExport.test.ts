@@ -93,8 +93,8 @@ describe("Record Export diagram preparation", () => {
     expect(sanitized).not.toMatch(/script|<image|onclick|https:\/\/example.com/);
   });
 
-  it("does not render ordinary code blocks", async () => {
-    const document = documentWith([{ type: "codeBlock", language: "ts", code: "const n = 1;" }]);
+  it.each(["ts", "wavedrom"])("does not render ordinary %s code blocks", async language => {
+    const document = documentWith([{ type: "codeBlock", language, code: "const n = 1;" }]);
     expect((await prepareExportDiagrams(document, new Map())).document).toEqual(document);
     expect(renderSafeDiagram).not.toHaveBeenCalled();
   });

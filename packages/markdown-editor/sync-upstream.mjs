@@ -1,4 +1,5 @@
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, rm } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
@@ -33,6 +34,12 @@ for (const entry of lock.files) {
   let content=bytes.toString();
   const relative=entry.path.slice('apps/markdown/src/renderer/'.length);
   const output=path.join(root,'src/genoffice',relative);
+  // #308: retain the pinned source for provenance, but do not ship WaveDrom.
+  if(relative==='editor/wavedrom.ts'||relative==='types/wavedrom.d.ts'){
+    if(check){if(existsSync(output))throw Error('Removed WaveDrom renderer must not be generated');}
+    else await rm(output,{force:true});
+    continue;
+  }
   const adapterPath=path.relative(path.dirname(output),path.join(root,'src/adapters/ui')).replaceAll(path.sep,'/');
   const imagePath=path.relative(path.dirname(output),path.join(root,'src/adapters/localImage')).replaceAll(path.sep,'/');
   content=content.replaceAll("'@genoffice/ui'", `'${adapterPath}'`).replaceAll("'./localImage'", `'${imagePath}'`);
@@ -45,11 +52,13 @@ for (const entry of lock.files) {
   }
   if(relative==='editor/ops.ts')content=content.replace('nodes.at(-1)!','nodes[nodes.length-1]!').replace('// a caret inside a list item inserts after that item, not after the whole list\n    liftFromList(exec)', '// Insert after the containing top-level block; inserting must never unlist existing content.');
   if(relative==='editor/mermaid.ts') content="export { MERMAID_LANGUAGE, MERMAID_TEMPLATE, loadMermaid, renderMermaid } from '../../adapters/mermaidRenderer'\n";
-  if(relative==='editor/wavedrom.ts')content='/// <reference path="../types/wavedrom.d.ts" />\n'+content;
+  if(relative==='editor/slashCommand.ts')content=content.replace("import { WAVEDROM_TEMPLATE } from './wavedrom'\n",'').replace(/\n    \{\n      id: 'waveform',[\s\S]*?\n    \},/u,'');
+  if(relative==='i18n/strings.ts')content=content.replace(/^    insertWaveform:.*\n/gmu,'');
   if(relative==='editor/redact.ts')content=content.replaceAll("'@genoffice/agent-core/","'../../agent-core/");
   if(relative==='components/icons.tsx')content=content.replace(/export \{[\s\S]*?\} from '\.\.\/\.\.\/\.\.\/\.\.\/docs\/src\/renderer\/components\/icons'\n/, '');
   if(relative==='source/plain-find.ts')content=content.replace('    replaceOne(index, replacement) {','    replaceOne(index, replacement) {\n      if(view.state.readOnly)return').replace('    replaceAll(replacement) {','    replaceAll(replacement) {\n      if(view.state.readOnly)return');
   if (relative==='editor/diagrams.ts') content=content.replace('source: string): Promise<DiagramResult>', "source: string, theme: 'light' | 'dark' = 'light'): Promise<DiagramResult>").replace('renderMermaid(source)', 'renderMermaid(source, theme)');
+  if (relative==='editor/diagrams.ts') content=content.replace("import { WAVEDROM_LANGUAGE, renderWavedrom } from './wavedrom'\n",'').replace('[MERMAID_LANGUAGE, WAVEDROM_LANGUAGE]','[MERMAID_LANGUAGE]').replace('renderDiagram(language:', 'renderDiagram(_language:').replace('language === WAVEDROM_LANGUAGE ? renderWavedrom(source) : ', '');
   if (relative==='editor/diagrams.ts') content=content.replace("import type { NewImage } from '@genoffice/docx-engine'", "type NewImage = { base64: string; mime: string; widthPx: number; heightPx: number; align: string }");
   if (relative==='editor/CodeBlockView.tsx') {
     content="import { renderSafeDiagram as renderDiagram } from '../../adapters/diagramPreviewSafety'\n"+content.replace('DIAGRAM_LANGUAGES, diagramLanguage, renderDiagram', 'DIAGRAM_LANGUAGES, diagramLanguage');

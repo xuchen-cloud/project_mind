@@ -6,6 +6,7 @@
   "license": "Apache-2.0",
   "scripts": {
     "test": "../../node_modules/.bin/vitest run --config vitest.config.ts",
+    "test:diagram-build": "node --test tests/diagram-build.test.mjs",
     "typecheck": "../../node_modules/.bin/tsc --noEmit -p tsconfig.json",
     "verify:vendor": "node sync-upstream.mjs --check && node build-exports.mjs --check",
     "build:exports": "node build-exports.mjs"

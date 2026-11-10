@@ -21,7 +21,7 @@ it('defaults to editable blocks with one icon toolbar and ignores legacy present
  expect(editor).toHaveAttribute('contenteditable','true');
  const toolbar=screen.getByRole('toolbar',{name:'Markdown 工具'});
  expect(toolbar.textContent).toBe('');
- expect(within(toolbar).getAllByRole('button')).toHaveLength(13);
+ expect(within(toolbar).getAllByRole('button')).toHaveLength(12);
  for(const name of ['分屏','预览','粗体','斜体','删除线','行内代码','链接','无序列表','有序列表','任务列表','代码块','分隔线'])expect(screen.queryByRole('button',{name})).not.toBeInTheDocument();
  expect(screen.queryByRole('combobox',{name:'段落格式'})).not.toBeInTheDocument();
  expect(screen.queryByRole('textbox',{name:'定位行号'})).not.toBeInTheDocument();

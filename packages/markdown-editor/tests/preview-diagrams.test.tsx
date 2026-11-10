@@ -19,14 +19,14 @@ const mermaid = 'flowchart LR\n  A[开始] --> B[完成]';
 const wave = "{ signal: [{ name: 'clk', wave: 'p..' }, { name: 'data', wave: '01.' }] }";
 const fence = (language: string, code: string) => `\`\`\`${language}\n${code}\n\`\`\``;
 
-it('renders both real diagrams when switching source to blocks without changing readonly source', async () => {
+it('renders Mermaid and keeps former WaveDrom fences as code when switching to blocks', async () => {
   const value = '\uFEFF---\r\ntitle: private\r\n---\r\n\r\n# 图表\r\n\r\n' + [fence('mermaid', mermaid), fence('wavedrom', wave)].join('\n\n').replaceAll('\n', '\r\n') + '\r\n';
   const changed = vi.fn();
   const { container } = render(<MarkdownEditor value={value} onChange={changed} readOnly documentKey="history-1" initialView={{ mode: 'source' }} />);
   fireEvent.click(screen.getByRole('button', { name: '块编辑' }));
-  await waitFor(() => expect(container.querySelectorAll('.md-diagram-preview svg')).toHaveLength(2));
+  await waitFor(() => expect(container.querySelectorAll('.md-diagram-preview svg')).toHaveLength(1));
   expect(container.querySelector('.md-diagram-preview svg')?.textContent).toContain('开始');
-  expect(container.querySelector('svg.WaveDrom')?.textContent).toContain('clk');
+  expect([...container.querySelectorAll('pre code')].map(code => code.textContent)).toContain(wave);
   fireEvent.click(screen.getByRole('button', { name: '源码' }));
   await waitFor(() => expect(container.querySelector('.cm-content')).toHaveAttribute('contenteditable', 'false'));
   expect(container.querySelector('.cm-content')?.textContent).toContain(mermaid.split('\n')[0]);
@@ -51,11 +51,10 @@ it('shows renderer-specific errors and readable source for invalid and empty dia
   const value = [fence('mermaid', 'flowchart LR\nA -->'), fence('wavedrom', '{signal: nope}'), fence('wavedrom', '')].join('\n\n');
   const changed = vi.fn();
   const { container } = render(<Preview value={value} onChange={changed} readOnly initialView={{ mode: 'preview' }} />);
-  await waitFor(() => expect(screen.getAllByRole('alert')).toHaveLength(3));
+  await waitFor(() => expect(screen.getAllByRole('alert')).toHaveLength(1));
   const errors = screen.getAllByRole('alert').map(node => node.textContent).join('\n');
   expect(errors).toMatch(/Mermaid：[\s\S]*Parse error/iu);
-  expect(errors).toMatch(/WaveDrom：[\s\S]*JSON5/iu);
-  expect(errors).toContain('wavedrom source is empty');
+  expect(container.querySelector('[data-diagram-language="wavedrom"]')).toBeNull();
   expect(container.querySelector('.mind-markdown__preview')?.textContent).toContain('A -->');
   expect(container.querySelector('.mind-markdown__preview')?.textContent).toContain('{signal: nope}');
   expect(screen.queryByRole('img', { name: /图表/u })).toBeNull();
@@ -87,7 +86,7 @@ it.each([false, true])('discards a pending old SVG after %s external baseline re
   expect(changed).not.toHaveBeenCalled();
 });
 
-it('blocks Mermaid resource syntax before rendering and filters active SVG while keeping WaveDrom fragment uses', async () => {
+it('blocks Mermaid resource syntax before rendering and filters active SVG', async () => {
   const realRender = mermaidRenderer.render.bind(mermaidRenderer);
   const renderSpy = vi.spyOn(mermaidRenderer, 'render').mockImplementation(async (...args) => {
     const result = await realRender(...args);
@@ -98,8 +97,8 @@ it('blocks Mermaid resource syntax before rendering and filters active SVG while
   const flow = await screen.findByRole('img', { name: 'Mermaid 图表' });
   expect(flow.querySelector('script,foreignObject,image,iframe')).toBeNull();
   expect(flow.innerHTML).not.toContain('https://untrusted.invalid');
-  const timing = await screen.findByRole('img', { name: 'WaveDrom 图表' });
-  expect(timing.querySelector('use')?.getAttribute('xlink:href') ?? timing.querySelector('use')?.getAttribute('href')).toMatch(/^#/u);
+  expect(screen.queryByRole('img', { name: 'WaveDrom 图表' })).toBeNull();
+  expect([...container.querySelectorAll('pre code')].map(code => code.textContent?.trimEnd())).toContain(wave);
   renderSpy.mockClear();
   const unsafe = [
     'flowchart LR\nA@{img:"https://untrusted.invalid/image"}',
@@ -118,23 +117,18 @@ it('blocks Mermaid resource syntax before rendering and filters active SVG while
   expect(changed).not.toHaveBeenCalled();
 });
 
-it('keeps WaveDrom waveform geometry in rich view and the real print callback', async () => {
+it('keeps real Mermaid SVG in rich view and the print callback', async () => {
   const printed = vi.fn(async (_document: { html: string }) => {}), changed = vi.fn();
-  const { container } = render(<MarkdownEditor value={fence('wavedrom', wave)} onChange={changed} readOnly onPrint={printed} initialView={{ mode: 'rich' }} />);
-  await waitFor(() => expect(container.querySelector('.md-diagram-preview svg use')).not.toBeNull());
+  const { container } = render(<MarkdownEditor value={fence('mermaid', mermaid)} onChange={changed} readOnly onPrint={printed} initialView={{ mode: 'rich' }} />);
+  await waitFor(() => expect(container.querySelector('.md-diagram-preview svg path')).not.toBeNull());
   fireEvent.click(screen.getByRole('button', { name: '文件菜单' }));
   fireEvent.click(screen.getByRole('menuitem', { name: '打印…' }));
   await waitFor(() => expect(printed).toHaveBeenCalledOnce());
   const doc = new DOMParser().parseFromString(printed.mock.calls[0][0].html, 'text/html');
-  // WK/AppKit's sandboxed srcdoc prints text/grid but drops local <use>
-  // waveform instances. The prepared artifact must carry real vector paths.
-  const svg = doc.querySelector('svg.WaveDrom')!;
-  expect(svg.querySelector('use')).toBeNull();
-  const lanes = svg.querySelectorAll('[id^="wavelane_draw_"]');
-  expect(lanes).toHaveLength(2);
-  for (const lane of lanes) expect(lane.querySelectorAll('path').length).toBeGreaterThan(0);
-  expect(lanes[0].querySelector('path')?.getAttribute('d')).toBe('M0,20 0,0 20,0');
-  expect(lanes[0].querySelector('[transform="translate(20)"] path')).not.toBeNull();
+  const svg = doc.querySelector('svg')!;
+  expect(svg.querySelector('path')).not.toBeNull();
+  expect(svg.textContent).toContain('开始');
+  expect(svg.textContent).toContain('完成');
   expect(svg.querySelector('image')).toBeNull();
   expect(changed).not.toHaveBeenCalled();
 });

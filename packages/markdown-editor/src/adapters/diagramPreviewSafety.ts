@@ -28,11 +28,11 @@ export function diagramPreviewError(source: string): string | undefined {
 export function safeDiagramSvg(svg: string): string {
   const fragment = DOMPurify.sanitize(svg, {
     USE_PROFILES: { svg: true, svgFilters: true }, RETURN_DOM_FRAGMENT: true,
-    ADD_TAGS: ['use'], // WaveDrom's waveform shapes; href is restricted below.
+    ADD_TAGS: ['use'], // SVG symbol instances; href is restricted below.
     FORBID_TAGS: ['script', 'foreignObject', 'image', 'feImage', 'a', 'animate', 'animateMotion', 'animateTransform', 'set'],
     FORBID_ATTR: ['xml:base'],
   });
-  // Retain only local fragment references (WaveDrom uses <use href="#…">).
+  // Retain only local fragment references.
   // CSS URLs and SVG paint/filter attributes need the same check as href.
   for (const node of fragment.querySelectorAll('*')) {
     for (const attribute of Array.from(node.attributes)) {

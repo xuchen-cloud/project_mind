@@ -2,14 +2,16 @@
 
 用于 Project File 字符串编辑的 React 组件，工作包 [#191](https://github.com/xuchen-cloud/project_mind/issues/191)（父 #118）；完整功能对照与具体差距见 [交付记录](../../docs/implementation/genoffice-parity-markdown.md)。公开入口为 [MarkdownEditor.tsx](../../src/components/markdown/MarkdownEditor.tsx)。
 
+2026-11-11 / #308：按用户要求移除 WaveDrom 的波形、寄存器、逻辑图入口、渲染与专用导出，保留原文代码块；Mermaid 各图类型与公式不变。完整范围和验证见 [移除记录](WAVEDROM-REMOVAL.md)。下文旧 WaveDrom 验收数据仅作为历史，不代表当前支持。
+
 ## 来源与适配
 
 - 上游：`https://github.com/genspark-ai/genoffice`，固定提交 `d32d1711f1bf985430757b8c6b3fbddd3831d946`，Apache-2.0；保留 [LICENSE](upstream/LICENSE) 与 [NOTICE](upstream/NOTICE)。
 - `source-lock.json` 记录 93 个原始文件的 SHA-256；`upstream/` 为原样源码，`src/genoffice/` 为 `sync-upstream.mjs` 生成的浏览器适配版本，禁止直接修改生成结果。
-- 确定性变换包含：内部导入与 UI adapter、ES2021 数组兼容、WaveDrom 类型、只读命令限制、公式浮层释放、图表 SVG 安全过滤、块拖动布局、斜杠菜单共享滚动容器、插入块不解除已有列表格式。变换可从脚本完整审计。
+- 确定性变换包含：内部导入与 UI adapter、ES2021 数组兼容、WaveDrom 功能排除、只读命令限制、公式浮层释放、图表 SVG 安全过滤、块拖动布局、斜杠菜单共享滚动容器、插入块不解除已有列表格式。变换可从脚本完整审计。
 - `src/adapters/localImage.ts` 为固定上游 `localImage.ts` 的手写适配：保留 Markdown 图片/链接序列化，以每实例的宿主资源表替换 Electron IPC；粘贴/拖入本地 raster 图片嵌入 data URL，异步输入参与保存守卫，外部基线替换取消旧输入。原始文件以 referenceOnly 收录。
 - `src/adapters/ui.tsx`、`src/genoffice/i18n/locale.ts` 和 `src/source.ts` 为本地集成代码。原始编辑器内核、sourceSplice 和 Markdown style serializer 继续复用。
-- 预览复用项目已有 DSH `MarkdownText` 的 settled parse/render pipeline 与 `withResolvedMarkdownImages` 安全资源策略；只替换 Mermaid/WaveDrom 代码块为本包 renderer 的真实 SVG，不拆断引用/脚注上下文。源码持久化不经预览重写。
+- 预览复用项目已有 DSH `MarkdownText` 的 settled parse/render pipeline 与 `withResolvedMarkdownImages` 安全资源策略；只替换 Mermaid 代码块为本包 renderer 的真实 SVG，不拆断引用/脚注上下文。源码持久化不经预览重写。
 - 导出复用原 `docxExport.ts` / `exportImage.ts` / `printHtml.ts`。DOCX exporter 与必要引擎闭包以 `build-exports.mjs` 生成独立浏览器 bundle；源文件仍固定在同一 commit，不从其他格式包的私有目录导入。第三方完整许可见 [EXPORT-THIRD-PARTY-NOTICES.md](EXPORT-THIRD-PARTY-NOTICES.md)。
 
 从已核验的完整源码目录重建（不会自行下载大仓库）：
@@ -27,7 +29,7 @@ npm --prefix packages/markdown-editor run verify:vendor
 - React / React DOM 19、lucide-react、dompurify、diff 和项目已有 DSH Markdown renderer。
 - `@tiptap/{core,react,pm,starter-kit,markdown,extensions,extension-table,extension-list,extension-code-block,extension-image,extension-link,extension-paragraph,extension-mathematics,suggestion}`：3.31.0；根现有 Tiptap 扩展一起对齐。React optional bubble-menu / floating-menu 同样 3.31.0，避免精确 peer 冲突。
 - `@codemirror/autocomplete` 6.20.3、commands 6.11.0、language 6.12.4、search 6.7.2、state 6.7.4、view 6.43.11、lang-markdown 6.5.2；lang-json 6.0.2 为同时安装的上游依赖。
-- mermaid 11.17.2、wavedrom 3.7.0、json5 2.2.3、katex 0.16.47、`@types/katex` 0.16.8。
+- mermaid 11.17.2、katex 0.16.47、`@types/katex` 0.16.8。
 
 导出局部依赖由本包 `package.json` / `package-lock.json` 精确锁定，`npm ci --prefix packages/markdown-editor` 安装，不改变根依赖：html-to-image 1.11.13、pdf-lib 1.17.1、jszip 3.10.1、fast-xml-parser 5.3.4、utif2 4.1.0；生成工具 esbuild 0.25.12。编辑器点击导出后才加载相关模块。
 
@@ -51,7 +53,7 @@ npm --prefix packages/markdown-editor run verify:vendor
 
 公开菜单覆盖固定上游的 DOCX、PDF、PNG、转换 Word 和 print。DOCX 是可继续编辑的 OOXML；转换 Word 在此通过同样的 DOCX 交付。提供 `onRenderPdf` 时使用宿主原生 PDF 排版并保持返回字节；standalone PDF 为 192 DPI A4 分页栅格。单页 PNG 为 `.png`，多页图片为含有逐页 PNG 的 `.zip`。系统打印与原文件保存均由宿主承担。原 Markdown 不因导出改变，readonly 历史可导出。
 
-standalone 栅格 PDF 不支持选择文本；原生 PDF 的文本选择与分页由宿主排版实现和实机验收。DOCX 保留上游 mapper 的能力与限制（例如 inline math 为可见 TeX，不能转换的公式/图表保留源码）；独立 GenOffice Docs App 自动开页未复制到本编辑器。split/preview、rich 和打印现在均渲染实际 Mermaid/WaveDrom SVG，保留安全的 WaveDrom 内部引用；无效图表显示具体错误和源码，快速换文档丢弃旧结果。图表内活动 HTML、图片节点与外部 CSS 资源被明确拒绝，原始代码仍保留；本地 themeCSS 和普通文本标签可用，不任意加载远程资源。本地选图和 source/rich paste/drop 直接保留 raster data，单图上限 4MiB，支持 PNG/JPEG/GIF/WebP/BMP；纳管相对资源继续由宿主授权解析。图床设置、凭据管理与上传由用户最新明确排除，组件支线与专属测试已撤除。
+standalone 栅格 PDF 不支持选择文本；原生 PDF 的文本选择与分页由宿主排版实现和实机验收。DOCX 保留上游 mapper 的能力与限制（例如 inline math 为可见 TeX，不能转换的公式/图表保留源码）；独立 GenOffice Docs App 自动开页未复制到本编辑器。split/preview、rich 和打印均渲染实际 Mermaid SVG；原有 wavedrom fenced blocks 作为普通代码保留，不解析或转换为图形；无效图表显示具体错误和源码，快速换文档丢弃旧结果。图表内活动 HTML、图片节点与外部 CSS 资源被明确拒绝，原始代码仍保留；本地 themeCSS 和普通文本标签可用，不任意加载远程资源。本地选图和 source/rich paste/drop 直接保留 raster data，单图上限 4MiB，支持 PNG/JPEG/GIF/WebP/BMP；纳管相对资源继续由宿主授权解析。图床设置、凭据管理与上传由用户最新明确排除，组件支线与专属测试已撤除。
 
 原生回调的专用文档在资源就绪后排成实际 A4 DOM 页，每页自身留白 20mm、正文宽 170mm，不依赖 NSPrintInfo 或 `@page margin`。长段落按文本 Range 分页保留标记，表格按行拆分并重复表头，列表续页延续序号；每页仍是真文字/矢量 SVG，源 Markdown 不改写。原生宿主无需给 Word/PPT 等其他格式添加边距。
 
@@ -59,6 +61,7 @@ standalone 栅格 PDF 不支持选择文本；原生 PDF 的文本选择与分�
 
 ```sh
 npm --prefix packages/markdown-editor test
+npm --prefix packages/markdown-editor run test:diagram-build
 npm --prefix packages/markdown-editor run typecheck
 npm --prefix packages/markdown-editor run verify:vendor
 ```

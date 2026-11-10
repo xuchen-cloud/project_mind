@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import type { Editor } from '@tiptap/core';
-import { Activity, ArrowDown, ArrowUp, CaseSensitive, FileCode2, ImagePlus, LayoutList, ListTree, Redo2, Search, Settings2, Sigma, SpellCheck, Table2, Undo2, WholeWord, Workflow, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, CaseSensitive, FileCode2, ImagePlus, LayoutList, ListTree, Redo2, Search, Settings2, Sigma, SpellCheck, Table2, Undo2, WholeWord, Workflow, X } from 'lucide-react';
 import { Button } from '../../ui/components/Button';
 import { IconButton } from '../../ui/components/IconButton';
 import { PopoverPanel } from '../../ui/components/PopoverPanel';
@@ -17,7 +17,6 @@ export type { MarkdownPrintDocument, MarkdownPdfRenderer } from '../../../packag
 import { uiOp } from '../../../packages/markdown-editor/src/genoffice/editor/ops';
 import { openMathCreate } from '../../../packages/markdown-editor/src/genoffice/editor/mathEdit';
 import { MERMAID_TEMPLATE } from '../../../packages/markdown-editor/src/genoffice/editor/mermaid';
-import { WAVEDROM_TEMPLATE } from '../../../packages/markdown-editor/src/genoffice/editor/wavedrom';
 import type { FindTarget } from '../../../packages/markdown-editor/src/adapters/ui';
 import { watchEdges } from './scrollEdges';
 import { useDraftResources } from './useDraftResources';
@@ -142,7 +141,6 @@ export function MarkdownEditor({menuToolbar,value,onChange,readOnly=false,resour
       <Tool label="图片" disabled={readOnly} pressed={insertPanel==='image'} onClick={()=>openInsert('image')}><ImagePlus/></Tool>
       <Tool label="公式" disabled={readOnly} onClick={()=>mode==='rich'&&richRef.current?openMathCreate(richRef.current):insert('\n$$\nx^2\n$$\n')}><Sigma/></Tool>
       <Tool label="Mermaid 图表" disabled={readOnly} onClick={()=>insert(MERMAID_TEMPLATE)}><Workflow/></Tool>
-      <Tool label="WaveDrom 波形" disabled={readOnly} onClick={()=>insert(WAVEDROM_TEMPLATE)}><Activity/></Tool>
       <Tool label="查找替换" pressed={findOpen} onClick={search}><Search/></Tool>
       <Tool label="大纲" pressed={outline} onClick={()=>{setOutline(!outline);view({outline:!outline});}}><ListTree/></Tool>
       <Tool label="前置信息" pressed={properties} onClick={()=>{cancelImageRead();setInsertPanel(null);setFindOpen(false);setProperties(!properties);}}><Settings2/></Tool>

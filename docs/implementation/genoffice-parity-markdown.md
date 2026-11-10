@@ -1,5 +1,7 @@
 # GenOffice Markdown 编辑交付 — #191（父 #118）
 
+> 2026-11-11 / #308 范围更新：用户明确移除 WaveDrom 波形、寄存器和逻辑图功能。原 wavedrom 围栏保留为普通代码，Mermaid 和公式继续支持。下文按日期记录的旧 WaveDrom 验收证据属于历史；当前交付见 [移除记录](../../packages/markdown-editor/WAVEDROM-REMOVAL.md)。
+
 ## 2026-10-18 用户撤除图床工作包（已完成，源码冻结）
 
 - 关联 #191 / 父 #118。用户明确不需要图床设置与上传；本节取代此前图床工作包的交付状态与外部凭据待办，图床不再是当前交付或待解锁项。
@@ -79,7 +81,7 @@ interface MarkdownEditorProps {
 
 ## 根依赖
 
-由主 agent 安装并统一根 Tiptap 为 3.31.0，React optional bubble/floating menu 同样 pin 3.31.0。CodeMirror、Mermaid、WaveDrom、JSON5 与 KaTeX 类型均已提供；完整固定版本清单见包 README。新增导出依赖只装在本包并有独立 lock：html-to-image 1.11.13、pdf-lib 1.17.1、jszip 3.10.1、fast-xml-parser 5.3.4、utif2 4.1.0；重建 esbuild 0.25.12。未改根依赖/lock。共享笔记模块的 Tiptap 升级回归由主 agent 负责。
+由主 agent 安装并统一根 Tiptap 为 3.31.0，React optional bubble/floating menu 同样 pin 3.31.0。CodeMirror、Mermaid 与 KaTeX 类型均已提供（WaveDrom / JSON5 已按 #308 移除）；完整固定版本清单见包 README。新增导出依赖只装在本包并有独立 lock：html-to-image 1.11.13、pdf-lib 1.17.1、jszip 3.10.1、fast-xml-parser 5.3.4、utif2 4.1.0；重建 esbuild 0.25.12。未改根依赖/lock。共享笔记模块的 Tiptap 升级回归由主 agent 负责。
 
 ## 上游逐项功能对照
 
@@ -100,14 +102,14 @@ interface MarkdownEditorProps {
 | 块拖动、上/下移、复制/删除 | 上游 gutter 与快捷键/菜单；headless Chrome 原生拖动已改变顺序；调整 gutter 不覆盖正文 | 外层应用布局与多尺度综合截图由主 agent 汇总 |
 | 斜杠菜单 | 上游 suggestion/menu；键盘筛选 `/h2`、Enter 与输入已浏览器验证；共享连续滚动区域 | 新菜单标签沿用中文适配 |
 | 数学公式 | 上游 KaTeX 与 TeX 编辑浮层；Chrome 插入 `E=mc^2`；只读关闭浮层/禁止写回 | 部署字体资源由主 Vite 构建处理 |
-| Mermaid / WaveDrom | split/preview 复用 DSH 整文档 parse/render，仅替换图表代码块；rich/打印使用相同原 renderer 与安全 SVG 适配。Chrome 实测流程图 421×97、波形 320×60，预览中 24 个内部 use 有真实几何；打印准备再展开为实际矢量 path，WK/AppKit 原生 PDF/PNG 波形已目视通过；无效代码显示解析错误与源码；切文档丢弃旧异步结果，不回写原文 | 不执行图表内活动 HTML、图片节点或外部 CSS 资源；本地 themeCSS/普通标签可用，原代码仍可编辑。任意外部图片应走宿主授权 Markdown 资源 |
+| Mermaid / 普通代码 | split/preview 复用 DSH 整文档 parse/render；Mermaid 在 rich、预览和打印中渲染 SVG。原 wavedrom 围栏保留为可编辑普通代码，HTML/DOCX/打印不再转换为图形 | 图表安全门禁保留；不执行活动 HTML 或外部资源，Mermaid 其他图类型与公式继续支持 |
 | 查找替换、大小写/整词 | 上游 Unicode-safe 查找适配；真选区/替换/全替换，一次 undo，replacement `$&` 保持字面 | 非正则搜索，与当前上游一致 |
 | 行定位与大纲 | 可输入行号、跳转源码；解析 ATX/Setext/行内格式标题、跳过代码围栏；点击定位与 pointer/键盘调宽；不改文档 | 宿主可选择持久化 outlineWidth |
 | Frontmatter | 与上游一致的原始 YAML 面板；预览不渲染 metadata；未改前缀保真；清空内容移除 envelope 并保留 BOM/正文 | 不经过 YAML 对象解析 |
 | 撤销重做、版本切换 | 真 history；同值正常保存确认保留 undo；documentKey 替换（含同内容历史）清空旧历史 | 源码和块编辑分别维护其引擎历史；跨模式改写重新加载另一引擎 |
 | 拼写、缩放 | 原生 spellcheck 开关、50–200% 与快捷键；Chrome 缩放操作 | 依赖平台可用词典 |
 | 主题/窄窗/滚动 | 仓库真实 color/font/motion token；Lucide；reduced-motion；编辑区/工具栏/大纲/斜杠菜单连续边缘遮罩 | 上游内置图表保留固定内容配色 |
-| DOCX / 转换到 Word | 原 `exportDocxBytes`、原 docx-engine；当前草稿解析后输出真正 OOXML；宿主回调或 standalone 下载 | 转换入口交付 DOCX；上游 inline math 为可见 TeX，ordered start 固定为 1，表格图片为 alt。当前 DOCX 图表 callback 的默认 SVG 清洗会删除 WaveDrom use，可能仅留文字无波形；尚未修复，不以 preview/native PDF 的波形通过代替 DOCX 验收。新出口实现暂停 |
+| DOCX / 转换到 Word | 原 `exportDocxBytes`、原 docx-engine；当前草稿解析后输出真正 OOXML；宿主回调或 standalone 下载 | 转换入口交付 DOCX；上游 inline math 为可见 TeX，ordered start 固定为 1，表格图片为 alt。原 wavedrom 围栏按普通代码导出，已移除波形渲染能力。新出口实现暂停 |
 | PDF 原生排版 | 新公开 onRenderPdf：真实字体/图片内嵌 print HTML → 等待宿主排版字节 → onExport；组件不转 canvas、不重写返回 PDF。回调、文件字节重开、取消/错误与基线替换合同通过；主已全接 native callbacks。最新 margin callback 已用正式 macOS helper 生成 27,788 字节单页与 80,445 字节 12 页 PDF，文字/波形/各页留白目视通过 | 本 fixture 的实际原生证据见末节；其他文档的综合排版、Windows 与系统打印面板仍由主汇总；合同 fixture 不冒充原生生成证据 |
 | standalone PDF / PNG 图片 | 无 onRenderPdf 的浏览器沿用 192 DPI A4 分页栅格 PDF；单页 PNG、多页 PNG ZIP；真实中文/表格/任务/图/公式文件已检查 | 仅 standalone PDF 不能选择文本。分页尽量避开行/图片/表格行，超一页的巨大块仍可能分割 |
 | 打印 / Cmd-Ctrl P | 真打印 HTML；主 MarkdownFileContent 已接 printEditorHtml → desktopApi → native command；KaTeX WOFF2 / 图片 data 内嵌。编辑器到真实 service/IPC 边界的等待/失败测试通过；无回调才 iframe print | 当前主原生实现为 macOS WKWebView/AppKit runOperation、Windows WebView2 ShowPrintUI；本包未启动系统弹窗，Windows 无测试机；Windows afterprint 仅证明交互结束，不证明纸张输出 |

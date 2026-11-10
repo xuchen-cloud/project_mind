@@ -1,5 +1,7 @@
 # GenOffice 编辑器完整接入工作包
 
+> 2026-11-11 / #308：用户已撤除 WaveDrom 功能，原围栏保留为代码。本文旧 WaveDrom/波形数据仅为历史验收证据；当前范围见 [移除记录](../../packages/markdown-editor/WAVEDROM-REMOVAL.md)。
+
 关联 #191；父需求 #118。基线 `40a36d7`，分支 `codex/genoffice-editor-parity`。
 
 ## 交付
