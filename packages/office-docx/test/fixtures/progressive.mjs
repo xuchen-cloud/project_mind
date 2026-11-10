@@ -47,4 +47,3 @@ export async function largeFixture() {
     `<Override PartName="/${OPAQUE_PATH}" ContentType="application/xml"/></Types>`));
   return { bytes: await zip.generateAsync({ type: 'uint8array' }), paragraphs };
 }
-

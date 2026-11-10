@@ -382,6 +382,21 @@ impl BoundFileCommitStore for RecalcRevoked<'_> {
     }
 }
 impl OfficeUtility for RecalcRevoked<'_> {
+    async fn view(
+        &self,
+        _: &crate::office_worker::OfficeBaseline,
+        _: &str,
+        _: &str,
+        _: &str,
+        read: Option<&crate::office_view::OfficeViewRead>,
+    ) -> AgentResult<Value> {
+        self.1.store(true, std::sync::atomic::Ordering::SeqCst);
+        Ok(if read.is_some() {
+            json!({"result":{"cells":[]}})
+        } else {
+            json!({"model":{"coverage":{"kind":"partial"}}})
+        })
+    }
     async fn request(
         &self,
         id: &str,
@@ -409,6 +424,58 @@ async fn office_recalculate_rechecks_workspace_generation_after_async_computatio
             .code,
         ErrorCode::WorkspaceChanged
     );
+    assert_eq!(std::fs::read(&f.path).unwrap(), b"first workbook");
+}
+
+#[tokio::test]
+async fn office_view_rejects_history_projection_and_ranges_after_generation_changes() {
+    for range_read in [false, true] {
+        let f = fixture_bytes("workbook.xlsx", b"first workbook");
+        let host = RecalcRevoked(&f.store, std::sync::atomic::AtomicBool::new(false));
+        let input = FileOfficeViewInput {
+            object: f.input.object.clone(),
+            version_number: 1,
+            expected_content_hash: f.input.expected_content_hash.clone(),
+            read: range_read.then(|| {
+                serde_json::from_value(json!({
+                    "kind":"range","sheetId":"sheet-1",
+                    "range":{"startRow":0,"endRow":0,"startColumn":0,"endColumn":0}
+                }))
+                .unwrap()
+            }),
+        };
+        let mut request = f.request.clone();
+        request.scope_grant.operations = vec!["source.read".into()];
+        let result = FileOfficeService::new(&host, &host)
+            .view(&request, &input)
+            .await;
+        assert!(
+            host.1.load(std::sync::atomic::Ordering::SeqCst),
+            "read-only GUI reaches the worker"
+        );
+        assert_eq!(result.unwrap_err().code, ErrorCode::WorkspaceChanged);
+        assert_eq!(std::fs::read(&f.path).unwrap(), b"first workbook");
+    }
+}
+
+#[tokio::test]
+async fn office_view_rejects_working_range_after_generation_changes() {
+    use crate::file_working::{self, WorkingReadView};
+    let f = fixture_bytes("workbook.xlsx", b"first workbook");
+    let opened = file_working::with_db(&f.store, &f.request, |db| {
+        db.file_working_begin_session(&f.request, &f.request.binding, &f.input.object)
+    })
+    .unwrap();
+    let host = RecalcRevoked(&f.store, std::sync::atomic::AtomicBool::new(false));
+    let input: WorkingReadView = serde_json::from_value(json!({
+        "object":f.input.object,"sessionId":opened.session_id,
+        "read":{"kind":"range","sheetId":"sheet-1",
+            "range":{"startRow":0,"endRow":0,"startColumn":0,"endColumn":0}}
+    }))
+    .unwrap();
+    let result = file_working::read_view(&host, &host, &f.request, &input).await;
+    assert!(host.1.load(std::sync::atomic::Ordering::SeqCst));
+    assert_eq!(result.unwrap_err().code, ErrorCode::WorkspaceChanged);
     assert_eq!(std::fs::read(&f.path).unwrap(), b"first workbook");
 }
 
