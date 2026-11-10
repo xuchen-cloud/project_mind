@@ -1,3 +1,4 @@
+import type { DiagramTheme } from './diagramTheme';
 import DOMPurify from 'dompurify';
 import { renderDiagram, type DiagramLanguage, type DiagramResult } from '../genoffice/editor/diagrams';
 
@@ -45,11 +46,11 @@ export function safeDiagramSvg(svg: string): string {
   return root.outerHTML;
 }
 
-export async function renderSafeDiagram(language: DiagramLanguage, source: string): Promise<DiagramResult> {
+export async function renderSafeDiagram(language: DiagramLanguage, source: string, theme: DiagramTheme = 'light'): Promise<DiagramResult> {
   const error = diagramPreviewError(source);
   if (error) return { ok: false, error };
   try {
-    const result = await renderDiagram(language, source);
+    const result = await renderDiagram(language, source, theme);
     return result.ok ? { ok: true, svg: safeDiagramSvg(result.svg) } : result;
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };

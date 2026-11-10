@@ -23,6 +23,7 @@ import {
 import type { ResolvedExportImage } from "./recordExport";
 import type { ExportBlock, ExportInline, RecordExportDocument } from "./recordExportModel";
 import { exportImagePlaceholder, formatExportVisualDate } from "./exportPresentation";
+import { prepareExportDiagrams } from "./diagramExport";
 
 const A4_WIDTH_TWIPS = 11_906;
 const PAGE_MARGIN_TWIPS = convertMillimetersToTwip(20);
@@ -33,8 +34,9 @@ export async function generateDocx(
   images: ReadonlyMap<string, ResolvedExportImage>,
   signal?: AbortSignal,
 ) {
-  if (typeof Worker === "undefined") return generateDocxInCurrentThread(document, images, signal);
-  return runDocxWorker(document, images, signal);
+  const prepared = await prepareExportDiagrams(document, images, signal);
+  if (typeof Worker === "undefined") return generateDocxInCurrentThread(prepared.document, prepared.images, signal);
+  return runDocxWorker(prepared.document, prepared.images, signal);
 }
 
 export async function generateDocxInCurrentThread(

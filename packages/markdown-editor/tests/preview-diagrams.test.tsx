@@ -78,9 +78,12 @@ it.each([false, true])('discards a pending old SVG after %s external baseline re
   const { rerender, container } = render(<MarkdownEditor value={fence('mermaid', 'flowchart LR\nA[旧异步] --> B')} onChange={changed} documentKey="a" initialView={{ mode: 'preview' }} />);
   await pending;
   rerender(<MarkdownEditor value={fence('mermaid', 'flowchart LR\nA[当前文档] --> B')} onChange={changed} documentKey={external ? 'b' : 'a'} readOnly />);
+  expect(screen.queryByRole('img', { name: 'Mermaid 图表' })).toBeNull();
+  // Mermaid's global theme makes initialize + render one serialized operation.
+  // Releasing the old render must not publish it into the replacement document.
+  await act(async () => { release(); await held; });
   const flow = await screen.findByRole('img', { name: 'Mermaid 图表' });
   expect(flow.querySelector('svg')?.textContent).toContain('当前文档');
-  await act(async () => { release(); await held; });
   expect(container.querySelector('.mind-markdown__preview')?.textContent).not.toContain('旧异步');
   expect(screen.getByRole('img', { name: 'Mermaid 图表' }).querySelector('svg')?.textContent).toContain('当前文档');
   expect(changed).not.toHaveBeenCalled();

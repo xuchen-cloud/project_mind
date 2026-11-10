@@ -16,7 +16,7 @@ export function generateMarkdown(
   const blocks: string[] = [];
   if (document.title) blocks.push(`# ${escapeMarkdownText(document.title)}`);
   blocks.push(...document.blocks.map((block) => renderBlock(block, options.imageReferences)).filter(Boolean));
-  return `${frontMatter.join("\n")}\n\n${blocks.join("\n\n").replace(/\n{3,}/gu, "\n\n").trimEnd()}\n`;
+  return `${frontMatter.join("\n")}\n\n${blocks.join("\n\n").trimEnd()}\n`;
 }
 
 function renderBlock(block: ExportBlock, imageReferences?: ReadonlyMap<string, string>): string {
@@ -33,7 +33,11 @@ function renderBlock(block: ExportBlock, imageReferences?: ReadonlyMap<string, s
     case "blockquote":
       return block.blocks.map((nested) => renderBlock(nested, imageReferences)).join("\n\n").split("\n").map((line) => `> ${line}`.trimEnd()).join("\n");
     case "table": return renderTable(block, imageReferences);
-    case "codeBlock": return `\`\`\`${block.language ?? ""}\n${block.code.replace(/\n+$/u, "")}\n\`\`\``;
+    case "codeBlock": {
+      const longest = Array.from(block.code.matchAll(/`+/gu)).reduce((length, match) => Math.max(length, match[0].length), 0);
+      const fence = "`".repeat(Math.max(3, longest + 1));
+      return `${fence}${block.language ?? ""}\n${block.code}\n${fence}`;
+    }
     case "image": {
       const label = block.alt ?? block.title;
       const reference = imageReferences?.get(block.id);

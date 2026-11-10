@@ -3,6 +3,7 @@ import PDFDocument from "pdfkit/js/pdfkit.standalone.js";
 import type { ResolvedExportImage } from "./recordExport";
 import type { ExportBlock, ExportInline, RecordExportDocument } from "./recordExportModel";
 import { exportImagePlaceholder, formatExportVisualDate, plainExportBlocks } from "./exportPresentation";
+import { prepareExportDiagrams } from "./diagramExport";
 
 const PAGE_WIDTH = 595.28;
 const PAGE_HEIGHT = 841.89;
@@ -18,8 +19,9 @@ export async function generatePdf(
   fontBytes: { sans: Uint8Array; mono: Uint8Array },
   signal?: AbortSignal,
 ) {
-  if (typeof Worker === "undefined") return generatePdfInCurrentThread(document, images, fontBytes, signal);
-  return runPdfWorker(document, images, fontBytes, signal);
+  const prepared = await prepareExportDiagrams(document, images, signal);
+  if (typeof Worker === "undefined") return generatePdfInCurrentThread(prepared.document, prepared.images, fontBytes, signal);
+  return runPdfWorker(prepared.document, prepared.images, fontBytes, signal);
 }
 
 export async function generatePdfInCurrentThread(

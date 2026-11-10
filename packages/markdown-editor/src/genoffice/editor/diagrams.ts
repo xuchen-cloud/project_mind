@@ -14,8 +14,8 @@ export function diagramLanguage(language: unknown): DiagramLanguage | null {
     : null
 }
 
-export function renderDiagram(language: DiagramLanguage, source: string): Promise<DiagramResult> {
-  return language === WAVEDROM_LANGUAGE ? renderWavedrom(source) : renderMermaid(source)
+export function renderDiagram(language: DiagramLanguage, source: string, theme: 'light' | 'dark' = 'light'): Promise<DiagramResult> {
+  return language === WAVEDROM_LANGUAGE ? renderWavedrom(source) : renderMermaid(source, theme)
 }
 
 const VIEWBOX_RE =
