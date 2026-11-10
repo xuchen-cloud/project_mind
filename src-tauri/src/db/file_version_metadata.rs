@@ -3,7 +3,8 @@ use super::Database;
 
 impl Database {
     // Independent migration so integration can order it alongside directory journals.
-    // Columns, protection triggers, and the schema marker commit together.
+    // Columns and protection triggers commit together; the package publishes its
+    // schema version only after every extension has succeeded.
     pub(super) fn ensure_file_version_metadata_schema(&self) -> anyhow::Result<()> {
         let tx = self.conn.unchecked_transaction()?;
         self.ensure_column("document_versions", "display_name",
@@ -13,7 +14,6 @@ impl Database {
         self.ensure_column("document_versions", "metadata_revision",
             "ALTER TABLE document_versions ADD COLUMN metadata_revision INTEGER NOT NULL DEFAULT 0 CHECK(metadata_revision>=0)")?;
         tx.execute_batch(include_str!("file_version_metadata.sql"))?;
-        tx.pragma_update(None, "user_version", 41)?;
         tx.commit()?;
         Ok(())
     }

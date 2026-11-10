@@ -72,6 +72,7 @@ mod workspace_commit_fence;
 mod record_editor_coordination;
 mod file_editor_coordination;
 mod file_editor_commands;
+mod file_flow_commands;
 mod record_export;
 mod secret_crypto;
 mod system_fonts;
@@ -1832,11 +1833,16 @@ pub fn run() {
             overview_commands::agent_overview_corrections_get,
             overview_commands::agent_overview_correction_upsert,
             overview_commands::agent_overview_correction_delete,
+            file_flow_commands::file_owner_move_baseline,
+            file_flow_commands::file_owner_move,
+            file_flow_commands::file_drop_prepare,
+            file_flow_commands::file_drop_commit,
             file_editor_commands::file_editor_register,
             file_editor_commands::file_editor_unregister,
             file_editor_commands::file_editor_flush_reply,
             file_editor_commands::file_editors_flush,
             file_editor_commands::file_editors_release,
+            record_owner_moves::record_owner_move,
             record_document_commands::record_editor_register,
             record_document_commands::record_cut_register,
             record_document_commands::record_cut_claim,

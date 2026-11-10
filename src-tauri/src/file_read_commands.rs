@@ -343,6 +343,7 @@ mod tests {
 /// Trusted GUI version metadata only; uses the current Host connection and fence.
 #[tauri::command]
 pub(crate) async fn file_version_metadata_update(
+    caller: tauri::Webview,
     state: State<'_, AppState>,
     input: FileReadCommandInput<crate::db::file_version_metadata::VersionMetadataUpdate>,
 ) -> Result<ApiResponse<crate::db::file_version_metadata::VersionMetadataResult>, String> {
@@ -351,6 +352,10 @@ pub(crate) async fn file_version_metadata_update(
     let result = tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let request = request(&state, &input, &input.data.object, &["file.version.metadata.update"])?;
+        // The native window can act only on its actual current owner. The
+        // frontend ObjectRef is a locator, never the source of GUI authority.
+        crate::project_directory::authorize_caller(&caller, request.scope_grant.project_ids.first().copied())
+            .map_err(|message| AgentError::new(ErrorCode::ScopeDenied, message))?;
         crate::file_working::with_db(&*state, &request, |db| {
             db.file_version_metadata_update(&request, &request.binding, &input.data)
         })

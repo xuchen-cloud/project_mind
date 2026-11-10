@@ -1420,6 +1420,8 @@ impl Database {
         let document = self.directory_baseline(object, version, hash)?;
         let root = self.directory_owner(&object.workspace_id, project)?;
         let original = PathBuf::from(&document.managed_path);
+        self.file_owner_require_unshared_root(&original, project)?;
+        self.record_owner_require_unshared_root(&original, project)?;
         let target = business_path(&root, relative)?;
         self.directory_unclaimed(&target, object)?;
         if original == target {

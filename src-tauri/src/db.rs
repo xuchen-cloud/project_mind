@@ -67,6 +67,7 @@ pub(crate) mod source_registry;
 pub(crate) mod source_maintenance;
 pub(crate) mod file_versions;
 pub(crate) mod file_version_metadata;
+mod file_flow_migration;
 #[cfg(test)]
 mod file_version_metadata_tests;
 pub(crate) mod file_imports;
@@ -441,16 +442,16 @@ impl Database {
             return Ok(());
         }
         if initial_schema_version == 40 {
-            return self.ensure_file_version_metadata_schema();
+            return self.migrate_file_flow_package();
         }
         if initial_schema_version == 39 {
             self.ensure_file_working_schema()?;
-            return self.ensure_file_version_metadata_schema();
+            return self.migrate_file_flow_package();
         }
         if initial_schema_version == 38 {
             self.ensure_file_working_schema()?;
             self.ensure_contacts_schema()?;
-            return self.ensure_file_version_metadata_schema();
+            return self.migrate_file_flow_package();
         }
         if initial_schema_version > CURRENT_SCHEMA_VERSION {
             anyhow::bail!("Workspace database schema is newer than this application");
@@ -947,8 +948,7 @@ impl Database {
         self.ensure_workspace_file_schema()?;
         self.ensure_file_working_schema()?;
         self.ensure_contacts_schema()?;
-        self.ensure_file_version_metadata_schema()?;
-        Ok(())
+        self.migrate_file_flow_package()
     }
 
     pub fn voice_live_transcription_suppressed(&self) -> Result<bool> {
@@ -2530,6 +2530,7 @@ impl Database {
             return Ok(None);
         }
         self.file_owner_require_unshared_root(&current_dir,Some(current.id))?;
+        if current_dir.exists() { self.record_owner_require_unshared_root(&current_dir, Some(current.id))?; }
         self.file_working_require_owner_recovered(Some(current.id))
             .map_err(|error| anyhow!(error.message))?;
         self.file_project_root_available(&next_dir)?;
@@ -2754,7 +2755,7 @@ impl Database {
             .collect::<rusqlite::Result<Vec<_>>>()?;
         for (id, stored_path) in projects {
             let path = self.decode_path_ref(&stored_path);
-            let result = self.file_owner_require_unshared_root(&path,Some(id)).and_then(|_| if path.exists() { move_paths_to_trash(&[path]) } else { Ok(()) });
+            let result = self.file_owner_require_unshared_root(&path,Some(id)).and_then(|_| if path.exists() { self.record_owner_require_unshared_root(&path, Some(id))?; move_paths_to_trash(&[path]) } else { Ok(()) });
             match result {
                 Ok(()) => { self.conn.execute("DELETE FROM project_asset_cleanup WHERE project_id=?1", [id])?; }
                 Err(error) => { self.conn.execute("UPDATE project_asset_cleanup SET last_error=?2 WHERE project_id=?1", params![id, error.to_string()])?; }
@@ -2770,6 +2771,7 @@ impl Database {
             .map_err(|error| anyhow!(error.message))?;
         let current = self.project_record(input.project_id)?;
         self.file_owner_require_unshared_root(Path::new(&current.root_path),Some(input.project_id))?;
+        if Path::new(&current.root_path).exists() { self.record_owner_require_unshared_root(Path::new(&current.root_path), Some(input.project_id))?; }
         let active: bool = self.conn.query_row("SELECT EXISTS(SELECT 1 FROM recording_sessions s JOIN voice_records v ON v.id=s.voice_record_id JOIN notes n ON n.id=v.project_note_id WHERE n.project_id=?1 AND s.lifecycle != 'ended')", [input.project_id], |row| row.get(0))?;
         if active { return Err(anyhow!("请先结束语音记录，再删除 Project")); }
         let path = self.encode_path_ref(Path::new(&current.root_path));

@@ -82,11 +82,16 @@ struct Seal {
     nonce: String,
     release: Arc<dyn Fn(OwnerMoveReleased) + Send + Sync>,
 }
+struct Completed {
+    binding: WorkspaceBinding,
+    window: String,
+}
 #[derive(Default)]
 struct Registry {
     editors: BTreeMap<String, Editor>,
     pending: HashMap<String, Pending>,
     seals: HashMap<String, Seal>,
+    completed: HashMap<(String, String), Completed>,
 }
 #[derive(Default)]
 pub(crate) struct FileEditorCoordinator {
@@ -111,6 +116,23 @@ fn valid_id(id: &str) -> bool {
     id.len() == 32 && id.bytes().all(|x| x.is_ascii_hexdigit())
 }
 impl FileEditorCoordinator {
+    /// Only a consumed native guard grants the originating window permission to
+    /// confirm its completed operation after the File has changed owners. The
+    /// database still verifies the exact request payload and current owner.
+    pub(crate) fn can_confirm(
+        &self,
+        binding: &WorkspaceBinding,
+        object: &ObjectRef,
+        operation: &str,
+        window: &str,
+    ) -> AgentResult<bool> {
+        let target = key(binding, object)?;
+        let registry = crate::lock_mutex(&self.registry);
+        Ok(registry
+            .completed
+            .get(&(target, operation.into()))
+            .is_some_and(|proof| proof.binding == *binding && proof.window == window))
+    }
     pub(crate) fn register(
         &self,
         binding: &WorkspaceBinding,
@@ -323,6 +345,9 @@ impl FileEditorCoordinator {
         let nonce = format!("{:032x}", rand::random::<u128>());
         let (requests, receivers) = {
             let mut registry = crate::lock_mutex(&self.registry);
+            registry
+                .completed
+                .retain(|_, proof| proof.binding == *binding);
             if let Some(seal) = registry.seals.get(&target) {
                 if seal.event.operation_id == operation
                     && seal.window == window
@@ -471,13 +496,21 @@ impl FileMoveGuard {
         Ok(())
     }
     pub(crate) fn committed(mut self) {
-        self.coordinator.remove(
-            &self.target,
-            &self.operation,
-            Some(&self.nonce),
-            true,
-            false,
-        );
+        let mut registry = crate::lock_mutex(&self.coordinator.registry);
+        if registry.seals.get(&self.target).is_some_and(|seal| {
+            seal.event.operation_id == self.operation
+                && seal.nonce == self.nonce
+                && seal.phase == Phase::Moving
+        }) {
+            let seal = registry.seals.remove(&self.target).expect("matching seal");
+            registry.completed.insert(
+                (self.target.clone(), self.operation.clone()),
+                Completed {
+                    binding: seal.event.binding,
+                    window: seal.window,
+                },
+            );
+        }
         self.notify = false;
     }
 }
@@ -754,6 +787,74 @@ mod tests {
         c.take(&binding, &object, "retry", "main")
             .unwrap()
             .committed();
+    }
+    #[tokio::test]
+    async fn only_a_committed_guard_can_confirm_its_original_window_and_request() {
+        let c = Arc::new(FileEditorCoordinator::default());
+        let (_, release) = releases();
+        c.prepare(
+            &binding(),
+            &object("7"),
+            "move",
+            "main",
+            &windows(),
+            |_| Ok(()),
+            release.clone(),
+        )
+        .await
+        .unwrap();
+        assert!(!c
+            .can_confirm(&binding(), &object("7"), "move", "main")
+            .unwrap());
+        drop(c.take(&binding(), &object("7"), "move", "main").unwrap());
+        assert!(!c
+            .can_confirm(&binding(), &object("7"), "move", "main")
+            .unwrap());
+        c.prepare(
+            &binding(),
+            &object("7"),
+            "move",
+            "main",
+            &windows(),
+            |_| Ok(()),
+            release.clone(),
+        )
+        .await
+        .unwrap();
+        c.take(&binding(), &object("7"), "move", "main")
+            .unwrap()
+            .committed();
+        assert!(c
+            .can_confirm(&binding(), &object("7"), "move", "main")
+            .unwrap());
+        for (file, operation, window) in [
+            ("8", "move", "main"),
+            ("7", "other", "main"),
+            ("7", "move", "project-1"),
+        ] {
+            assert!(!c
+                .can_confirm(&binding(), &object(file), operation, window)
+                .unwrap());
+        }
+        let next = WorkspaceBinding {
+            generation: "next-open".into(),
+            ..binding()
+        };
+        assert!(!c.can_confirm(&next, &object("7"), "move", "main").unwrap());
+        c.prepare(
+            &next,
+            &object("8"),
+            "new",
+            "main",
+            &windows(),
+            |_| Ok(()),
+            release,
+        )
+        .await
+        .unwrap();
+        assert!(!c
+            .can_confirm(&binding(), &object("7"), "move", "main")
+            .unwrap());
     }
     #[tokio::test]
     async fn drop_prepare_rearms_without_old_expiry_or_guard_releasing_new_seal() {

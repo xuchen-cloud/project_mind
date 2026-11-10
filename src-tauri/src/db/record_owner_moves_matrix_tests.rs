@@ -919,7 +919,7 @@ fn g13_native_move_origin_and_response_lost_replay_do_not_authorize_fresh_alias_
 
 #[tokio::test]
 async fn g13_resource_subdirectory_and_single_file_guard_retains_foreign_record_assets() {
-    let (dir, db, mut r, source) = setup();
+    let (dir, mut db, mut r, source) = setup();
     let a = db
         .record_owner_move(
             &r,
@@ -953,6 +953,13 @@ async fn g13_resource_subdirectory_and_single_file_guard_retains_foreign_record_
         &input(&db, &a.target, Scope::Project { project_id: 2 }),
     )
     .unwrap();
+    // Integration must stop physical root mutation before the SQL trigger runs.
+    let project = db.project_record(1).unwrap();
+    assert!(db.rename_project_root(&project, "renamed-resource-owner").is_err());
+    assert!(dir.path().join("a").exists());
+    assert!(!dir.path().join("renamed-resource-owner").exists());
+    assert!(db.project_delete(crate::models::ProjectDeleteInput { project_id: 1 }).is_err());
+    assert!(db.project_record(1).is_ok());
     // Both reachable file rename/trash and parent directory rename/trash must be blocked.
     assert!(db
         .record_owner_require_unshared_root(&resources.join("图片.png"), Some(1))
