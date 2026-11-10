@@ -1,0 +1,9 @@
+{
+  "head": "16f2278fd06054c809c7848e5c993eecd4a50183",
+  "previousImplementation": "2cab61974ff99be2f83326dcd6e2ae6862eb78f4",
+  "standards": 0,
+  "spec": 0,
+  "fixedReviewFinding": "Report VM missing visiblePreflight binding;4 failures reproduced and fixed,46 tests passed",
+  "nativeGui": "DOCX and Markdown all7 acceptance rows each passed; errors empty; real native current working autosave/readback/archive/history; macOS arm64 embedded debug. DOCX cold open1778ms over1000ms budget; Markdown779ms.",
+  "binaryBuild": "tsc/Vite/native embedded build passed at2cab619;16f2278 changes test fixture only"
+}

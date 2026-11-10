@@ -1,5 +1,5 @@
 /** #118 native acceptance only, after real mutation/autosave on an ISOLATED fixture.
- * Main owns wiring: file = native post-autosave metadata; original = pre-edit v1.
+ * Main owns wiring: file = explicitly archived native metadata; original = pre-edit v1.
  * Keep the same mounted ProjectFileContent; never set version props or remount to
  * select history. source() reads its actual onSourceReady callback. ready(file)
  * must check the selected native model AND real renderer/paint; renderedText()
@@ -57,7 +57,7 @@ export async function runNativeHistoryAcceptance(hooks: NativeHistoryHooks, opti
   proof(sameFile(original.object, latest.object) && latest.object.workspaceId === binding.workspaceId &&
     original.versionNumber === 1 && latest.versionNumber === 2 && original.state === 'ready' && latest.state === 'ready' &&
     !!original.contentHash && !!latest.contentHash && original.contentHash !== latest.contentHash,
-  'requires real pre-edit v1 and completed autosave v2 of the same File');
+  'requires real pre-edit v1 and explicitly archived v2 of the same File');
   const { fileDocumentApi } = await import('../../src/services/fileDocumentApi');
   const { projectFileApi } = await import('../../src/services/projectFileApi');
   const { AgentApiError } = await import('../../src/services/agentApi');
@@ -111,8 +111,8 @@ export async function runNativeHistoryAcceptance(hooks: NativeHistoryHooks, opti
   await surface(latest, false);
   await select(`v${original.versionNumber}`);
   const history = await surface(original, true);
-  // includeLatest's row passes undefined; clicking plain v2 would pin read-only v2.
-  await select(`v${latest.versionNumber}（当前）`);
+  // Current working content passes undefined; plain v2 pins read-only history.
+  await select('当前内容');
   const current = await surface(latest, false);
   const requestId = crypto.randomUUID();
   let rejection: unknown = null;
