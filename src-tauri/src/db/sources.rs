@@ -34,6 +34,12 @@ impl Database {
             request.authorize_object(binding, &actual, &actual, operation)?;
             return Ok(actual);
         }
+        // A File has one global stable document ID. Only persisted old-owner
+        // locators may be read aliases; authorize the canonical current owner
+        // and canonical allowlist before exposing metadata or bytes.
+        if object.kind==ObjectKind::File && operation=="source.read" {
+            return self.file_resolve_read_alias(request,binding,object);
+        }
         request.authorize(binding, &object.scope, operation)?;
         if object.workspace_id != binding.workspace_id {
             return Err(AgentError::new(

@@ -120,6 +120,7 @@ struct AgentImportIntent {
     operation_id: String,
 }
 struct AgentImport<'a> {
+    gui_drop: bool,
     request: &'a RequestContext,
     binding: &'a WorkspaceBinding,
     input: &'a AgentFileCreateInput,
@@ -233,6 +234,16 @@ fn validate_import_business_name(name: &str) -> Result<()> {
 }
 
 impl Database {
+    fn file_import_authorize(&self, agent: &AgentImport<'_>) -> AgentResult<()> {
+        if !agent.gui_drop { return self.agent_file_create_authorize(agent.request,agent.binding,agent.input); }
+        self.file_flow_gui(agent.request,agent.binding)?;
+        agent.request.authorize(agent.binding,&super::file_scope::scope(agent.input.project_id),"content.create")?;
+        agent.request.require_scope_context()?;
+        if self.file_scope_archived(agent.input.project_id).map_err(|error| AgentError::new(ErrorCode::IoFailed,error.to_string()))? {
+            return Err(AgentError::new(ErrorCode::ScopeDenied,"Archived target cannot receive Files"));
+        }
+        Ok(())
+    }
     pub(crate) fn agent_file_create_authorize(
         &self,
         request: &RequestContext,
@@ -303,6 +314,7 @@ impl Database {
             return Ok(previous);
         }
         let agent = AgentImport {
+            gui_drop: false,
             request,
             binding,
             input,
@@ -383,6 +395,7 @@ impl Database {
         let project_id = input.project_id;
         let safe_name = input.safe_name.as_str();
         let agent = AgentImport {
+            gui_drop: false,
             request,
             binding,
             input,
@@ -409,6 +422,25 @@ impl Database {
         {
             ImportOutcome::Agent(result) => Ok(result),
             ImportOutcome::Gui(_) => unreachable!("Agent creation carries an intent"),
+        }
+    }
+    /// A native drop intent has already captured the original source bytes.
+    /// Preserve the existing import journal and request receipt for all formats
+    /// accepted by ordinary GUI import (not the narrower Agent output format set).
+    pub(crate) fn file_drop_import_bound(
+        &mut self, request: &RequestContext, binding: &WorkspaceBinding,
+        project_id: Option<i64>, name: &str, bytes: &[u8],
+        payload: &serde_json::Value, fence: &WorkspaceCommitFence,
+    ) -> AgentResult<AgentFileCreateResult> {
+        validate_import_business_name(name).map_err(agent_import_error)?;
+        let input = AgentFileCreateInput {project_id,safe_name:name.into(),utf8_content:String::new()};
+        self.file_flow_gui(request,binding)?;
+        request.authorize(binding,&super::file_scope::scope(project_id),"content.create")?;
+        request.require_scope_context()?;
+        let agent = AgentImport {gui_drop:true,request,binding,input:&input,fence,payload:payload.clone()};
+        let source=ImportSource::Utf8{bytes:bytes.to_vec(),mime_type:mime_guess::from_path(name).first_or_octet_stream().essence_str().into()};
+        match self.file_import_commit_inner(project_id,name.into(),false,&[],source,Some(&agent)).map_err(agent_import_error)? {
+            ImportOutcome::Agent(result)=>Ok(result), ImportOutcome::Gui(_)=>unreachable!("Drop import carries native intent"),
         }
     }
     /// Reconstruct a pre-registration File for migration/freshness fixtures.
@@ -765,7 +797,7 @@ impl Database {
         let _project_lock = self.file_project_lock(project_id, false)?;
         let _import_lock = self.file_scope_storage_lock("file-import-locks", project_id, true)?;
         if let Some(agent) = agent {
-            self.agent_file_create_authorize(agent.request, agent.binding, agent.input)
+            self.file_import_authorize(agent)
                 .map_err(AgentImportFailure)?;
             if let Some(previous) = self
                 .agent_operation_replay(
@@ -952,7 +984,7 @@ impl Database {
                 .transpose()
                 .map_err(AgentImportFailure)?;
             if let Some(agent) = agent {
-                self.agent_file_create_authorize(agent.request, agent.binding, agent.input)
+                self.file_import_authorize(agent)
                     .map_err(AgentImportFailure)?;
             }
             if !journal.adopt_existing {
@@ -979,11 +1011,7 @@ impl Database {
                         "file.create",
                         &agent.payload,
                         |tx| {
-                            self.agent_file_create_authorize(
-                                agent.request,
-                                agent.binding,
-                                agent.input,
-                            )?;
+                            self.file_import_authorize(agent)?;
                             let (_, change) = self.file_import_register_transaction(
                                 tx, &journal, &target, &history,
                             )?;

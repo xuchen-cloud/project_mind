@@ -40,7 +40,7 @@ pub(crate) struct FileVersionUpdate {
 }
 /// Trusted local GUI intent. Physical bytes are frozen by hash at preflight;
 /// unknown/externally changed bytes require an explicit registration decision.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct GuiFileVersionPrepare {
     pub document_id: i64,
@@ -103,6 +103,7 @@ pub(super) enum CommitPayload {
         expected_content_hash: String,
         version_id: String,
     },
+    NativeDrop { intent: GuiFileVersionIntent },
     NativeCas {
         intent: GuiFileVersionIntent,
         register_current_bytes: bool,
@@ -820,6 +821,7 @@ impl Database {
         self.file_journal_clear(directory)
     }
     pub(crate) fn file_version_recover_pending(&self) -> Result<()> {
+        self.file_owner_move_recover_pending()?;
         self.file_working_recover_pending()?;
         self.file_import_recover_pending()?;
         self.file_metadata_recover_pending()?;
@@ -979,6 +981,9 @@ impl Database {
             &crate::workspace_commit_fence::WorkspaceCommitFence::new(),
         )
         .map(|outcome| outcome.receipt)
+    }
+    pub(super) fn file_version_drop_replay(&self, request_id: &str, intent: &GuiFileVersionIntent) -> AgentResult<Option<CommittedVersion>> {
+        self.agent_operation_replay("gui",request_id,"file.version.commit",&CommitPayload::NativeDrop {intent:intent.clone()})
     }
     pub(crate) fn file_version_commit_gui_bound(
         &mut self,

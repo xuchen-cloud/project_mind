@@ -72,16 +72,19 @@ fn crash_point(phase: RestorePhase) {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub(super) enum DirectoryReplaceInput {
+    Drop {object:ObjectRef,intent: file_versions::GuiFileVersionIntent},
     Restore(FileVersionRestore),
     Staged(crate::file_content::FileContentUpdate),
 }
 impl DirectoryReplaceInput {
-    fn object(&self)->&ObjectRef { match self { Self::Restore(x)=>&x.object,Self::Staged(x)=>&x.object } }
-    fn version(&self)->u32 { match self { Self::Restore(x)=>x.expected_version_number,Self::Staged(x)=>x.expected_version_number } }
-    fn hash(&self)->&str { match self { Self::Restore(x)=>&x.expected_content_hash,Self::Staged(x)=>&x.expected_content_hash } }
+    fn object(&self)->&ObjectRef { match self { Self::Drop {object,..}=>object, Self::Restore(x)=>&x.object,Self::Staged(x)=>&x.object } }
+    fn version(&self)->u32 { match self { Self::Drop {intent,..}=>intent.expected_version_number,Self::Restore(x)=>x.expected_version_number,Self::Staged(x)=>x.expected_version_number } }
+    fn hash(&self)->&str { match self { Self::Drop {intent,..}=>&intent.expected_content_hash,Self::Restore(x)=>&x.expected_content_hash,Self::Staged(x)=>&x.expected_content_hash } }
     pub(super) fn restore(&self)->Option<&FileVersionRestore> { if let Self::Restore(x)=self {Some(x)} else {None} }
     pub(super) fn staged(&self)->Option<&crate::file_content::FileContentUpdate> { if let Self::Staged(x)=self {Some(x)} else {None} }
+    pub(super) fn is_drop(&self)->bool { matches!(self,Self::Drop {..}) }
     pub(super) fn payload(&self,new_hash:&str)->file_versions::CommitPayload {
+        if let Self::Drop {intent,..}=self {return file_versions::CommitPayload::NativeDrop {intent:intent.clone()};}
         let update=FileVersionUpdate {object:self.object().clone(),expected_version_number:self.version(),expected_content_hash:self.hash().into(),new_content_hash:new_hash.into()};
         file_versions::registered_payload(&update,None,self.staged().map(|x|x.staged_content_id.as_str()),self.restore())
     }
@@ -180,8 +183,9 @@ impl Database {
                 "Restore staging contains foreign or changed bytes; intent retained",
             ));
         }
-        fs::remove_file(path)?;
-        file_versions::sync_directory(path.parent().unwrap())
+        let referenced:bool=self.conn.query_row("SELECT EXISTS(SELECT 1 FROM document_versions WHERE managed_path=?1)",[self.encode_path_ref(path)],|r|r.get(0))?;
+        if !referenced { fs::remove_file(path)?; file_versions::sync_directory(path.parent().unwrap())?; }
+        Ok(())
     }
     pub(in crate::db) fn directory_restore_recover_locked(&self, object: &ObjectRef) -> Result<()> {
         self.directory_restore_schema()?;
@@ -288,6 +292,40 @@ impl Database {
         let _file = self.file_version_lock(id)?;
         self.directory_restore_recover_locked(object)
     }
+    pub(in crate::db) fn project_file_drop_bound(&self,request:&RequestContext,binding:&WorkspaceBinding,intent:&file_versions::GuiFileVersionIntent,fence:&WorkspaceCommitFence)->AgentResult<FileVersionCommitOutcome> {
+        self.file_flow_gui(request,binding)?;
+        self.file_version_recover_pending().map_err(error)?;
+        let object=ObjectRef {workspace_id:binding.workspace_id.clone(),scope:super::super::file_scope::scope(intent.project_id),kind:ObjectKind::File,id:intent.document_id.to_string()};
+        let source=Path::new(intent.source_path.as_deref().ok_or_else(||AgentError::new(ErrorCode::InvalidArgument,"Drop source snapshot missing"))?);
+        let input=DirectoryReplaceInput::Drop {object,intent:intent.clone()};
+        let precommit=|| -> AgentResult<()> {
+            let metadata=self.file_version_gui_metadata(&file_versions::GuiFileVersionPrepare {document_id:intent.document_id,project_id:intent.project_id,managed_path:intent.managed_path.clone(),expected_version_number:intent.expected_version_number,source_path:None})?;
+            if metadata.registered_content_hash != intent.registered_content_hash || intent.registered_content_hash.as_ref()!=Some(&intent.expected_content_hash) {
+                return Err(AgentError::new(ErrorCode::RevisionConflict,"Drop registered baseline changed"));
+            }
+            if file_versions::checksum(source).map_err(error)? != intent.new_content_hash {
+                return Err(AgentError::new(ErrorCode::SourceChanged,"Drop snapshot changed"));
+            }
+            Ok(())
+        };
+        let synchronous:i64=self.conn.pragma_query_value(None,"synchronous",|r|r.get(0)).map_err(|e|error(e.into()))?;
+        self.conn.pragma_update(None,"synchronous",synchronous.max(2)).map_err(|e|error(e.into()))?;
+        let result=self.directory_replace_bound(request,binding,&input,source,&intent.new_content_hash,None,fence,&precommit);
+        self.conn.pragma_update(None,"synchronous",synchronous).map_err(|e|error(e.into()))?;
+        result
+    }
+    /// Run only in the version+receipt transaction after original-location placement.
+    /// A legacy live version must retain the journal-owned original bytes as history.
+    pub(super) fn directory_drop_finalize(&self,tx:&rusqlite::Transaction<'_>,id:i64,live:&str)->Result<()> {
+        let json:String=tx.query_row("SELECT journal FROM project_directory_restores WHERE document_id=?1",[id],|r|r.get(0))?;
+        let journal:RestoreJournal=serde_json::from_str(&json)?;
+        let backup=self.decode_path_ref(&journal.backup);
+        if file_versions::path_identity(&backup)? != journal.original_identity || file_versions::checksum(&backup)? != journal.input.hash() {return Err(failure("source_changed","Drop original backup changed"));}
+        tx.execute("UPDATE document_versions SET managed_path=?1 WHERE document_id=?2 AND managed_path=?3",params![journal.backup,id,live])?;
+        tx.execute("DELETE FROM file_working_sessions WHERE document_id=?1",[id])?;
+        tx.execute("DELETE FROM file_working_contents WHERE document_id=?1",[id])?;
+        Ok(())
+    }
     pub(crate) fn project_file_restore_bound(
         &self,
         request: &RequestContext,
@@ -381,7 +419,15 @@ impl Database {
                 &request.request_id,
                 "file.version.commit",
                 &payload,
-                |_| Ok((receipt, None)),
+                |_| {
+                    if input.is_drop() {
+                        self.directory_replace_authorize(request,binding,input,historical)?;
+                        self.directory_baseline(input.object(),input.version(),input.hash()).map_err(error)?;
+                        if file_versions::path_identity(&target).map_err(error)? != physical || file_versions::checksum(&target).map_err(error)? != input.hash() {return Err(AgentError::new(ErrorCode::RevisionConflict,"Drop target changed before noChange receipt"));}
+                        precommit()?;
+                    }
+                    Ok((receipt,None))
+                },
             )?;
             return Ok(FileVersionCommitOutcome {
                 receipt,

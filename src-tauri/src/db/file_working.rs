@@ -105,6 +105,7 @@ impl Database {
             .transpose()
     }
     pub(super) fn ensure_file_working_schema(&self) -> anyhow::Result<()> {
+        self.ensure_file_flow_schema()?;
         self.conn.execute_batch("CREATE TABLE IF NOT EXISTS file_working_contents(document_id INTEGER PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,state TEXT NOT NULL CHECK(json_valid(state)),bytes BLOB NOT NULL,journal TEXT CHECK(journal IS NULL OR json_valid(journal))); CREATE TABLE IF NOT EXISTS file_working_sessions(session_id TEXT PRIMARY KEY,document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,generation TEXT NOT NULL,object TEXT NOT NULL,base_hash TEXT NOT NULL,name TEXT NOT NULL,bytes BLOB NOT NULL);")?;
         Ok(())
     }
@@ -409,6 +410,12 @@ impl Database {
     pub(super) fn working_recover_locked(&self, object: &ObjectRef) -> AgentResult<()> {
         let _durable = Durable::new(&self.conn)?;
         let id: i64 = object.id.parse().map_err(io)?;
+        // Authorization may precede a wait for owner/File leases. A move can
+        // finish during that gap; even a journal-free replay must recheck scope.
+        let actual=self.document_record(id).map_err(io)?;
+        if object.scope!=super::file_scope::scope(actual.project_id) || self.native_workspace_id.as_deref()!=Some(object.workspace_id.as_str()) {
+            return Err(error(ErrorCode::ScopeDenied,"File moved to another owner while waiting for its lease"));
+        }
         let pending: Option<String> = self
             .conn
             .query_row(
@@ -722,7 +729,7 @@ impl Database {
         now: i64,
         force: bool,
     ) -> AgentResult<WorkingStatus> {
-        self.working_archive(request, binding, object, now, force, false)
+        self.working_archive(request, binding, object, now, force, false, None)
     }
     pub(crate) fn file_working_checkpoint_source(
         &self,
@@ -742,6 +749,7 @@ impl Database {
                 chrono::Utc::now().timestamp_millis(),
                 true,
                 true,
+                None,
             )?;
         }
         Ok(())
@@ -754,6 +762,7 @@ impl Database {
         now: i64,
         force: bool,
         source_checkpoint: bool,
+        drop_intent: Option<(&str, &super::file_owner_move::FileMoveBaseline)>,
     ) -> AgentResult<WorkingStatus> {
         let _durable = Durable::new(&self.conn)?;
         let document =
@@ -761,6 +770,12 @@ impl Database {
         let _locks = self.file_recovery_write_locks(document.id).map_err(io)?;
         let _permit = self.file_commit_permit()?;
         self.working_recover_locked(object)?;
+        if let Some((_, baseline)) = drop_intent {
+            let actual = self.move_baseline_locked(document.id)?;
+            if actual != *baseline {
+                return Err(error(ErrorCode::RevisionConflict, "File changed before Drop archive"));
+            }
+        }
         let mut state = self.working_initialize_locked(object)?;
         if !state.pending
             || (!force
@@ -768,6 +783,9 @@ impl Database {
                     .activity
                     .is_none_or(|at| at.saturating_add(IDLE_MS) > now))
         {
+            if let Some((id, baseline)) = drop_intent {
+                self.working_drop_marker(&self.conn, id, baseline)?;
+            }
             return self.working_status(object, &state);
         }
         let target = Path::new(&document.managed_path);
@@ -814,8 +832,43 @@ impl Database {
         )
         .map_err(io)?;
         tx.execute("INSERT INTO agent_change_log(object_key,scope_key,operation,revision,created_at) VALUES (?1,?2,'file.working.archive',?3,?4)",params![object.key()?,object.scope.key(),state.hash,timestamp]).map_err(io)?;
+        if let Some((id, _)) = drop_intent {
+            self.working_drop_marker(&tx, id, &super::file_owner_move::FileMoveBaseline {
+                expected_version: version,
+                expected_working_revision: Some(state.revision),
+                expected_hash: state.hash.clone(),
+            })?;
+        }
         tx.commit().map_err(io)?;
         self.working_status(object, &state)
+    }
+    fn working_drop_marker(&self, conn: &rusqlite::Connection, id: &str, baseline: &super::file_owner_move::FileMoveBaseline) -> AgentResult<()> {
+        // Legacy managed imports also use working-save replacement. Their directory
+        // identity must follow this explicitly verified saved base before Drop replaces it.
+        let document_id:i64=conn.query_row("SELECT json_extract(payload,'$.prepare.target.documentId') FROM file_drop_intents WHERE id=?1",[id],|r|r.get(0)).map_err(io)?;
+        let doc=self.document_record(document_id).map_err(io)?;
+        let physical=match self.working_state(document_id)? {Some(state)=>state.identity,None=>files::path_identity(Path::new(&doc.managed_path)).map_err(io)?};
+        conn.execute("UPDATE project_directory_files SET physical_identity=?1,state='ready',reason=NULL WHERE document_id=?2",params![serde_json::to_string(&physical).map_err(io)?,document_id]).map_err(io)?;
+        let changed = conn.execute("UPDATE file_drop_intents SET payload=json_set(payload,'$.post_archive',json(?2)) WHERE id=?1", params![id,serde_json::to_string(baseline).map_err(io)?]).map_err(io)?;
+        if changed != 1 { return Err(error(ErrorCode::NotFound,"Drop archive intent missing")); }
+        Ok(())
+    }
+    pub(super) fn file_working_drop_archive(&self, request: &RequestContext, binding: &WorkspaceBinding, object: &ObjectRef, intent_id: &str, baseline: &super::file_owner_move::FileMoveBaseline) -> AgentResult<()> {
+        if baseline.expected_working_revision.is_some() {
+            self.working_archive(request,binding,object,chrono::Utc::now().timestamp_millis(),true,false,Some((intent_id,baseline)))?;
+        } else {
+            let _durable = Durable::new(&self.conn)?;
+            self.working_archive_authorize(request,binding,object,false)?;
+            let _locks = self.file_recovery_write_locks(object.id.parse().map_err(io)?).map_err(io)?;
+            let _permit = self.file_commit_permit()?;
+            self.working_archive_authorize(request,binding,object,false)?;
+            let actual = self.move_baseline_locked(object.id.parse().map_err(io)?)?;
+            if actual != *baseline {
+                return Err(error(ErrorCode::RevisionConflict,"File changed before Drop archive"));
+            }
+            self.working_drop_marker(&self.conn,intent_id,baseline)?;
+        }
+        Ok(())
     }
     /// The native scheduler runs on startup and periodically while a Workspace
     /// is open; deadlines are persisted and never derived from a Tab timer.
