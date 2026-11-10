@@ -69,6 +69,8 @@ mod office_process;
 mod file_office_commands;
 mod workspace_commit_fence;
 mod record_editor_coordination;
+mod file_editor_coordination;
+mod file_editor_commands;
 mod record_export;
 mod secret_crypto;
 mod system_fonts;
@@ -331,6 +333,7 @@ pub(crate) struct AppState {
     voice_closing: Arc<voice::shutdown::ClosingFlag>,
     exit_authorized: std::sync::atomic::AtomicBool,
     record_editors: Arc<record_editor_coordination::RecordEditorCoordinator>,
+    file_editors: Arc<file_editor_coordination::FileEditorCoordinator>,
     external_bridge: agent::bridge::BridgeRuntime,
     office_selections: office_selection::Selections,
 }
@@ -1688,6 +1691,7 @@ pub fn run() {
                 local_session_path: local_session_path.clone(),
                 current_workspace: Mutex::new(None),
                 record_editors: Arc::new(record_editor_coordination::RecordEditorCoordinator::default()),
+                file_editors: Arc::new(file_editor_coordination::FileEditorCoordinator::default()),
                 voice_runtime: Mutex::new(voice::runtime::VoiceRuntime::default()),
                 voice_closing: Arc::new(voice::shutdown::ClosingFlag::default()),
                 exit_authorized: std::sync::atomic::AtomicBool::new(false),
@@ -1827,6 +1831,11 @@ pub fn run() {
             overview_commands::agent_overview_corrections_get,
             overview_commands::agent_overview_correction_upsert,
             overview_commands::agent_overview_correction_delete,
+            file_editor_commands::file_editor_register,
+            file_editor_commands::file_editor_unregister,
+            file_editor_commands::file_editor_flush_reply,
+            file_editor_commands::file_editors_flush,
+            file_editor_commands::file_editors_release,
             record_document_commands::record_editor_register,
             record_document_commands::record_cut_register,
             record_document_commands::record_cut_claim,
@@ -1866,6 +1875,7 @@ pub fn run() {
             file_read_commands::file_versions_list,
             file_read_commands::file_versions_get,
             file_read_commands::file_version_restore,
+            file_read_commands::file_version_metadata_update,
             office_selection::office_selection_register,
             office_selection::office_selection_bind,
             office_selection::office_selection_unregister,
