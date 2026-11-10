@@ -8,7 +8,7 @@ import {
 } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-import type { DocumentRecord, DocumentTagRecord, DocumentVersionRecord, TagColorKey, WorkspaceStatusSnapshot } from "../../lib/types";
+import type { DocumentRecord, DocumentTagRecord, DocumentVersionRecord, WorkspaceStatusSnapshot } from "../../lib/types";
 import { tagColorValue } from "../../lib/constants";
 import { queryKeys } from "../../lib/queryKeys";
 import { openFilePreview } from "../../state/file-preview-store";

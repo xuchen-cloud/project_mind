@@ -94,7 +94,6 @@ import { CreateWorkspaceDialog } from "./components/workspace/WorkspaceDialogs";
 import { Button, Dialog, EmptyState } from "./ui/components";
 import {
   RecordFocusResidencyProvider,
-  RecordFocusResidentPages,
 } from "./components/record/RecordFocusResidentPages";
 
 const ProjectSidebar = lazy(() => import("./components/layout/ProjectSidebar").then(module => ({ default: module.ProjectSidebar })));

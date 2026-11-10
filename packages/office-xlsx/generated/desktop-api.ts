@@ -3,10 +3,7 @@ import { z } from 'zod'
 
 import {
   HEADER_FOOTER_PICTURE_POSITION,
-  MAX_CREATE_DOCUMENT_CONTENT_CHARS,
-  MAX_CREATE_DOCUMENT_TITLE_CHARS,
   MAX_CSV_EXPORT_CHARS,
-  MAX_PDF_TEMPLATE_CHARS,
   MAX_SAVE_EDITS,
   MAX_SAVE_EDITS_TOTAL,
   SAVE_EDITS_CHUNK_JSON_MAX,
@@ -2474,39 +2471,4 @@ export type WorkbookTableEdit = z.infer<typeof workbookTableEditSchema>
 export type WorkbookPivotAdd = z.infer<typeof workbookPivotAddSchema>
 export type WorkbookCellStyle = z.infer<typeof cellStyleSchema>
 export type WorkbookConditionalRule = z.infer<typeof conditionalRuleSchema>
-
-// ---- AI settings + chat/stream: canonical types live in @genoffice/ai-provider,
-// shared with apps/docs. Validated here like every other renderer→main request in
-// this file; the validated shape is cast to AiSettings at the main-process call
-// site, which has every known provider key once merged through
-// resolveAiSettings/defaultAiSettings. ----
-
-const aiProviderConfigSchema = z
-  .object({
-    apiKey: z.string(),
-    model: z.string(),
-    baseUrl: z.string().optional(),
-    cliPath: z.string().optional(),
-  })
-  .strict()
-
-const aiMediaProviderConfigSchema = z
-  .object({
-    apiKey: z.string(),
-    baseUrl: z.string().optional(),
-    imageModel: z.string(),
-    analysisModel: z.string(),
-  })
-  .strict()
-
-const aiCustomEndpointSchema = z
-  .object({
-    id: z.string().min(1),
-    name: z.string(),
-    baseUrl: z.string(),
-    apiKey: z.string(),
-    model: z.string(),
-    models: z.array(z.string()).optional(),
-  })
-  .strict()
 

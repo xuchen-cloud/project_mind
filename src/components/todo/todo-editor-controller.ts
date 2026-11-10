@@ -10,7 +10,6 @@ import {
   buildInternalReferenceTarget,
   buildInternalReferenceToken,
   findInternalReferenceTextTrigger,
-  type InternalReferenceTarget,
 } from "../../lib/internalReferences";
 import { findHashTagTextTrigger } from "../../lib/tags";
 import type {

@@ -13,9 +13,8 @@ import { prepareRecordCutHtml, registerRecordCutHtml, type RecordCutTransport } 
 import { readRecordCutClipboard, recordCutPasteEvent } from "./recordCutClipboard";
 import { DOMSerializer, Slice } from "@tiptap/pm/model";
 import { NodeSelection, Plugin, PluginKey, TextSelection, type EditorState } from "@tiptap/pm/state";
-import { CellSelection } from "@tiptap/pm/tables";
 import { Mapping } from "@tiptap/pm/transform";
-import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
+import type { EditorView } from "@tiptap/pm/view";
 import { EditorContent, useEditor } from "@tiptap/react";
 import {
   Bold,
@@ -24,7 +23,6 @@ import {
   Code2,
   Copy,
   ExternalLink,
-  File as FileIcon,
   FolderOpen,
   Grid2X2Plus,
   Heading1,
@@ -32,7 +30,6 @@ import {
   Heading3,
   Heading4,
   Highlighter,
-  Image,
   ImageUp,
   ImagePlus,
   Italic,
@@ -42,7 +39,6 @@ import {
   LoaderCircle,
   Lightbulb,
   Maximize2,
-  Minus,
   MoreHorizontal,
   Paperclip,
   Pencil,
@@ -54,7 +50,6 @@ import {
   Strikethrough,
   Table2,
   Trash2,
-  Type,
   WandSparkles,
   X,
   type LucideIcon,
@@ -129,7 +124,6 @@ import {
   setEditorRewriteProtectedRange,
 } from "./editorRewriteProtection";
 import {
-  codeLanguageLabel,
   filterCodeLanguageOptions,
   normalizeCodeLanguage,
 } from "./codeHighlight";
@@ -490,7 +484,6 @@ export function RichEditor({
   selectionActions,
   renderToolbarExtras,
   defaultCodeLanguage,
-  onDefaultCodeLanguageChange,
 }: RichEditorProps) {
   const { pushToast } = useFeedbackStore();
   const [persistState, setPersistState] = useState<RichEditorPersistState>("idle");
@@ -707,7 +700,6 @@ export function RichEditor({
         .sort((left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name, "zh-Hans-CN")),
     [aiSettings?.editorSkills],
   );
-  const editorRewriteVisible = Boolean(aiSettings);
   const editorRewriteReady =
     Boolean(aiSettings) && (aiSettings?.hasUsableDefault || isAiCapabilityConfigured(aiSettings ?? undefined, "default"));
   const imageInterpretationReady =
@@ -6357,7 +6349,6 @@ function createEditorRewriteWidgetPlugin(options: {
 }) {
   let widgetRoot: Root | null = null;
   let widgetDom: HTMLDivElement | null = null;
-  let widgetFrame: HTMLElement | null = null;
   let resizeObserver: ResizeObserver | null = null;
 
   const ensureWidgetDom = () => {
@@ -6383,7 +6374,6 @@ function createEditorRewriteWidgetPlugin(options: {
     if (dom.parentElement !== frame) {
       frame.appendChild(dom);
     }
-    widgetFrame = frame;
 
     const protectedRange = options.getProtectedRange();
     const anchorFrom = clampNumber(
@@ -6464,7 +6454,6 @@ function createEditorRewriteWidgetPlugin(options: {
       const frame = view.dom.closest<HTMLElement>(".rich-editor__frame");
       if (frame) {
         frame.appendChild(dom);
-        widgetFrame = frame;
       }
       renderWidget();
       positionWidget(view);
@@ -6487,7 +6476,6 @@ function createEditorRewriteWidgetPlugin(options: {
           resizeObserver?.disconnect();
           resizeObserver = null;
           widgetDom?.remove();
-          widgetFrame = null;
           widgetRoot = null;
           widgetDom = null;
           queueMicrotask(() => {
@@ -8286,8 +8274,7 @@ async function buildPastedImageElement(
   }
 
   const title = resolvePastedImageTitle(image, index, source);
-  const mimeType = inferImageMimeType(source);
-  const file = buildClipboardImageFile(source, title, mimeType);
+  const file = buildClipboardImageFile(source, title);
 
   if (file) {
     const attrs = await buildPastedImageAttrs(file, assetHandlers);
@@ -8343,7 +8330,7 @@ function resolvePastedImageTitle(image: Element, index: number, source: string) 
   return `clipboard-image-${index + 1}.${extensionForMimeType(inferImageMimeType(source) ?? "image/png")}`;
 }
 
-function buildClipboardImageFile(source: string, title: string, mimeType?: string | null) {
+function buildClipboardImageFile(source: string, title: string) {
   if (!source.startsWith("data:")) {
     return null;
   }

@@ -20,10 +20,8 @@ import {
 } from "react";
 import {
   ChevronLeft,
-  ChevronRight,
   ExternalLink,
   FilePlus2,
-  Files,
   FolderKanban,
   FolderOpen,
   FolderInput,
@@ -48,7 +46,6 @@ import {
 } from "../../state/ui-store";
 import {
   ActionContextMenu,
-  Button,
   IconButton,
   ListPinIndicator,
   ResizeHandle,

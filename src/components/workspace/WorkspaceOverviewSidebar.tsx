@@ -114,7 +114,6 @@ export function WorkspaceOverviewSidebar({
   onArchiveProject,
   onDeleteProject,
   onOpenRecord,
-  onFocusRecord,
   onCreateRecord,
   onRenameRecord,
   onDeleteRecord,

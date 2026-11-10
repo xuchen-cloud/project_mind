@@ -90,7 +90,6 @@ export function WorkspacePage({
     projectRecentPaths,
     openProjectIds,
     closeProjectTab,
-    projectSidebarCollapsed,
   } = useUiStore();
   const openInternalReference = useInternalReferenceNavigation();
   const contactMentionOptions = useContactMentionOptions();

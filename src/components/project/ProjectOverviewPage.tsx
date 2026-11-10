@@ -118,7 +118,6 @@ export function ProjectOverviewPage({
   const {
     openSettings,
     pageWidthMode,
-    projectSidebarCollapsed,
   } = useUiStore();
   const openInternalReference = useInternalReferenceNavigation();
   const contactMentionOptions = useContactMentionOptions();
@@ -128,10 +127,6 @@ export function ProjectOverviewPage({
     queryFn: () => projectMindApi.projectsList({ includeArchived: true }),
     enabled: visible,
   });
-  const visibleProjects = useMemo(
-    () => (projectsQuery.data ?? []).filter((project) => !project.isArchived),
-    [projectsQuery.data],
-  );
   const activeProject = useMemo(
     () => (projectsQuery.data ?? []).find((project) => project.id === projectId) ?? null,
     [projectId, projectsQuery.data],
