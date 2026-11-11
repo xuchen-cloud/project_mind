@@ -1,0 +1,1664 @@
+{
+  "baseline": "ca8ecfc4806ac0c9ce3736a97bd9de556717ab71",
+  "files": [
+    {
+      "file": "docs/implementation/file-auth-order.md",
+      "category": "historical-evidence",
+      "reason": "固定基线的实施、诊断或验收记录；这些原始命令和日志位置仅保留历史来源，不是当前 checkout 的执行说明。",
+      "lines": [
+        {
+          "line": 11,
+          "sha256": "456e6bcdf0c638888559733efbf30aa611f94c6dae07bdae397bd197ad108ab4",
+          "occurrences": 1
+        },
+        {
+          "line": 23,
+          "sha256": "c7a59ba01dd2e8f57f80c23b5d6bc99bf6ac8e989347fea1b161a013dc14d81b",
+          "occurrences": 1
+        },
+        {
+          "line": 26,
+          "sha256": "49f56b0a6635bcefff27fc04abd8e061b4911f10539aa42a4149642e9031c6b9",
+          "occurrences": 1
+        },
+        {
+          "line": 29,
+          "sha256": "d44d8169e89a82633578c6f5c42ee8eedf15a96c110b2065d04df6f159a8121d",
+          "occurrences": 1
+        },
+        {
+          "line": 30,
+          "sha256": "3e41f5942a9ddb6a8a1c036445310ef4129826456eadb7cb4c40feba3d5c206a",
+          "occurrences": 1
+        },
+        {
+          "line": 31,
+          "sha256": "caa8356c7b7771684732afe091f4dfe6f9a15af645dc40c5eb873ceba7a59697",
+          "occurrences": 1
+        },
+        {
+          "line": 32,
+          "sha256": "a9ad2f9b06ea2f086c60364b43c69dd4a488a35f0274af7fa7ea8d29dfe01b7d",
+          "occurrences": 1
+        },
+        {
+          "line": 36,
+          "sha256": "d5f09c9ec3f2f9ad9dff5985e58ba1a636d11998a4f0343305c75ec19b605a03",
+          "occurrences": 1
+        },
+        {
+          "line": 52,
+          "sha256": "648da2d4704eb4711d427eebdb4b9fd6f70d8be90e0d3d879608da23bb443012",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "docs/implementation/file-owner-move-and-source-cleanup.md",
+      "category": "historical-evidence",
+      "reason": "固定基线的实施、诊断或验收记录；这些原始命令和日志位置仅保留历史来源，不是当前 checkout 的执行说明。",
+      "lines": [
+        {
+          "line": 167,
+          "sha256": "21fccdda9eda17e0094f974553f25ce22ab1264e13ae075a5ce622c56b4c051c",
+          "occurrences": 1
+        },
+        {
+          "line": 168,
+          "sha256": "75c64a7ddad130e2e1e547b068eec194e2d6b5088f519b90e5588d1f47acc529",
+          "occurrences": 1
+        },
+        {
+          "line": 170,
+          "sha256": "e2f20c5b09ec8f4a5e945a24a407ae4f03f0bf4088ca2622f69e15a730c12acc",
+          "occurrences": 1
+        },
+        {
+          "line": 185,
+          "sha256": "9081db68ac8695ce11bd9ffe0a60472cdb7a07bb36ecd75ebf67a3c8e4a3df15",
+          "occurrences": 1
+        },
+        {
+          "line": 186,
+          "sha256": "32e7996f029567c1d5785eadd42b440a0ccf59abc2d90aae509f2e7d4025e7d1",
+          "occurrences": 1
+        },
+        {
+          "line": 187,
+          "sha256": "080e07e103544b1e2c7ff0d73054ae30865fd5e9ecfeada5d0c60fb74ebf88cf",
+          "occurrences": 1
+        },
+        {
+          "line": 188,
+          "sha256": "445169ad7436f252e635c836ea5ee58e4fe244b30386075ec8592a6206fb3e25",
+          "occurrences": 1
+        },
+        {
+          "line": 189,
+          "sha256": "09af1074a74673529757db678a08812562cbd30894a3de8fcc20d41d66470769",
+          "occurrences": 1
+        },
+        {
+          "line": 190,
+          "sha256": "5cc43a0539bc4eb8d0f359b878ac6555aa934e432c564170c93087b7136bc94e",
+          "occurrences": 1
+        },
+        {
+          "line": 191,
+          "sha256": "63f1b0f1104810fdc1820c6766a6707327ae4ca6c6ab72198f9cc6e9ac86ff2d",
+          "occurrences": 1
+        },
+        {
+          "line": 203,
+          "sha256": "63d56cf99ee9ec4c2137d4e82be20bbd94af400124bf85b5dffea4fda8350aab",
+          "occurrences": 1
+        },
+        {
+          "line": 204,
+          "sha256": "2164a652b20960affad800be3f1562eb6d259cc1edbfbe1179233cd30ae84412",
+          "occurrences": 1
+        },
+        {
+          "line": 209,
+          "sha256": "d8c2d7be3f23054d635006c9ff3467b6f7bed0ed2baf26148050a4b6be95b2fa",
+          "occurrences": 1
+        },
+        {
+          "line": 224,
+          "sha256": "66aa49c6d3f896856f99b9390117f132c5f4fdfb01a395b453d1dccbed62fafc",
+          "occurrences": 1
+        },
+        {
+          "line": 261,
+          "sha256": "a39fbfe8f5a0c2eefa544483ae18830d73895ae2b28b1655ee06031b90174c47",
+          "occurrences": 1
+        },
+        {
+          "line": 264,
+          "sha256": "e189e6c25eae65680cb755f4a9ec7505a605871a6e7c0730cf0448e8bafc03f7",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "docs/implementation/genoffice-altchunk.md",
+      "category": "historical-evidence",
+      "reason": "固定基线的实施、诊断或验收记录；这些原始命令和日志位置仅保留历史来源，不是当前 checkout 的执行说明。",
+      "lines": [
+        {
+          "line": 89,
+          "sha256": "40884f4448dae2d74370d8b2c0528beebcea10666120a80495a3196ca88b02b9",
+          "occurrences": 1
+        },
+        {
+          "line": 90,
+          "sha256": "7b6569390fdf8606f4cfe258a866b1bffec9928f77421bb79d747d5887b3b988",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "docs/implementation/genoffice-editor-capture.md",
+      "category": "historical-evidence",
+      "reason": "固定基线的实施、诊断或验收记录；这些原始命令和日志位置仅保留历史来源，不是当前 checkout 的执行说明。",
+      "lines": [
+        {
+          "line": 100,
+          "sha256": "c7783205074683501775f46ed8da4e8ebd2436ba3b45d0d295cafdc3234953fd",
+          "occurrences": 1
+        },
+        {
+          "line": 101,
+          "sha256": "0c6ae825d3381d4c23a429c8a6b25e615e4064bb5a27cd40f9a165e0d1ff210a",
+          "occurrences": 1
+        },
+        {
+          "line": 102,
+          "sha256": "2fb2689721290be09fc51b179624057c43bea3036410728607832032c97f276e",
+          "occurrences": 1
+        },
+        {
+          "line": 103,
+          "sha256": "d82ab7e73251428940eee1d4387aaa73f0e488029e8dff080d54c3dee4d6581f",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "docs/implementation/genoffice-parity-markdown.md",
+      "category": "historical-evidence",
+      "reason": "固定基线的实施、诊断或验收记录；这些原始命令和日志位置仅保留历史来源，不是当前 checkout 的执行说明。",
+      "lines": [
+        {
+          "line": 174,
+          "sha256": "989cb1a26a6a2d450e7e233f4b558fc17d75fe7b884f4af121500997026b2c99",
+          "occurrences": 1
+        },
+        {
+          "line": 234,
+          "sha256": "645e39ddb53ca5b39e9b6755309d97c9ca06da289c44d3346d18e6c28b11e9c4",
+          "occurrences": 1
+        },
+        {
+          "line": 254,
+          "sha256": "e17a475374ac4156fc3b0448fb774b1889f0efa7bdb1dea375e44a0d54dd1e3e",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "docs/implementation/genoffice-parity-ppt.md",
+      "category": "historical-evidence",
+      "reason": "固定基线的实施、诊断或验收记录；这些原始命令和日志位置仅保留历史来源，不是当前 checkout 的执行说明。",
+      "lines": [
+        {
+          "line": 89,
+          "sha256": "05fb4ca4d83ef5b4079228fc381f9b2216e641af0593b01e12e1cd1807dea962",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "docs/implementation/genoffice-presenter.md",
+      "category": "historical-evidence",
+      "reason": "固定基线的实施、诊断或验收记录；这些原始命令和日志位置仅保留历史来源，不是当前 checkout 的执行说明。",
+      "lines": [
+        {
+          "line": 31,
+          "sha256": "aa8be619cef94a68b76411dd4e373f018104c8dcfe02aaa05a239b4400732988",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "docs/implementation/genoffice-print-host.md",
+      "category": "historical-evidence",
+      "reason": "固定基线的实施、诊断或验收记录；这些原始命令和日志位置仅保留历史来源，不是当前 checkout 的执行说明。",
+      "lines": [
+        {
+          "line": 23,
+          "sha256": "8b92e83f892a045c727a6baed3036c4a1f509ea84f3baa079077fe6889d70f1a",
+          "occurrences": 1
+        },
+        {
+          "line": 75,
+          "sha256": "85c0ecda712412f1445fe14596638544629dabc059a64c80d6295df3f841b22c",
+          "occurrences": 1
+        },
+        {
+          "line": 123,
+          "sha256": "1bd049057497466c4fa50332a8c6d6055c658db351818048f9b81e2c563c5aeb",
+          "occurrences": 1
+        },
+        {
+          "line": 125,
+          "sha256": "e14e11087964b63d68e8b9995a401f76da5bf9127c5d4817662830ae70a5b34f",
+          "occurrences": 1
+        },
+        {
+          "line": 131,
+          "sha256": "c0aee9d4f36888c350ab900dada436f623c037af40bcd95fbb444475f082347a",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "docs/implementation/genoffice-remote-images.md",
+      "category": "historical-evidence",
+      "reason": "固定基线的实施、诊断或验收记录；这些原始命令和日志位置仅保留历史来源，不是当前 checkout 的执行说明。",
+      "lines": [
+        {
+          "line": 157,
+          "sha256": "6413ad564b81788043558f64075389118e66908460774175bc032d9941c0f7a7",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "docs/implementation/genoffice-review-fixes-20261018.md",
+      "category": "historical-evidence",
+      "reason": "固定基线的实施、诊断或验收记录；这些原始命令和日志位置仅保留历史来源，不是当前 checkout 的执行说明。",
+      "lines": [
+        {
+          "line": 51,
+          "sha256": "ac31b8e0f364f828f36eb95ee58b2d881bb618737251fed45651f5aaa99405e6",
+          "occurrences": 1
+        },
+        {
+          "line": 63,
+          "sha256": "d986cca9741c34f7987caf19883ce3064d363e655c568db985586c351c791bb4",
+          "occurrences": 1
+        },
+        {
+          "line": 71,
+          "sha256": "92614246bf293eae34d773735b376d716036c171ca21f1f9b90415b599b46d32",
+          "occurrences": 1
+        },
+        {
+          "line": 124,
+          "sha256": "19b95403817664962b2e8bdd98f02c44ecfae4e88a7d8af09075b36f1b9785c9",
+          "occurrences": 1
+        },
+        {
+          "line": 126,
+          "sha256": "d1e5eba3a08abffc92ca311566e177e3fdf78150ba7a71f8fe74172e47a51c31",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "docs/implementation/markdown-table-undo.md",
+      "category": "historical-evidence",
+      "reason": "固定基线的实施、诊断或验收记录；这些原始命令和日志位置仅保留历史来源，不是当前 checkout 的执行说明。",
+      "lines": [
+        {
+          "line": 24,
+          "sha256": "63d56cf99ee9ec4c2137d4e82be20bbd94af400124bf85b5dffea4fda8350aab",
+          "occurrences": 1
+        },
+        {
+          "line": 25,
+          "sha256": "9b5b4d86448f97bc0ee0b6516e8a1dd457f8436517f6d144ade2a570e5a75c29",
+          "occurrences": 1
+        },
+        {
+          "line": 28,
+          "sha256": "c3f0b2db388e4bc144066aff2e09854e7e153c2271cc1a228fe314d7d8a7a0e5",
+          "occurrences": 1
+        },
+        {
+          "line": 29,
+          "sha256": "c44efa218c166060ce236fbb8e9058202cfb6e13ce709427d94a9d6de83f2938",
+          "occurrences": 1
+        },
+        {
+          "line": 30,
+          "sha256": "7e7ca122ec9ec5dc9e297e0509912a1bb2f75b24dfa0075f3be7b087a7f82516",
+          "occurrences": 1
+        },
+        {
+          "line": 31,
+          "sha256": "19c2d3807c9eb4701ba3f4e4967eccd5bbb02fa4201315805aaaa161cdd08b37",
+          "occurrences": 1
+        },
+        {
+          "line": 35,
+          "sha256": "bc12f498421f71fdf694c9dff472ebec42b921158f6e905adeb11155d5c0c19f",
+          "occurrences": 1
+        },
+        {
+          "line": 36,
+          "sha256": "073a0c957fe1d47ddf926f47b9283ce30d7cb1d0a8f0693a21c6bf12ca40c27a",
+          "occurrences": 1
+        },
+        {
+          "line": 37,
+          "sha256": "3ed53e2b876ffe482960a371ce60790b0a7f092ade753ec78def2e0f79a27c65",
+          "occurrences": 1
+        },
+        {
+          "line": 38,
+          "sha256": "0e6c68d9029db0ba2b25af04b013326ac5931e94bfc60b4818df8dd071435feb",
+          "occurrences": 1
+        },
+        {
+          "line": 39,
+          "sha256": "9dd397e03bc64b03a360512d47cd4e9834fc95a78c4ff1fcbf55f6eea4982a5f",
+          "occurrences": 1
+        },
+        {
+          "line": 41,
+          "sha256": "822186aa317aa724855378a043a371cdb4b99595fd79b20f1c87442b8a8a4d59",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "docs/implementation/perf-package-F-20261027.md",
+      "category": "historical-evidence",
+      "reason": "固定基线的实施、诊断或验收记录；这些原始命令和日志位置仅保留历史来源，不是当前 checkout 的执行说明。",
+      "lines": [
+        {
+          "line": 44,
+          "sha256": "2693f5639eea1857cc87a2004d62d67bf5d58dc1cdf9414f71d2e9f773356c43",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "docs/implementation/record-owner-moves.md",
+      "category": "historical-evidence",
+      "reason": "固定基线的实施、诊断或验收记录；这些原始命令和日志位置仅保留历史来源，不是当前 checkout 的执行说明。",
+      "lines": [
+        {
+          "line": 51,
+          "sha256": "35bd8a80c2d9c8463f7952bfe74916e41b3cc4b18f23f2391631cd6816308ae8",
+          "occurrences": 1
+        },
+        {
+          "line": 71,
+          "sha256": "9a5d51ab918047917fc1073fa7aa386d9712d990deb291c6e6593588d1009298",
+          "occurrences": 1
+        },
+        {
+          "line": 72,
+          "sha256": "a5a154bae725ca65f871662ddca4586ad9dc0958da001ad4adbbdc834a4017dd",
+          "occurrences": 1
+        },
+        {
+          "line": 73,
+          "sha256": "33325b7091801e263997ecb11bd4ed8d426ad6cbf0292401ed46ff92dabfd388",
+          "occurrences": 1
+        },
+        {
+          "line": 74,
+          "sha256": "d4bbb067a5c20d3e3400bdaccb2f2af483a772b60da52bd7a3eb5c7242e11706",
+          "occurrences": 1
+        },
+        {
+          "line": 76,
+          "sha256": "a8ae825a50dfee9f28fec5b0c53b71dc09af204410041727f6cbd87890c945cb",
+          "occurrences": 1
+        },
+        {
+          "line": 98,
+          "sha256": "0b559033c427820bf788748231b8b111a0fa36d07dd39569255118b96578757c",
+          "occurrences": 1
+        },
+        {
+          "line": 99,
+          "sha256": "e0fc1158e1d976e8bb7f19da27450979cf9019e91c4442186aac0c5159697451",
+          "occurrences": 1
+        },
+        {
+          "line": 100,
+          "sha256": "624ed5996cc5bf4365925748bfe68d2aa5eec7a6189d4d9ad6d83a49f9db4a6a",
+          "occurrences": 1
+        },
+        {
+          "line": 115,
+          "sha256": "587edcf31add2580ed3ef2864c8d3af35090f154172b25cc9f499607976292af",
+          "occurrences": 1
+        },
+        {
+          "line": 117,
+          "sha256": "8f00ef4863ff29afa80d63c073517e673c1f68d933bee1f4ff95b58d5a47236c",
+          "occurrences": 1
+        },
+        {
+          "line": 118,
+          "sha256": "c75c11d1783f8174bf236df03de3733b5930a25fecc4871b9125799d1fb02218",
+          "occurrences": 1
+        },
+        {
+          "line": 120,
+          "sha256": "28f51c81bf9fe785f3fbbdbdc83e345440f7a540a849c04fc3b03f3523824a35",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "docs/implementation/warning-cleanup-final-review.md",
+      "category": "historical-evidence",
+      "reason": "固定基线的实施、诊断或验收记录；这些原始命令和日志位置仅保留历史来源，不是当前 checkout 的执行说明。",
+      "lines": [
+        {
+          "line": 50,
+          "sha256": "ca0ec4a92c6d68427e7ba0004940b704a77db2ca97248f586bef84ed5ca0e16b",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "docs/implementation/warning-cleanup-review.md",
+      "category": "historical-evidence",
+      "reason": "固定基线的实施、诊断或验收记录；这些原始命令和日志位置仅保留历史来源，不是当前 checkout 的执行说明。",
+      "lines": [
+        {
+          "line": 10,
+          "sha256": "5571176c52bb4f0187263653bba8059e09b17d946ea5643b45129141066b7efb",
+          "occurrences": 1
+        },
+        {
+          "line": 17,
+          "sha256": "2d1dff0cbebf6bc177ed574deeaf52019afbc6217a4d87deabcf9ab78666a4f5",
+          "occurrences": 2
+        },
+        {
+          "line": 18,
+          "sha256": "63d56cf99ee9ec4c2137d4e82be20bbd94af400124bf85b5dffea4fda8350aab",
+          "occurrences": 2
+        }
+      ]
+    },
+    {
+      "file": "docs/requirements/dsh-shared-runtime-handover.md",
+      "category": "historical-evidence",
+      "reason": "固定基线的实施、诊断或验收记录；这些原始命令和日志位置仅保留历史来源，不是当前 checkout 的执行说明。",
+      "lines": [
+        {
+          "line": 117,
+          "sha256": "3a303f01c889fd7e138fcd1f1665bc3285a7d6c0a5d066751beed5875c1ce4f6",
+          "occurrences": 1
+        },
+        {
+          "line": 121,
+          "sha256": "2778483a56fb76d0c28870c0fdb69e837047128ecbc28b6a8eec689dc01f9383",
+          "occurrences": 1
+        },
+        {
+          "line": 122,
+          "sha256": "8f7febe520495a5920b81e0c7bce52775a1755cb1b82541da9d40376cecfc0cd",
+          "occurrences": 1
+        },
+        {
+          "line": 123,
+          "sha256": "3797865ec93aae52d7b9803d6e021f174458be5ebaaf640002a45c396a2660dc",
+          "occurrences": 1
+        },
+        {
+          "line": 124,
+          "sha256": "7d38975dba9217b68e0b9be2da07c139e351b4582d9b2d7ae2c52f5e7679a602",
+          "occurrences": 1
+        },
+        {
+          "line": 125,
+          "sha256": "6b293d164f37fb746a83795237e23e5c8499fe7d57c9ee3275498e5bb3479231",
+          "occurrences": 1
+        },
+        {
+          "line": 127,
+          "sha256": "c1409dbaf17bb200b2fb8a01a2f93d4b728b41605c781982c21b87587f0707c5",
+          "occurrences": 1
+        },
+        {
+          "line": 132,
+          "sha256": "861158fc0e077361edf1e0fb5cdcb632d992801bd0b7a371e4175ddd62c2bfc8",
+          "occurrences": 1
+        },
+        {
+          "line": 141,
+          "sha256": "854d0bed1b8b1b251d6398b56980d3f4ae70d1c5f669f837d89578fa23c5e3bd",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "docs/requirements/project-file-auto-management-20261015.md",
+      "category": "historical-evidence",
+      "reason": "固定基线的实施、诊断或验收记录；这些原始命令和日志位置仅保留历史来源，不是当前 checkout 的执行说明。",
+      "lines": [
+        {
+          "line": 54,
+          "sha256": "0ac2d30497f0c8eb795530e65db329435e9df4b5d13eb38997c992ea30270323",
+          "occurrences": 1
+        },
+        {
+          "line": 60,
+          "sha256": "b0e5426dc35fbd3f1d05e5aa54a66e4f85b3359641b4abbb6ac72e7f86583a48",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "docs/requirements/project-file-discovery-events-20261026.md",
+      "category": "historical-evidence",
+      "reason": "固定基线的实施、诊断或验收记录；这些原始命令和日志位置仅保留历史来源，不是当前 checkout 的执行说明。",
+      "lines": [
+        {
+          "line": 40,
+          "sha256": "1102f60f9b9df3504dbec0a8549470bb0e0c51577dafee2b63c37a35dc11b006",
+          "occurrences": 1
+        },
+        {
+          "line": 42,
+          "sha256": "e801190e67a9a9a0ddc9c74915e1c1623a0caf8cf82ffb733d1ff18afc6f3594",
+          "occurrences": 1
+        },
+        {
+          "line": 43,
+          "sha256": "06ba16d1490a1c68f7bf77960254a1476bfa21f95ea932e1702d4b6b42adbf16",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "docs/requirements/project-file-external-replacement-20261015.md",
+      "category": "historical-evidence",
+      "reason": "固定基线的实施、诊断或验收记录；这些原始命令和日志位置仅保留历史来源，不是当前 checkout 的执行说明。",
+      "lines": [
+        {
+          "line": 48,
+          "sha256": "ecf1b0d981808c4dde6a344d44be51c8bff6e57988597eccef94c568abba6335",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "docs/requirements/project-file-legacy-confirmation-20261026.md",
+      "category": "historical-evidence",
+      "reason": "固定基线的实施、诊断或验收记录；这些原始命令和日志位置仅保留历史来源，不是当前 checkout 的执行说明。",
+      "lines": [
+        {
+          "line": 38,
+          "sha256": "3bfb34bbe8e1ffd781688c91d170c888992fc7319847788b3b1e4605d237c84b",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "docs/requirements/project-file-system-metadata-20261015.md",
+      "category": "historical-evidence",
+      "reason": "固定基线的实施、诊断或验收记录；这些原始命令和日志位置仅保留历史来源，不是当前 checkout 的执行说明。",
+      "lines": [
+        {
+          "line": 33,
+          "sha256": "9ca7afa9a50e8e9039c9f532b073fea963c77e6fe183d16c268a9223c7190d89",
+          "occurrences": 1
+        },
+        {
+          "line": 41,
+          "sha256": "130090c6ee402a9581f866abe788ef6ce3e23b238529e15a4690cd2629a09f6c",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "docs/requirements/project-file-temporary-exclusions-20261015.md",
+      "category": "historical-evidence",
+      "reason": "固定基线的实施、诊断或验收记录；这些原始命令和日志位置仅保留历史来源，不是当前 checkout 的执行说明。",
+      "lines": [
+        {
+          "line": 39,
+          "sha256": "54b5156253397bf3f232594ddcf7d218d8e44d99c88466474997bab529679b23",
+          "occurrences": 1
+        },
+        {
+          "line": 44,
+          "sha256": "97fc2cc1e4700b13cb21988f881692c6b97fbb4dac1fdebfc15278a0b3d415d3",
+          "occurrences": 1
+        },
+        {
+          "line": 48,
+          "sha256": "07a6c46af9b02a22080af2e6a7bc5b74bf98ca9fb25e66dae0bdff309941867c",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "docs/requirements/voice-capture-fault-details-20261026.md",
+      "category": "historical-evidence",
+      "reason": "固定基线的实施、诊断或验收记录；这些原始命令和日志位置仅保留历史来源，不是当前 checkout 的执行说明。",
+      "lines": [
+        {
+          "line": 32,
+          "sha256": "80bf5f5f856724003ee61e1b138dd90ad0ebeccac8571ec38e6975d294aadaef",
+          "occurrences": 1
+        },
+        {
+          "line": 33,
+          "sha256": "55c1d3ce56f301737777b16fd742c61d769c342cb61ff705978299e0bc94553c",
+          "occurrences": 1
+        },
+        {
+          "line": 34,
+          "sha256": "66929ec4baa3e7db53aaf8ec2a54d405bc10a202f67c48275e7a899c39fe6703",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "docs/technical/g15-native-version-metadata.md",
+      "category": "historical-evidence",
+      "reason": "固定基线的实施、诊断或验收记录；这些原始命令和日志位置仅保留历史来源，不是当前 checkout 的执行说明。",
+      "lines": [
+        {
+          "line": 53,
+          "sha256": "49f56b0a6635bcefff27fc04abd8e061b4911f10539aa42a4149642e9031c6b9",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "docs/technical/model-catalog-label-acceptance-20261023.md",
+      "category": "historical-evidence",
+      "reason": "固定基线的实施、诊断或验收记录；这些原始命令和日志位置仅保留历史来源，不是当前 checkout 的执行说明。",
+      "lines": [
+        {
+          "line": 19,
+          "sha256": "906e2826f8720ab9095d30d7ff232480708fc4d7fe992e5d9785403988cfad26",
+          "occurrences": 1
+        },
+        {
+          "line": 21,
+          "sha256": "8777acc23309ad44fe2724b075bdea33c06d83a07082d6880e2ec4580d11bf52",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "docs/technical/native-cli-preflight-acceptance-20261023.md",
+      "category": "historical-evidence",
+      "reason": "固定基线的实施、诊断或验收记录；这些原始命令和日志位置仅保留历史来源，不是当前 checkout 的执行说明。",
+      "lines": [
+        {
+          "line": 18,
+          "sha256": "62f32bfd0a0e961c5452440531a3bc3f120d2663560999fa3d23caf56332e81e",
+          "occurrences": 1
+        },
+        {
+          "line": 22,
+          "sha256": "eee6ffa4628237c6cc8211d14c9ed7ccd8c2bdf71e39d50daddb83ca648d7b4c",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "docs/technical/records-external-version-barrier-20261110.md",
+      "category": "historical-evidence",
+      "reason": "固定基线的实施、诊断或验收记录；这些原始命令和日志位置仅保留历史来源，不是当前 checkout 的执行说明。",
+      "lines": [
+        {
+          "line": 16,
+          "sha256": "f35111953a12d9c9f874d80e820fe8bdd3ea3a0f0903d739eabf2601dd04e521",
+          "occurrences": 1
+        },
+        {
+          "line": 21,
+          "sha256": "3552f9b1fc6101511dde4842a37cbd4dc9eee3918ff66beaca42b71d104e2a9a",
+          "occurrences": 1
+        },
+        {
+          "line": 29,
+          "sha256": "d90d9bcc765bc712b5aa902cc000f293dc46b99636be8cfbb7900bc61cf7f259",
+          "occurrences": 1
+        },
+        {
+          "line": 37,
+          "sha256": "2fb6a738abeeb562cc8c89da81807d63262c347647bd8cbf83d1e36090c3831e",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "docs/technical/records-save-lifecycle-20261110.md",
+      "category": "historical-evidence",
+      "reason": "固定基线的实施、诊断或验收记录；这些原始命令和日志位置仅保留历史来源，不是当前 checkout 的执行说明。",
+      "lines": [
+        {
+          "line": 40,
+          "sha256": "79e16dded6f96da44f71f4e04b6f43e9429a90d81fe257c4e7f9721ce073ef33",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "docs/technical/review-20261110/handoff.md",
+      "category": "historical-evidence",
+      "reason": "固定基线的实施、诊断或验收记录；这些原始命令和日志位置仅保留历史来源，不是当前 checkout 的执行说明。",
+      "lines": [
+        {
+          "line": 11,
+          "sha256": "990dffc7497349431fc76c16b5d99e0a24209fdbeed6f75a63e1b14187e7d2c4",
+          "occurrences": 1
+        },
+        {
+          "line": 51,
+          "sha256": "30d25919d3f4988a6c62cdd289299a6942ebd3d689cb0e54a8b7936c5d5e457a",
+          "occurrences": 1
+        },
+        {
+          "line": 55,
+          "sha256": "5f262d600766ba85f34e2ed08ee4ee107d3224fe3d04e6f7f2fd3cd6ed8640a2",
+          "occurrences": 1
+        },
+        {
+          "line": 67,
+          "sha256": "ceeef4dfce24c964bb69ab5e07a7d70354fa4020eda0f4d110e8bc038eff8e5e",
+          "occurrences": 1
+        },
+        {
+          "line": 81,
+          "sha256": "48cd6ecf87de11545a65e51cee05eba98d25c31a31b856c21c514bb7455f4e5d",
+          "occurrences": 1
+        },
+        {
+          "line": 85,
+          "sha256": "6cfb6c6dc0e361b97a01b10d9f25df18afd55d8ec18ddec9a8b9ba31ddb2de4e",
+          "occurrences": 1
+        },
+        {
+          "line": 112,
+          "sha256": "81268fd395e13e70dc201783ff3bb6e1107b7af3a2c7ea9e4f7de0c5fe1719e4",
+          "occurrences": 1
+        },
+        {
+          "line": 120,
+          "sha256": "6100430109d73fbb0c34651e752d4cdaf9e7ac998660fbe989fa63be66198a60",
+          "occurrences": 1
+        },
+        {
+          "line": 132,
+          "sha256": "274b2d91fa30dfa853da60713178f17323154f3054b529fb20cb9be1699566f9",
+          "occurrences": 1
+        },
+        {
+          "line": 138,
+          "sha256": "68fb8463af513cf92e53a9578705d794be405613df25f457c61b1526bb7ebebb",
+          "occurrences": 1
+        },
+        {
+          "line": 146,
+          "sha256": "57e641fea4645d3ea28f42f95460762e269d3b885f54e5d8ecf1178966bb9f61",
+          "occurrences": 1
+        },
+        {
+          "line": 150,
+          "sha256": "2bd9054d633466dbac87ba2d1cb484faf57b39769dcf8f4ab4eca2ae3c54a40f",
+          "occurrences": 1
+        },
+        {
+          "line": 156,
+          "sha256": "cd47a2f985e2dbc79d21cde1355fedd37635e788c69ecdf19d701be0599e87d5",
+          "occurrences": 1
+        },
+        {
+          "line": 162,
+          "sha256": "5285b3a85cc014257afb044a40d805047ad3bbf953179436bd1461e1c0a4b370",
+          "occurrences": 1
+        },
+        {
+          "line": 169,
+          "sha256": "23f235b1ad97233a035c96db7423c0062e47c89b738ee5ccbaeea1a6db090f01",
+          "occurrences": 1
+        },
+        {
+          "line": 179,
+          "sha256": "e54e6fd45206ab9a801f8a941c5f66d9630b13ceb249f1a8a06433d7b0ea2faf",
+          "occurrences": 1
+        },
+        {
+          "line": 183,
+          "sha256": "8e5ffbc867a980dfb99449a9255839389433a01803c8425fedec2a6f67d7972a",
+          "occurrences": 1
+        },
+        {
+          "line": 185,
+          "sha256": "86527ff80542a7e4c99835df1ecfe47b8ba2e96bf1f4df7fc252bc91d50c8f2d",
+          "occurrences": 1
+        },
+        {
+          "line": 193,
+          "sha256": "3b1d5365fb7e79a10865e1a5afe38825414a762515d743a5ba15589bec66bf2b",
+          "occurrences": 1
+        },
+        {
+          "line": 195,
+          "sha256": "dd94a8ddc3a5027cd86ffcfc9f05d224347c11a8fcad01bcaed217b537ba144c",
+          "occurrences": 1
+        },
+        {
+          "line": 199,
+          "sha256": "43792af7e1fdb2af1362976293407b666d3266d4d4cade1992c1f0bab45ff135",
+          "occurrences": 1
+        },
+        {
+          "line": 201,
+          "sha256": "fbb0544dfa031e61459a14dfe3a15ebf4f280af6e3fe8cecc9a8e809a39067d1",
+          "occurrences": 1
+        },
+        {
+          "line": 211,
+          "sha256": "f6d3f527ec71fc942b87bb883b8da6feabbeb2dcf812fe677d2419a79218195e",
+          "occurrences": 1
+        },
+        {
+          "line": 234,
+          "sha256": "4a4397be7b92fd3559f401c790110c039738bdc30f9faecf3ae714f7ae93a6d2",
+          "occurrences": 1
+        },
+        {
+          "line": 244,
+          "sha256": "7339adc662fb83d74fd7fb8c5f17ed51ae9483df671577dabee8468fee09d757",
+          "occurrences": 1
+        },
+        {
+          "line": 252,
+          "sha256": "321d6d76e3b74b8fdee6b3b84b8a38ed204d1fda71ee3db7b53d987fd962a7e3",
+          "occurrences": 1
+        },
+        {
+          "line": 289,
+          "sha256": "998264c14b1ac572e86c91fface38b3c898289d623d79817cdc82d81664632ee",
+          "occurrences": 1
+        },
+        {
+          "line": 291,
+          "sha256": "255c75293b2ccea6398295b2819b662125cd1760cc4b6eb4ba839f454e65d88d",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "docs/technical/review-20261110/merge-delivery-20261111.md",
+      "category": "historical-evidence",
+      "reason": "固定基线的实施、诊断或验收记录；这些原始命令和日志位置仅保留历史来源，不是当前 checkout 的执行说明。",
+      "lines": [
+        {
+          "line": 44,
+          "sha256": "f36edd9f4eedf298217e44e97702fbf1025a3764501312a1672f78b9f357c976",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "docs/technical/review-20261110/review/01a-frontend-quality.md",
+      "category": "historical-evidence",
+      "reason": "固定基线的实施、诊断或验收记录；这些原始命令和日志位置仅保留历史来源，不是当前 checkout 的执行说明。",
+      "lines": [
+        {
+          "line": 7,
+          "sha256": "6ed9cfb34d58112eaef39efc3944650cf81de3f195f81fbe09ad5865fa8848a6",
+          "occurrences": 1
+        },
+        {
+          "line": 43,
+          "sha256": "2d65e4982ac0795f61cfb7f2b176c686420c72e1745ef09dc7d8cb88d73708b0",
+          "occurrences": 1
+        },
+        {
+          "line": 80,
+          "sha256": "e2a0f21055de1f810f81289b46a5f868718450f1fff0c7ba165c6c632fe3b575",
+          "occurrences": 1
+        },
+        {
+          "line": 110,
+          "sha256": "f1394b97e6b34b33469c003c40b5c23d2a5674ca1332e0e1603f94937ef3a5da",
+          "occurrences": 1
+        },
+        {
+          "line": 142,
+          "sha256": "15102b4ad6018c1415e4c89d9d7da5fef7956d6ad0f1ff27cd2159808c3b60b3",
+          "occurrences": 1
+        },
+        {
+          "line": 196,
+          "sha256": "452c65d353b5d989951ea3895866eaf70e169a0e4bb314a1716b19b2a32e9adc",
+          "occurrences": 1
+        },
+        {
+          "line": 199,
+          "sha256": "2f4fa6c1ee6b4102bb879c59fa153e311e82367c0188c7184de585f51f802c15",
+          "occurrences": 1
+        },
+        {
+          "line": 224,
+          "sha256": "584c53a66df38f5cabf0502c1c4deb75bd9f5f1454a82f65d1d73d0b52fbbf4e",
+          "occurrences": 1
+        },
+        {
+          "line": 251,
+          "sha256": "d1f0d20cadcc619d5b718937e05cdd96158e6a99af55419b83f3c62e3942f925",
+          "occurrences": 1
+        },
+        {
+          "line": 253,
+          "sha256": "cd2b9adda38563c78433c2a4fc2dc895c6c865bb4fe006d753c1471d3a01cac2",
+          "occurrences": 1
+        },
+        {
+          "line": 256,
+          "sha256": "710a89f498585b972a945a441f3a49cf150148a016f351c5b3a7210b90fa0c97",
+          "occurrences": 1
+        },
+        {
+          "line": 257,
+          "sha256": "457a40ed73aa9a12c6911c45e46beefa1ce93361f0698db9c46ca8cb64ea6261",
+          "occurrences": 1
+        },
+        {
+          "line": 258,
+          "sha256": "c83bdc854a83ee1bbedc24ddc20f3fc5e2d85f9130c219f93df318ad720c89b2",
+          "occurrences": 1
+        },
+        {
+          "line": 259,
+          "sha256": "d5c2e7630a47d8075c7e93e53fb959be59039a7d16dbdf09442e0f9e9651e63b",
+          "occurrences": 1
+        },
+        {
+          "line": 266,
+          "sha256": "993f6d3fecccbb43ab4eb26e1a4cea8acebf30016685154ea37ec3548ab0f3e5",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "docs/technical/review-20261110/review/01b-persistence-architecture.md",
+      "category": "historical-evidence",
+      "reason": "固定基线的实施、诊断或验收记录；这些原始命令和日志位置仅保留历史来源，不是当前 checkout 的执行说明。",
+      "lines": [
+        {
+          "line": 11,
+          "sha256": "72757e109524965f28d1ce5bfa7ebc7664884910c574b9d6960b931a88b5a600",
+          "occurrences": 1
+        },
+        {
+          "line": 20,
+          "sha256": "d74325afed469b20059d4bbb3b55adae08974e55347dafe406adf08a86cfb11d",
+          "occurrences": 1
+        },
+        {
+          "line": 22,
+          "sha256": "2a2e6dea7cdf6a6ae1e1c03ee4c9b53b258751a602765f2b45b9b8cbf8ff88da",
+          "occurrences": 1
+        },
+        {
+          "line": 26,
+          "sha256": "e8e6cc7718233cb5e7cee3ccec0ba53ef9a200aebb3a63b562a654aa30fb892e",
+          "occurrences": 1
+        },
+        {
+          "line": 30,
+          "sha256": "39cfdc75b5479015f0151fb818cccf8fe3d0892b4d9ed251f0ece42f8e504225",
+          "occurrences": 1
+        },
+        {
+          "line": 34,
+          "sha256": "a20e650a61d186b733a260a2f614e00053948f0687d27c149ca25b22aad34a92",
+          "occurrences": 1
+        },
+        {
+          "line": 35,
+          "sha256": "e86c903cad7983322e67b8e37ca4f1098d43c875bcda123c9260a76168da0e4d",
+          "occurrences": 1
+        },
+        {
+          "line": 36,
+          "sha256": "28b3146eaec6bc8afe1861c24b0207e5fffc51e8929ed33ed054c12fab63e0ea",
+          "occurrences": 1
+        },
+        {
+          "line": 51,
+          "sha256": "3244eb57c7e2ea1daae79b8c6691dce84a39e1f3bc4ff290ff288c685e0ee4c5",
+          "occurrences": 1
+        },
+        {
+          "line": 58,
+          "sha256": "b72dc35a631a4fef780bf221c3622fdf82acfb2b70dec2832495f2a83fa97cbc",
+          "occurrences": 1
+        },
+        {
+          "line": 70,
+          "sha256": "cab7aeddc9f6041dded406cd64a0eb15fba5410d9299dccb1c46ee64de719784",
+          "occurrences": 1
+        },
+        {
+          "line": 74,
+          "sha256": "42413f379f22f35d1d65d926619eca9a08b4bab1a95e0bc3b1cca2534951b583",
+          "occurrences": 1
+        },
+        {
+          "line": 76,
+          "sha256": "0e925e13d1dd39bcba0bd2f88867de00fe056491b0a0150948d3e14ce811aefb",
+          "occurrences": 1
+        },
+        {
+          "line": 87,
+          "sha256": "c716b4d13830c28daac436cf4e1a6b318c1bffe0082291d7da10597619796e40",
+          "occurrences": 1
+        },
+        {
+          "line": 93,
+          "sha256": "3be9dad17847e96b82e459bac5973252d4067c16cfbfe401e4fa16e23c77dd8a",
+          "occurrences": 1
+        },
+        {
+          "line": 94,
+          "sha256": "e4f63227a9740b261eaf76531af552b3974517c53566ebb573e517b66bb02645",
+          "occurrences": 1
+        },
+        {
+          "line": 95,
+          "sha256": "96537b96ec883143fe17c38341250ffa311ef099283f080e018a8e740cda65ee",
+          "occurrences": 1
+        },
+        {
+          "line": 97,
+          "sha256": "4e259e6ab77495ac8b678037b1544bb6fbade2af1ac6c7f039f25d8f18c06479",
+          "occurrences": 1
+        },
+        {
+          "line": 121,
+          "sha256": "d7f2588253002cb405342ac599957a07c2394308e5e0904efc00e58987bd4369",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "docs/technical/review-20261110/review/02a-security-integrity.md",
+      "category": "historical-evidence",
+      "reason": "固定基线的实施、诊断或验收记录；这些原始命令和日志位置仅保留历史来源，不是当前 checkout 的执行说明。",
+      "lines": [
+        {
+          "line": 5,
+          "sha256": "f9cff653b42173c170bbf21c9f32fa52198b5a52dcece353dd35f87f10501a0b",
+          "occurrences": 1
+        },
+        {
+          "line": 21,
+          "sha256": "26bad9459865c5f08ce7920dc6677a3908a048e5d6db2ccd99c19ffb540ba4ec",
+          "occurrences": 1
+        },
+        {
+          "line": 25,
+          "sha256": "414731a271b76f7fb5e00e57113489fa6f4e8dde6a9adfe759ecf6a74236d8a0",
+          "occurrences": 1
+        },
+        {
+          "line": 26,
+          "sha256": "e7ccf5722c0c7fc6e9936bf2e0d039c54086563b3b0ca4d9cda37d04c9123d18",
+          "occurrences": 1
+        },
+        {
+          "line": 27,
+          "sha256": "42226a969265f3ff2c41f8e32f6f699d26c663cf81d9d786c9f0167f3449ef60",
+          "occurrences": 1
+        },
+        {
+          "line": 28,
+          "sha256": "33aae7e5762375a861abb3ef1ba16f35192a45424800a5370b955775369f5d44",
+          "occurrences": 1
+        },
+        {
+          "line": 30,
+          "sha256": "c71c010bc7511754c5596c621344649d6d094eda99503587fd8514185d30bf3e",
+          "occurrences": 1
+        },
+        {
+          "line": 38,
+          "sha256": "0d212f0ccebfd0a10a981809e8f88fbbdf6aaef11366bd6f81f5173276ab038b",
+          "occurrences": 1
+        },
+        {
+          "line": 40,
+          "sha256": "f57ae4d171ddb715e71407445e315b9c0051d966a5ce243bb3e58569e3a1ebd7",
+          "occurrences": 1
+        },
+        {
+          "line": 46,
+          "sha256": "eb8d32dab6516dfd978880b304a0076a24d617aab5347f9b69783fc79e4cc137",
+          "occurrences": 1
+        },
+        {
+          "line": 47,
+          "sha256": "69f9dd513ec9d9010e1629a2e80ab211956239ec43305d1e838e8c0affd91cf6",
+          "occurrences": 1
+        },
+        {
+          "line": 54,
+          "sha256": "6352dbc63ad977410cb2903d84b5be4ef13d3d0ac6e8532d2bf5aaedb7ae5d58",
+          "occurrences": 1
+        },
+        {
+          "line": 56,
+          "sha256": "bf3301bc90494d17479f52dcbb90ec4799302b2a82d7da0b592d2cf9a113db31",
+          "occurrences": 1
+        },
+        {
+          "line": 64,
+          "sha256": "f46ffbdc24a4be18ec784d1dcb57e4711f4f728a8912fbe29ecf77b536111e88",
+          "occurrences": 1
+        },
+        {
+          "line": 65,
+          "sha256": "9cbdf325c16898e9a823b4d81ac078a354ef185678c7bc9e3996f4b2a98e235f",
+          "occurrences": 1
+        },
+        {
+          "line": 66,
+          "sha256": "03ae6ef09570db898cf48d33ea104a475a5c0aea85773ed54fb6d2530485d9df",
+          "occurrences": 1
+        },
+        {
+          "line": 67,
+          "sha256": "3e3f8d51b8bab03ac5d99f63c57e584e3d9edc127799d51f7dbe12d0a62b8e81",
+          "occurrences": 1
+        },
+        {
+          "line": 68,
+          "sha256": "6f5443eff1b3c767c0894dd9ceb84196d26cf203c9b18c673451dd523e7e2d2e",
+          "occurrences": 1
+        },
+        {
+          "line": 69,
+          "sha256": "8ab7be8428ce907372a3b717b27b1e4631119f4bd71d7df21475781d06086a98",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "docs/technical/review-20261110/review/02b-performance.md",
+      "category": "historical-evidence",
+      "reason": "固定基线的实施、诊断或验收记录；这些原始命令和日志位置仅保留历史来源，不是当前 checkout 的执行说明。",
+      "lines": [
+        {
+          "line": 17,
+          "sha256": "96cc7a7f7d7c2df04e758e26443912ffe0396129d507d5e4badd607d9bfe400c",
+          "occurrences": 1
+        },
+        {
+          "line": 19,
+          "sha256": "0f1d8d6e962bf3e2915584ac58af068d4fcc097d06a40c60eb5274901d3a0a4d",
+          "occurrences": 1
+        },
+        {
+          "line": 29,
+          "sha256": "771dd04d9ed55257c1455ac01d87040de138cabb0ca82023a598b6fef1bf7377",
+          "occurrences": 1
+        },
+        {
+          "line": 30,
+          "sha256": "6deb2983440770a55d6978ca2e8f8de1ad26b393d7cd4d50488298b5bdbc1689",
+          "occurrences": 1
+        },
+        {
+          "line": 31,
+          "sha256": "3e50f96d7f802c140287f6932f70bfc8b3b869dec7513ffec4709390648da176",
+          "occurrences": 1
+        },
+        {
+          "line": 32,
+          "sha256": "314ebf42a30291cdcf215443503fe9746287ce562ea728ad364d403985589dfa",
+          "occurrences": 1
+        },
+        {
+          "line": 46,
+          "sha256": "e9011ab8edc25aa1bab631371589b397413873f3db2eb423c55224f4b50d2676",
+          "occurrences": 1
+        },
+        {
+          "line": 47,
+          "sha256": "98ab5df7988cd2234df03578df8e8fcbec5feb777464936c8ad68d5a643eeb1a",
+          "occurrences": 1
+        },
+        {
+          "line": 48,
+          "sha256": "57c0a04937511b37c4547a83ff9913b818cb86bb3c3a0ad73547d8e83c84f333",
+          "occurrences": 1
+        },
+        {
+          "line": 49,
+          "sha256": "bdeaf1ba68db31d04171fda67bdd60cf86808fc54b72f74988cb4c63a660e5a7",
+          "occurrences": 1
+        },
+        {
+          "line": 65,
+          "sha256": "be564465b95449b8ebd23fa77e77b9db1c546f3539315dfdbb568fcc2f2ce825",
+          "occurrences": 1
+        },
+        {
+          "line": 66,
+          "sha256": "b943770b41b1096664ff48650a50ec219e348908821d3e83ce3cabd29745feba",
+          "occurrences": 1
+        },
+        {
+          "line": 67,
+          "sha256": "82d54ce696ece0884a1f2f1792e4ddf822cac697767b1e740b38c3796c8e2d3d",
+          "occurrences": 1
+        },
+        {
+          "line": 69,
+          "sha256": "b8c8f1326bf525f42e57a9f9b7bfa72895aa59251f9bbb95f59a1d41ba9c03ea",
+          "occurrences": 1
+        },
+        {
+          "line": 81,
+          "sha256": "6a7af7130367509c224cde4b72f1ea361c20165044dc906597861dc2f8847496",
+          "occurrences": 1
+        },
+        {
+          "line": 91,
+          "sha256": "c9892664e796b5f4fb0cdded45559602ba3af72024fd341f88bb7088fbb28e99",
+          "occurrences": 1
+        },
+        {
+          "line": 92,
+          "sha256": "09a8383d2ae11418d7f8007a8dde53e1434662f6bdaf8d912d68c6000b3e1315",
+          "occurrences": 1
+        },
+        {
+          "line": 95,
+          "sha256": "9f35ef467dd8118ed5d827d667ba129c8673a43619958fd76120ec1a83e6815e",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "docs/technical/review-20261110/review/evidence/measurement-notes.md",
+      "category": "historical-evidence",
+      "reason": "固定基线的实施、诊断或验收记录；这些原始命令和日志位置仅保留历史来源，不是当前 checkout 的执行说明。",
+      "lines": [
+        {
+          "line": 7,
+          "sha256": "0427c285cbd7ce8b25b460a8995e94d23cebee7865ce492444f518c286da30ba",
+          "occurrences": 1
+        },
+        {
+          "line": 9,
+          "sha256": "e6b5d785c0a6f8906ea9d0849b75bbed109983aa53b60eb631c18d6fedaa7db0",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "docs/technical/review-20261110/review/session-list-review.md",
+      "category": "historical-evidence",
+      "reason": "固定基线的实施、诊断或验收记录；这些原始命令和日志位置仅保留历史来源，不是当前 checkout 的执行说明。",
+      "lines": [
+        {
+          "line": 15,
+          "sha256": "e5e8419b0bb65b3e40b23e718682331f13a2cf7075f4fd45f701200f3048ef18",
+          "occurrences": 1
+        },
+        {
+          "line": 16,
+          "sha256": "098492c6f5c6c0bad8c98d562a23b0ed56f78617e255c6b8382e393c78c507e6",
+          "occurrences": 1
+        },
+        {
+          "line": 17,
+          "sha256": "c470f3a2d1b93b4b132e87f974a5086304a2f346ca86da7fb5380df8dcd9c1bb",
+          "occurrences": 1
+        },
+        {
+          "line": 18,
+          "sha256": "eef573acdb52f007d1ff83af885a8d19880de6d70d0c5f5f376888f57540ca76",
+          "occurrences": 1
+        },
+        {
+          "line": 19,
+          "sha256": "5eb8bec6f4413e4fef6561c5740be60a7e4ef8d8f140c5fdfd153f60e1611bae",
+          "occurrences": 1
+        },
+        {
+          "line": 20,
+          "sha256": "e7f8c7ce901c9b60555f8069179d350ac01857a4940a7f3667cefa5d8083bada",
+          "occurrences": 1
+        },
+        {
+          "line": 21,
+          "sha256": "6861850e49ef40cbd470feecb12456f2f891f7a7ec7a25a3fc996716cf3d46cb",
+          "occurrences": 1
+        },
+        {
+          "line": 29,
+          "sha256": "249bc00c6ca7b1f13453a24045c3fcb1afd88d220123a1d010ec39b982ff6c99",
+          "occurrences": 1
+        },
+        {
+          "line": 35,
+          "sha256": "66f15ecc41a47c40b30570b531fed3e6cd7a7411edbc8bff52f806bb873c6adc",
+          "occurrences": 1
+        },
+        {
+          "line": 41,
+          "sha256": "202636eda8cf276eb1f03545fb1f06a246720d85e23dd2342bfbc7eee2bd3ffa",
+          "occurrences": 1
+        },
+        {
+          "line": 45,
+          "sha256": "f74a1f695322becd1bebbff849f1004f558cd9e311afa8f62ce23bbfb59c8a51",
+          "occurrences": 1
+        },
+        {
+          "line": 46,
+          "sha256": "b12a673599fa836344c01e38330f21395ae2c31d4676a05794ce8f0630e9ac21",
+          "occurrences": 1
+        },
+        {
+          "line": 47,
+          "sha256": "8382aa85fb0ceddf4358fe50476c0e5de54673dae0e9ca30dc0f804712f6991c",
+          "occurrences": 1
+        },
+        {
+          "line": 53,
+          "sha256": "b50a70db46d4270d79fd6fec058ecbe14b3d0ce33a885510270b240e0a3a7f7c",
+          "occurrences": 1
+        },
+        {
+          "line": 55,
+          "sha256": "0699436976a06ce6fc9a0c7c6067b6fe1aa8b7c9e229dd52382d0b90319bcefc",
+          "occurrences": 1
+        },
+        {
+          "line": 69,
+          "sha256": "8f4ba978e6f313c2cf869e54c80e6c98a2832344fdba07a9c78336914ec60343",
+          "occurrences": 1
+        },
+        {
+          "line": 71,
+          "sha256": "cda143891b29fd69ad7933aa3f4caa596ce739d0ec07c7fc4f30591fc541a97a",
+          "occurrences": 1
+        },
+        {
+          "line": 75,
+          "sha256": "6b363f107920a2eee39b99628a23d4538375f28cd6689307211440a5186eb526",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "packages/dsh-assistant/skills/project-mind-cli/references/binding.md",
+      "category": "protocol-example",
+      "reason": "Windows CLI 路径、引号与转义的明确示例；不是开发者 checkout 路径或可直接复制的绑定值。",
+      "lines": [
+        {
+          "line": 24,
+          "sha256": "11192443b3a291c6a9c88bbc893b04e593e53a6d270dd62f21a484e34807b74a",
+          "occurrences": 1
+        },
+        {
+          "line": 25,
+          "sha256": "ae2d0b506863d2142075eb0880af8fd319d55c0f4fc1eb4fb021dd9f52e5bfeb",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "packages/dsh-assistant/skills/project-mind-cli/references/grep.md",
+      "category": "protocol-example",
+      "reason": "Windows CLI 路径、引号与转义的明确示例；不是开发者 checkout 路径或可直接复制的绑定值。",
+      "lines": [
+        {
+          "line": 50,
+          "sha256": "8acf0d1f1cb34a28b2fd16e6503e835ff0fa6dcafc11394f367347351f07f593",
+          "occurrences": 1
+        },
+        {
+          "line": 54,
+          "sha256": "dd8e9ff50af5c28b137a3474302e496d7a2901841b4f17bd83b54cddf955a899",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "packages/dsh-assistant/skills/project-mind-cli/references/shell-input.md",
+      "category": "protocol-example",
+      "reason": "Windows CLI 路径、引号与转义的明确示例；不是开发者 checkout 路径或可直接复制的绑定值。",
+      "lines": [
+        {
+          "line": 16,
+          "sha256": "bc5df39879b259c51065f145b27da0267fa764f7e54899af61980c9e1123a3f8",
+          "occurrences": 1
+        },
+        {
+          "line": 21,
+          "sha256": "0df50babe7196853d50ce6db933055684154d6c33cfa1de123b3c5bd11ec270b",
+          "occurrences": 1
+        },
+        {
+          "line": 34,
+          "sha256": "6dd2f8d56782850c4dc2bf47f209592cc4a01e49da2cf17a1d6da5e793889092",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "packages/markdown-editor/WAVEDROM-REMOVAL.md",
+      "category": "historical-evidence",
+      "reason": "固定基线的实施、诊断或验收记录；这些原始命令和日志位置仅保留历史来源，不是当前 checkout 的执行说明。",
+      "lines": [
+        {
+          "line": 6,
+          "sha256": "6b60da8c154014e6b8165508e99b09c4680ae60f44d6bb5d924b029299642a47",
+          "occurrences": 1
+        },
+        {
+          "line": 58,
+          "sha256": "d5d2a6780ed61b1b0c9be5453f89365f8c6b7385da18dfab8710f84cbeb430fe",
+          "occurrences": 1
+        },
+        {
+          "line": 60,
+          "sha256": "4e2e21a6b61499363480afefad2a827343c54d4298f9961aac978d1b7699f020",
+          "occurrences": 1
+        },
+        {
+          "line": 73,
+          "sha256": "a5320efb9035638bb3f009fb97ae1367c702db0aa867892b3823e1ac96e5c8df",
+          "occurrences": 1
+        },
+        {
+          "line": 74,
+          "sha256": "b3be5c5f4f0a5c2afef049f60fd2d0248ea53dc297ba78c0ae06643a42f66838",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "packages/office-docx/PROGRESSIVE.md",
+      "category": "historical-evidence",
+      "reason": "固定基线的实施、诊断或验收记录；这些原始命令和日志位置仅保留历史来源，不是当前 checkout 的执行说明。",
+      "lines": [
+        {
+          "line": 42,
+          "sha256": "43e8127e182b54492f12365699feaccef1723d02e8484a3afa8d65516e67aad6",
+          "occurrences": 1
+        },
+        {
+          "line": 52,
+          "sha256": "ce525b29038a944194934c0d6bf04f3342f21e2f63d92cd6fe75a410ffce86d0",
+          "occurrences": 1
+        },
+        {
+          "line": 53,
+          "sha256": "be26abf85c5693a0c3120a6b4781fbc2aaedd15c823a504b383cca7f0831f525",
+          "occurrences": 1
+        },
+        {
+          "line": 54,
+          "sha256": "97decce9f6547468b0e42ff23c25b38e73be4dc0119c0efbbc2bbf3bdef430c9",
+          "occurrences": 1
+        },
+        {
+          "line": 55,
+          "sha256": "4fe445355b6854611ea3a03e1286780fb548f8623f216ba3ed64d3c9126c41c9",
+          "occurrences": 1
+        },
+        {
+          "line": 56,
+          "sha256": "c9d32f1b99d3ebee70bd4e26b43cdc1dc560eaaf5a2d8a57a412cb3dc393595b",
+          "occurrences": 1
+        },
+        {
+          "line": 79,
+          "sha256": "88f64c55b9fdbb05e4c32998bd4a86e9b12a545308d760ce5ecd6ba05b1d012d",
+          "occurrences": 1
+        },
+        {
+          "line": 93,
+          "sha256": "b3896618889de63164f245caeef620ccbd6496f38b91d0629824cfb67c3a0f9e",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "packages/office-pptx/vendor/apps/docs/src/renderer/fonts/README.md",
+      "category": "pinned-upstream",
+      "reason": "固定 GenOffice 上游的字体目录示例，来源由本包 source lock 固定；保留原文，不改写第三方文件。",
+      "lines": [
+        {
+          "line": 3,
+          "sha256": "d643ee81c8d0c918ceb275b19a8368a0064ca4d451648b7103514bd19d6b8b61",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "packages/office-pptx/verification.md",
+      "category": "historical-evidence",
+      "reason": "固定基线的实施、诊断或验收记录；这些原始命令和日志位置仅保留历史来源，不是当前 checkout 的执行说明。",
+      "lines": [
+        {
+          "line": 198,
+          "sha256": "1fb660f2afe4f0806e0f4d2f4ab787aba7a460779b2c442d8c5d05c77503223e",
+          "occurrences": 1
+        },
+        {
+          "line": 199,
+          "sha256": "c1740bea6c1b398c869f3a3355e8108ac9790e1fc023aad16a3dfb6a1d705d28",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "packages/office-xlsx/PROGRESSIVE-VIEW.md",
+      "category": "historical-evidence",
+      "reason": "固定基线的实施、诊断或验收记录；这些原始命令和日志位置仅保留历史来源，不是当前 checkout 的执行说明。",
+      "lines": [
+        {
+          "line": 58,
+          "sha256": "4e2e21a6b61499363480afefad2a827343c54d4298f9961aac978d1b7699f020",
+          "occurrences": 1
+        },
+        {
+          "line": 122,
+          "sha256": "b6b11192620d874888d0987d586852711f98d6f49f8f0a0b7962c93a797f30ec",
+          "occurrences": 1
+        },
+        {
+          "line": 149,
+          "sha256": "2f7d487c316c08f5036e566526a04d5d8cfa35d09305d33ecf406bd53bf61a13",
+          "occurrences": 1
+        },
+        {
+          "line": 151,
+          "sha256": "37439622625ff82b2fc4b906c80ac11128b69a915f1e6b7137b26b13e018c2c3",
+          "occurrences": 1
+        },
+        {
+          "line": 153,
+          "sha256": "89adea44fd5334b360853a779e468ed023ad86c0f7f95e5737b3b7a7da96dc9c",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "packages/office-xlsx/vendor/apps/docs/src/renderer/fonts/README.md",
+      "category": "pinned-upstream",
+      "reason": "固定 GenOffice 上游的字体目录示例，来源由 packages/office-xlsx/upstream.json 固定；保留原文，不改写第三方文件。",
+      "lines": [
+        {
+          "line": 3,
+          "sha256": "d643ee81c8d0c918ceb275b19a8368a0064ca4d451648b7103514bd19d6b8b61",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "scripts/office-performance/PROGRESSIVE-OBSERVER.md",
+      "category": "historical-evidence",
+      "reason": "固定基线的实施、诊断或验收记录；这些原始命令和日志位置仅保留历史来源，不是当前 checkout 的执行说明。",
+      "lines": [
+        {
+          "line": 56,
+          "sha256": "06600ca8f4d85db16eabb2cae326fbacdea36eeee797eadd6c1340d2a725c7b2",
+          "occurrences": 1
+        },
+        {
+          "line": 62,
+          "sha256": "504f88b8781826d0630f0fcd63188c2b05c8a943284360da42e7edd6574ea8fc",
+          "occurrences": 2
+        },
+        {
+          "line": 63,
+          "sha256": "a1b06fc8be835f56a7f84a03452a87b5bf7f928babbdebe7a07f0c4d321a3b57",
+          "occurrences": 2
+        },
+        {
+          "line": 205,
+          "sha256": "a26db093d8fff000186886050698a36b4c245922985cb74668d4e87db6d14b30",
+          "occurrences": 1
+        },
+        {
+          "line": 256,
+          "sha256": "609d64696e27dc5f550ff62a1f453406d27494b5d9dbb170f4a6bfb4b9f88cff",
+          "occurrences": 1
+        }
+      ]
+    },
+    {
+      "file": "scripts/office-selection/README.md",
+      "category": "platform-path",
+      "reason": "macOS 临时目录别名与 SQLite NOFOLLOW 的真实平台语义说明，不是固定输出目录。",
+      "lines": [
+        {
+          "line": 39,
+          "sha256": "1e71436e36ec986fbd7b1b2a6cfd742d6a008aa28fc0caa5b7fb5fb43eb6a247",
+          "occurrences": 1
+        }
+      ]
+    }
+  ]
+}

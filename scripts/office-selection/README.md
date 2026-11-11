@@ -16,17 +16,26 @@ existing performance page. No Rust routing changes are needed: the existing
 
 Use the existing build configuration that includes native.html and Cargo feature
 `office-performance`, with built Office packages and DSH runtime/resources. An
-ordinary application binary without that feature cannot run this harness.
+ordinary application binary without that feature cannot run this harness. See
+the [measurement build command](../file-flows/README.md#execution-launch-only-when-coordinated-by-the-main-agent)
+for the repository build flow; run it from the repository root after installing
+dependencies. Coordinate builds and native acceptance runs with the main agent
+and execute them serially to avoid resource contention.
 
 ## Run (launches GUI)
 
-From repository root, after building and informing the user about the native window:
+From repository root, using Node 22+ on `PATH`, after building and informing the
+user about the native window. Set `MEASUREMENT_BINARY` to the absolute path of the
+opt-in measurement executable and `RUN_OUTPUT` to a new output directory whose
+parent already exists:
 
 ```sh
-/opt/homebrew/bin/node scripts/office-selection/native-run.mjs \
-  --binary=/absolute/path/to/measurement-build \
+: "${MEASUREMENT_BINARY:?Set MEASUREMENT_BINARY to the absolute measurement executable path}"
+: "${RUN_OUTPUT:?Set RUN_OUTPUT to a new output directory path}"
+node scripts/office-selection/native-run.mjs \
+  --binary="$MEASUREMENT_BINARY" \
   --format=docx \
-  --out=/absolute/path/to/new-empty-parent/selection-run
+  --out="$RUN_OUTPUT"
 ```
 
 The output directory must not exist. The runner reuses the existing performance
@@ -51,7 +60,8 @@ or readback mismatch fails instead of claiming acceptance. The harness is a nati
 File shell, not acceptance of the full chat composer or complete application UI.
 
 Run each of `--format=docx`, `--format=xlsx`, and `--format=pptx` serially in separate
-output directories. Word additionally verifies persisted insertion/deletion XML;
+output directories (change `RUN_OUTPUT` for each run). Optional `--timeout=180000`
+sets the selection-page timeout in milliseconds. Word additionally verifies persisted insertion/deletion XML;
 Excel verifies B3's value, B4's formula and untouched cells; PPT verifies e_5's text
 and untouched text/image geometry witnesses.
 

@@ -16,7 +16,7 @@ ProjectMind 是一个 `workspace-first`、本地优先的桌面工作台，当�
 - 提供可配置、可绑定模型的编辑器 AI 技能
 - 设置 → Skills 支持导入 `.zip` / `.skill` 压缩包：选择当前范围，点击“导入 Skill”。包内应有一个带 YAML `name`、`description` 的 `SKILL.md`（位于根目录或单层 Skill 文件夹），可附带 `scripts/`、`references/`、`assets/`。导入使用同一原生发现器校验并刷新列表，不覆盖同名 Skill；可继续启用、禁用或删除。压缩包上限 10 MB，展开后 50 MB / 1000 项。
 - 在 Project 内用独立内容页签打开 Record、File 和 DSH 会话，支持双栏、排序、移栏和布局恢复
-- 在应用内预览文本、代码、Markdown、图片、PDF 和静态 HTML；读取和引用绑定实际 File 身份及版本
+- 在应用内预览文本、代码、Markdown、图片和 PDF；项目 HTML 在独立 Wry 原生子 WebView 中运行，允许脚本与联网；读取和引用绑定实际 File 身份及版本
 - Project 助手复用 DSH 原 Chat、Trajectory、输入框和插件设置，沿用工作区模型配置，可在输入区选择已配置模型
 - 提供项目标签、联系人、AI 设置、富文本样式、页面宽度等设置能力
 - 支持 Voice Record 双轨录音、录音恢复、纯录音、本地或云端识别、实时字幕、转写回放、搜索和会议纪要
@@ -132,8 +132,9 @@ cargo run --manifest-path src-tauri/Cargo.toml --bin seed_demo_data -- --workspa
 
 ## 当前限制
 
-- 当前数据库 schema 为 v37，包含原生 AI、Record/文件版本、会话索引、Overview 和记忆服务；旧领域数据通过兼容迁移复制为当前 Record。
+- 当前数据库 schema 版本及迁移以 [`src-tauri/src/db.rs`](src-tauri/src/db.rs) 为单一来源，包含原生 AI、Record/文件版本、会话索引、Overview 和记忆服务；旧领域数据通过兼容迁移复制为当前 Record。
 - DSH 会话通过应用附带的 Mind CLI 接入当前作用域的原生 Record/Todo/File 读取与保存；固定 File 来源与自动版本管理仍沿用原生服务。知识/记忆的完整统一工作流仍未交付；原生保存和外部 CLI/MCP 继续保留。
-- Office 编辑仍处于候选验证阶段；静态 HTML 预览禁用脚本、导航与表单，不代表交互 HTML 执行能力已交付。
+- 项目 HTML 按[现行规格](docs/requirements/html-webview-preview.md)执行原始 JS/CSS，允许联网、HTTP(S) 导航和网络表单，遵循引擎 CORS 与权限规则；不开放 Tauri 命令或本机特权协议。本站点资源读取绑定 Workspace、根 File 身份与固定版本/hash，限制在同 Project 的站点根内；固定历史缺少依赖快照时明确失败，不混读最新资源。下载管理暂不支持。
+- HTML 的[实现与验证记录](docs/implementation/html-webview-preview-20261023.md)覆盖 macOS 原生组件；Windows 部分 HTML/Office 编辑、保存重开已有证据，但完整项目壳的分栏/跨窗口拖移、安装包、多屏/DPI、安全及 Office 完整功能矩阵仍有缺口，按[未完成事项](docs/remaining-work.md)继续验收。HTML 源码编辑与历史依赖快照也未完整交付；旧静态 iframe 验证仅代表历史阶段。
 - macOS 是当前主要开发和验证平台；Windows 的 Voice Record 与页面驻留仍缺完整实机验收。
 - 当前未完成事项统一记录在 [`docs/remaining-work.md`](docs/remaining-work.md)。

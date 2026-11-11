@@ -1,0 +1,4 @@
+UI standards check failed:
+
+- src/styles/app.css:876 motion/no-raw-motion-duration: animation: rich-editor-caret-blink 1.1s step-end infinite;
+- src/styles/app.css:876 motion/no-long-ui-motion: animation: rich-editor-caret-blink 1.1s step-end infinite;

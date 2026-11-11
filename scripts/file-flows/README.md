@@ -21,28 +21,31 @@ Workspace, credentials, source file, or application data is accepted as input.
 
 ## Execution (launch only when coordinated by the main agent)
 
-The existing measurement build must include this checkout's frontend:
+Run the following from the repository root after installing the repository's
+dependencies. The measurement build must include this checkout's frontend.
+Coordinate with the main agent so builds and native acceptance runs execute
+serially, avoiding resource contention with other work packages.
 
 ```sh
-cd /tmp/project-mind-review-flow-native-acceptance
-python3 /Users/xuchen/.codex/task-handoffs/project-mind-review-20261110/with-build-lock.py \
-  env OFFICE_PERFORMANCE=1 CARGO_INCREMENTAL=0 npm run tauri -- build \
+env OFFICE_PERFORMANCE=1 CARGO_INCREMENTAL=0 npm run tauri -- build \
   --debug --no-bundle --features office-performance
 ```
 
-This uses the repository's normal desktop resource preparation. A prebuilt
+Tauri's `beforeBuildCommand` invokes `npm run build:desktop`, including the
+repository's normal desktop resource preparation. A prebuilt
 measurement binary with the same frontend may be supplied instead. The runner
 does not build. It requires macOS and Node 22+; Python 3 reads only the fresh
 fixture SQLite database. Do not point it at a shipping binary.
 
 ```sh
-python3 /Users/xuchen/.codex/task-handoffs/project-mind-review-20261110/with-build-lock.py \
-  node scripts/file-flows/native-run.mjs \
-  --binary=/absolute/path/to/office-performance/project_mind_alpha
+: "${MEASUREMENT_BINARY:?Set MEASUREMENT_BINARY to the absolute path of the opt-in measurement executable}"
+node scripts/file-flows/native-run.mjs --binary="$MEASUREMENT_BINARY"
 ```
 
-Optional `--out=/tmp/unique-new-directory`, `--hold=15` (seconds after report), and
-`--timeout=180000` (milliseconds). A report with all required assertions and no
+Optional `--out="$RUN_OUTPUT"` selects a new directory beneath macOS temporary
+storage; set `RUN_OUTPUT` to its path and ensure its parent exists. Omit `--out`
+to let the runner create a fresh temporary directory. `--hold=15` sets seconds
+after report and `--timeout=180000` sets milliseconds. A report with all required assertions and no
 runtime errors is required for exit 0. `acceptance.json`, `native.log`, and the
 isolated fixtures are retained. A timeout, missing assertion, unexpected error,
 or failed native operation exits nonzero. A caught page failure submits its partial
@@ -99,11 +102,11 @@ git diff --check
 These validate only the runner, evidence contract, opt-in entry and SQLite reader.
 The synthetic collector fixture is not native API or application evidence.
 The targeted TypeScript check was cancelled while waiting for the shared build
-lock; it has not run. Run it in the coordinated preparation step:
+lock; it has not run. For a new coordinated preparation step, run the repository
+compiler from the repository root:
 
 ```sh
-python3 /Users/xuchen/.codex/task-handoffs/project-mind-review-20261110/with-build-lock.py \
-  ./node_modules/.bin/tsc --noEmit -p scripts/file-flows/tsconfig.json
+./node_modules/.bin/tsc --noEmit -p scripts/file-flows/tsconfig.json
 ```
 
 No native build, IPC acceptance run, or GUI launch has been performed during

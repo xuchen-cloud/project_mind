@@ -1,8 +1,50 @@
 import { describe, expect, it } from "vitest";
+import fs from "node:fs";
 
 import { collectMotionViolations } from "./ui-standards-motion-rules.mjs";
 
 describe("UI motion standards", () => {
+  const caretSource = `
+:root { --rhythm-caret-blink: 1.1s; }
+.rich-editor__text-caret { animation: rich-editor-caret-blink var(--rhythm-caret-blink) step-end infinite; }
+@keyframes rich-editor-caret-blink { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .rich-editor__text-caret { animation: none; } }
+`;
+
+  it("accepts the caret's existing opacity rhythm and actual stylesheet", () => {
+    expect(collectMotionViolations("src/styles/app.css", caretSource)).toEqual([]);
+    const css = fs.readFileSync(new URL("../src/styles/app.css", import.meta.url), "utf8");
+    expect(collectMotionViolations("src/styles/app.css", css)).toEqual([]);
+  });
+
+  it.each([
+    ["a different source file", (css) => css, "fixture.css"],
+    ["a different selector", (css) => css.replaceAll(".rich-editor__text-caret", ".panel")],
+    ["a different keyframe", (css) => css.replaceAll("rich-editor-caret-blink", "panel-blink")],
+    ["a different cadence", (css) => css.replace("1.1s", "0.2s")],
+    ["smooth easing", (css) => css.replace("step-end", "linear")],
+    ["finite iterations", (css) => css.replace("infinite", "1")],
+    ["transform keyframes", (css) => css.replace("opacity: 0", "transform: scale(.97)")],
+    ["missing reduced motion", (css) => css.replace("animation: none;", "color: inherit;")],
+    ["an unrelated reduced selector", (css) => css.replace("{ .rich-editor__text-caret { animation: none;", "{ .panel { animation: none;")],
+    ["reuse by ordinary transitions", (css) => `${css}\n.panel { transition: opacity var(--rhythm-caret-blink) linear; }`],
+  ])("rejects caret rhythm with %s", (_name, change, file = "src/styles/app.css") => {
+    expect(collectMotionViolations(file, change(caretSource))).toContainEqual(
+      expect.objectContaining({ rule: "caret-rhythm-contract" }),
+    );
+  });
+
+  it("does not exempt a literal long caret duration or another duration in the caret rule", () => {
+    for (const source of [
+      caretSource.replace("var(--rhythm-caret-blink)", "1.1s"),
+      caretSource.replace("step-end infinite;", "step-end infinite; transition: opacity 1.1s linear;"),
+    ]) {
+      expect(collectMotionViolations("src/styles/app.css", source)).toContainEqual(
+        expect.objectContaining({ rule: "no-long-ui-motion" }),
+      );
+    }
+  });
+
   it("rejects the retired PPTX inspector layout transition exception", () => {
     const source = `
 @container(max-width:800px) {
