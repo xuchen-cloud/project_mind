@@ -231,10 +231,18 @@ WP00 自行核对十包源提交与组合提交的 patch ID、共享文件 hunk�
 - 用户要求复核此前推送方式后，通过官方会话记录确认上次 PR #316 使用普通 HTTPS `git push origin codex/review-combined` 成功，再用 `gh pr merge 316 --merge --match-head-commit ac8126b0c3d6083c1bf06204fdf93841c12ad6f8` 合并。该 PR 相对其 develop 父提交没有 workflow 文件改动；本轮 WP10 修改了 `publish-beta.yml`。当前 GitHub helper 使用 gh，`gh auth status` 实际 scopes 为 gist/read:org/repo，确实不含 workflow；此前普通推送成功不表示具备写 workflow 的授权。比较证据见外部 `previous-push-comparison.json`，没有记录 token 值，也没有重试远端写入。
 - 上述记录描述拒绝与诊断时的状态；用户最新的撤回并停止指令取代此前继续合并/推送安排，不再执行远端写入。远端复核结果和完整交接证据保存在外部 `handoff.json`。
 
-## 用户要求撤回 workflow 并停止
+## 用户要求撤回 workflow
 
 将 `.github/workflows/publish-beta.yml` 精确恢复为已核实的 origin/develop 版本 `ca8ecfc4806ac0c9ce3736a97bd9de556717ab71`，未禁用或删除原 workflow。同步恢复原 workflow 配置测试；独立 channel CLI 仍保留，其入口测试直接运行 CLI，不再声称覆盖 workflow 接入。OPS-01 的自动发布接入恢复为原有行为，不能继续计为已修复。
 
 撤回后的三个 Beta 脚本测试文件共 37/37 通过（`workflow-revert-tests.log`）；路径标准、diff 空白通过。workflow blob 与 origin/develop 均为 `4b391d795ea14e81077e30d515dfd2b661450c18`，确认内容完全相同。其余源码未改，复用此前仍有效的验证。
 
-只进行本地撤回、受影响检查和提交，随后停止；未重试 push、创建 PR、合并或修改原 checkout。此前被拒绝的 Git 对象仍在本地历史中；没有改写历史，也不据最终树一致性推定未来推送一定不需要 workflow 权限。
+此次撤回只进行本地修改、受影响检查和提交，当时随后停止；没有在撤回步骤中重试 push、创建 PR、合并或修改原 checkout。此前被拒绝的 Git 对象仍在本地历史中；没有改写历史，也未据最终树一致性预先推定推送结果。
+
+## 恢复远端提交与 develop 整合
+
+用户随后明确要求提交远端，恢复原有 develop 合并安排。重新核实工作树干净、远端 develop 仍为 `ca8ecfc4806ac0c9ce3736a97bd9de556717ab71`，并确认最终树没有任何 workflow 差异后，以同一获准凭据正常推送 `47144161211cb1d4e5812219dc9ccdaff3a3303e` 成功；没有更换凭据、强推或改写已有历史。
+
+已创建 [PR #317](https://github.com/xuchen-cloud/project_mind/pull/317)，base 为 develop。PR 明确保留 OPS-01 的 workflow 接入缺口、旧基线错误码失败及真实第二卷/Windows/GUI 等验收限制，不关闭父 Issue、不部署或发布。最后一次整合只更新本台账，代码与已通过的 37 项 Beta、830 项前端、58 项规则、三组原生定向及构建/类型/生产编译结果保持对应关系。
+
+实际远端 merge commit、最终 develop 完整 SHA、PR 状态及十包接收提交的祖先关系由合并后的 GitHub API/远端 Git 读回核实，并记录于外部 `handoff.json`；此合并前文档不预报尚未发生的结果。
