@@ -310,7 +310,7 @@ pub(crate) fn voice_end(
     let (result, queued) = with_voice_db(&state, &workspace, "end", |voice, db| {
         let result = voice.end(db, &input.session_id, input.expected_revision)?;
         let queued = db.voice_settings_get()?.text_profile_id.is_some()
-            && db.voice_minutes_enqueue(&input.session_id, "final")?;
+            && db.voice_minutes_enqueue_final(&input.session_id)?;
         Ok((result, queued))
     })?;
     if queued { workspace.kick_voice_minutes(); }

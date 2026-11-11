@@ -489,7 +489,11 @@ describe("WorkspaceRecordFocusPage record switching", () => {
     incoming.metadata.revision = "minutes-metadata";
     recordMocks.editorGet.mockResolvedValue(incoming);
     fireEvent.click(screen.getByText("测试纪要已提交"));
-    expect(await screen.findByText("测试重载冲突")).toBeInTheDocument();
+    if (field === "title") expect(await screen.findByText("测试重载冲突")).toBeInTheDocument();
+    else {
+      await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toHaveValue("纪要标题"));
+      expect(screen.queryByText("测试重载冲突")).not.toBeInTheDocument();
+    }
     if (field === "body") expect(recordExportMocks.committedValue).toBe("用户未保存正文");
     else expect(screen.getByPlaceholderText("记录标题")).toHaveValue("用户未保存标题");
     expect(persist).not.toHaveBeenCalled();

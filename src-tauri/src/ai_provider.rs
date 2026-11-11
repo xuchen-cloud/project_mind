@@ -102,11 +102,20 @@ fn partial_minutes_markdown(text: &str) -> String {
             }
             escaped = character == '\\' && !escaped;
         }
+        let complete = end < rest.len();
         let mut fragment = &rest[..end];
         // An unfinished JSON escape is at most twelve bytes (surrogate pair).
         for _ in 0..13 {
             if let Ok(value) = serde_json::from_str::<String>(&format!("\"{fragment}\"")) {
-                return (!value.is_empty()).then(|| format!("## {heading}\n{value}"));
+                let trimmed = value.trim();
+                let optional = matches!(*key, "decisions" | "actionItems" | "openQuestions");
+                if trimmed.is_empty()
+                    || (optional
+                        && (trimmed == "未提及" || (!complete && "未提及".starts_with(trimmed))))
+                {
+                    return None;
+                }
+                return Some(format!("## {heading}\n{value}"));
             }
             fragment = fragment
                 .char_indices()
@@ -202,7 +211,7 @@ fn request_voice_minutes_chunk(
             "format": {"title":"string", "summary":"string", "keyDiscussions":"string", "decisions":"string", "actionItems":"string", "openQuestions":"string"},
             "rules": [
                 "Keep a cumulative summary using previousMinutes and only facts in newFinalTranscript.",
-                "Do not invent decisions, owners, or deadlines. Write 未提及 where evidence is absent.",
+                "Do not invent decisions, owners, or deadlines. Return an empty string for decisions, actionItems, or openQuestions when no supporting facts exist; never write 未提及 as a placeholder. Preserve actual content from previousMinutes unless new facts supersede it.",
                 "Title must be concise, with no date suffix; the application appends the stable recording start time.",
                 "Return only JSON."
             ]
@@ -214,6 +223,10 @@ fn request_voice_minutes_chunk(
         &prompt, cancel, &mut |text| on_stream(partial_minutes_markdown(&text)))?;
     let raw: RawVoiceMinutes = serde_json::from_str(strip_json_fence(&response.text))
         .context("AI minutes result was not valid JSON")?;
+    voice_minutes_payload(raw)
+}
+
+fn voice_minutes_payload(raw: RawVoiceMinutes) -> Result<VoiceMinutesPayload> {
     let title = raw.title.trim();
     if title.is_empty() || title.chars().count() > 80 {
         return Err(anyhow!("AI minutes title is invalid"));
@@ -230,12 +243,23 @@ fn request_voice_minutes_chunk(
     if summary == "未提及" {
         return Err(anyhow!("AI minutes summary is empty"));
     }
+    let mut sections = vec![
+        format!("## 摘要\n{summary}"),
+        format!("## 关键讨论\n{}", section(raw.key_discussions)),
+    ];
+    for (heading, value) in [
+        ("已确认决策", raw.decisions),
+        ("行动项", raw.action_items),
+        ("待确认问题", raw.open_questions),
+    ] {
+        let value = value.trim();
+        if !value.is_empty() && value != "未提及" {
+            sections.push(format!("## {heading}\n{}", section(value.to_owned())));
+        }
+    }
     Ok(VoiceMinutesPayload {
         title: title.to_string(),
-        content: format!(
-            "## 摘要\n{summary}\n\n## 关键讨论\n{}\n\n## 已确认决策\n{}\n\n## 行动项\n{}\n\n## 待确认问题\n{}",
-            section(raw.key_discussions), section(raw.decisions), section(raw.action_items), section(raw.open_questions),
-        ),
+        content: sections.join("\n\n"),
     })
 }
 
@@ -3296,7 +3320,7 @@ mod tests {
     }
 
     #[test]
-    fn voice_minutes_uses_final_transcript_as_data_and_returns_five_sections() {
+    fn voice_minutes_uses_final_transcript_and_omits_absent_optional_sections() {
         let profile = ResolvedAiProfile {
             profile_name: "Mock".into(),
             provider_family: "openai_compatible".into(),
@@ -3313,8 +3337,9 @@ mod tests {
         assert!(result.content.contains("## 摘要"));
         assert!(result.content.contains("## 关键讨论"));
         assert!(result.content.contains("## 已确认决策"));
-        assert!(result.content.contains("## 行动项"));
-        assert!(result.content.contains("## 待确认问题"));
+        assert!(!result.content.contains("## 行动项"));
+        assert!(!result.content.contains("## 待确认问题"));
+        assert!(!result.content.contains("未提及"));
     }
 
     #[test]
@@ -3328,6 +3353,48 @@ mod tests {
             "## 摘要\n你好\n\n## 已确认决策\n待确认"
         );
         assert_eq!(super::partial_minutes_markdown(r#"{"title":"标题"#), "");
+    }
+
+    #[test]
+    fn voice_minutes_optional_sections_preserve_facts_and_require_summary() {
+        for absent in ["", "  ", " 未提及 "] {
+            let raw = json!({
+                "title": "会议", "summary": "讨论发布", "keyDiscussions": "发布计划",
+                "decisions": absent, "actionItems": absent, "openQuestions": absent
+            });
+            let result =
+                super::voice_minutes_payload(serde_json::from_value(raw.clone()).unwrap()).unwrap();
+            assert_eq!(result.content, "## 摘要\n讨论发布\n\n## 关键讨论\n发布计划");
+            let mut invalid = raw;
+            invalid["summary"] = json!(absent);
+            assert!(
+                super::voice_minutes_payload(serde_json::from_value(invalid).unwrap()).is_err()
+            );
+        }
+        let raw = json!({
+            "title": "会议", "summary": "讨论发布", "keyDiscussions": "发布计划",
+            "decisions": " 周五发布 ", "actionItems": "小王跟进，期限未提及", "openQuestions": "待确认预算"
+        });
+        let result = super::voice_minutes_payload(serde_json::from_value(raw).unwrap()).unwrap();
+        assert!(result.content.contains("## 已确认决策\n周五发布"));
+        assert!(result.content.contains("## 行动项\n小王跟进，期限未提及"));
+        assert!(result.content.contains("## 待确认问题\n待确认预算"));
+    }
+
+    #[test]
+    fn minutes_preview_omits_absent_optional_sections_even_mid_placeholder() {
+        for key in ["decisions", "actionItems", "openQuestions"] {
+            for value in ["", " ", "未", "未提", "未提及", " 未提及 "] {
+                let text = format!("{{\"{key}\":\"{value}");
+                assert_eq!(super::partial_minutes_markdown(&text), "");
+            }
+            for value in ["", " ", " 未提及 "] {
+                let text = json!({key: value}).to_string();
+                assert_eq!(super::partial_minutes_markdown(&text), "");
+            }
+            let text = json!({key: "未提及期限，但确认周五发布"}).to_string();
+            assert!(super::partial_minutes_markdown(&text).contains("未提及期限，但确认周五发布"));
+        }
     }
 
     #[test]

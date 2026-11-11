@@ -349,3 +349,41 @@ describe("RecordSaveCoordinator", () => {
   });
 
 });
+
+it("retains an externally generated title across multiple queued body-only saves", async () => {
+  const captured: Readonly<CommittedProjectRecordSnapshot>[] = [];
+  const metadata = { title: "Minutes title", tagIds: [2], revision: "metadata-minutes", updatedAt: "now" };
+  const coordinator = new RecordSaveCoordinator({ adapter: { persist: async value => {
+    captured.push(value as CommittedProjectRecordSnapshot);
+    return { updatedAt: "saved", headRevision: 4 + captured.length, metadata };
+  } } });
+  for (const name of ["first", "second", "third"]) {
+    const value = canonicalSnapshot(name);
+    value.canonicalBody!.metadataBase = { title: "Record 7", tagIds: [2], revision: "metadata-old", updatedAt: "before" };
+    coordinator.submit(value);
+  }
+  await coordinator.flush();
+  expect(captured.map(value => value.title)).toEqual(["Record 7", "Minutes title", "Minutes title"]);
+  expect(captured[1].canonicalBody?.metadataBase).toEqual(metadata);
+  expect(captured[2].canonicalBody?.metadataBase).toEqual(metadata);
+  expect(captured.map(value => value.committedContent.markdown)).toEqual(["first", "second", "third"]);
+});
+
+it.each(["title", "tags"])("does not rebase a competing queued %s edit over external metadata", async field => {
+  const captured: Readonly<CommittedProjectRecordSnapshot>[] = [];
+  const coordinator = new RecordSaveCoordinator({ adapter: { persist: async value => {
+    captured.push(value as CommittedProjectRecordSnapshot);
+    return { updatedAt: "saved", headRevision: 4 + captured.length,
+      metadata: { title: "Minutes title", tagIds: [2], revision: "metadata-minutes", updatedAt: "now" } };
+  } } });
+  const first = canonicalSnapshot("first");
+  const second = canonicalSnapshot("second");
+  for (const value of [first, second]) value.canonicalBody!.metadataBase = { title: "Record 7", tagIds: [2], revision: "metadata-old", updatedAt: "before" };
+  if (field === "title") second.title = "User title";
+  else second.tagIds = [3];
+  coordinator.submit(first); coordinator.submit(second);
+  await coordinator.flush();
+  expect(captured[1].canonicalBody?.metadataBase?.revision).toBe("metadata-old");
+  expect(captured[1].title).toBe(second.title);
+  expect(captured[1].tagIds).toEqual(second.tagIds);
+});

@@ -37,6 +37,31 @@ fn unsigned(row: &rusqlite::Row<'_>, column: usize) -> rusqlite::Result<u64> {
 }
 
 impl Database {
+    /// Final minutes belong to the completed Transcript, not each replay batch.
+    /// Keep one stable key across retries and only queue after every gap is closed.
+    pub(crate) fn voice_minutes_enqueue_final(&self, session: &str) -> Result<bool> {
+        let ready: bool = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM recording_sessions s WHERE s.id=?1 AND s.lifecycle='ended'
+                AND NOT EXISTS(SELECT 1 FROM voice_cloud_epochs e WHERE e.session_id=s.id AND e.finalized=0)
+                AND NOT EXISTS(SELECT 1 FROM voice_cloud_gaps g WHERE g.session_id=s.id AND (g.end_ms IS NULL OR g.cursor_ms < g.end_ms)))",
+            [session], |row| row.get(0),
+        )?;
+        if !ready { return Ok(false); }
+        // An unclaimed periodic job must not race the final job after stop.
+        self.conn.execute(
+            "UPDATE voice_minutes_jobs SET status='ready',preview='',error=NULL WHERE session_id=?1 AND status='pending' AND (request_key LIKE 'auto:%' OR request_key LIKE 'recovery:%')",
+            [session],
+        )?;
+        self.voice_minutes_enqueue(session, "final")
+    }
+
+    pub(crate) fn voice_minutes_job_can_apply(&self, job_id: i64) -> Result<bool> {
+        self.conn.query_row(
+            "SELECT NOT (s.lifecycle IN ('ending','ended') AND (j.request_key LIKE 'auto:%' OR j.request_key LIKE 'recovery:%')) FROM voice_minutes_jobs j JOIN recording_sessions s ON s.id=j.session_id WHERE j.id=?1",
+            [job_id], |row| row.get(0),
+        ).map_err(Into::into)
+    }
+
     /// Keep the existing atomic claim and capture its lease for cancellation.
     pub(crate) fn voice_minutes_claim_owned(&mut self) -> Result<Option<(i64, String, String)>> {
         let Some((id, session)) = self.voice_minutes_claim_next()? else {
@@ -336,8 +361,8 @@ impl Database {
         if updated != 1 {
             return Err(anyhow!("stale recovery task"));
         }
-        if !results.is_empty() && self.voice_settings_get()?.text_profile_id.is_some() {
-            self.voice_minutes_enqueue(&gap.session_id, &format!("recovery:{}:{scan_ms}", gap.id))?;
+        if self.voice_settings_get()?.text_profile_id.is_some() {
+            self.voice_minutes_enqueue_final(&gap.session_id)?;
         }
         transaction.commit()?;
         Ok(())
@@ -415,6 +440,76 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn final_minutes_wait_for_all_recovery_batches_and_queue_once_after_silence() {
+        let root = tempfile::tempdir().unwrap();
+        let mut db = Database::open(&root.path().join("db.sqlite"), root.path(), None).unwrap();
+        let session = db.voice_session_create(&RecordTarget::Workspace, "final-once", "final-once", "Voice").unwrap();
+        let id = &session.session_id;
+        let mut settings = db.voice_settings_get().unwrap();
+        settings.text_profile_id = Some(1);
+        db.voice_settings_upsert(&settings).unwrap();
+        db.voice_transcript_append_final(id, "live", 0, 100, "live fact", None).unwrap();
+        db.voice_minutes_enqueue(id, "auto:1").unwrap();
+        db.voice_local_epoch(id, 1, 0).unwrap();
+        db.voice_cloud_open_gap(id, 1, "recover").unwrap();
+        db.voice_cloud_connected(id, 1, 1000).unwrap();
+        db.voice_session_transition(id, session.revision, "ended", None, 1000, 1).unwrap();
+        db.conn.execute("UPDATE voice_cloud_epochs SET finalized=1 WHERE session_id=?1", [id]).unwrap();
+        assert!(!db.voice_minutes_enqueue_final(id).unwrap());
+        assert!(db.voice_minutes_claim_next().unwrap().is_none(), "old periodic jobs cannot run during recovery");
+        let gap = db.voice_cloud_claim(0).unwrap().unwrap();
+        let line = crate::voice::live_local::TranscriptFinal { provider_key: "recovered".into(), start_ms: 100, end_ms: 500, text: "recovered fact".into() };
+        db.voice_cloud_commit(&gap, 500, &[line]).unwrap();
+        assert!(db.voice_minutes_claim_next().unwrap().is_none());
+        // A trailing silent batch must still release the single final job.
+        let gap = db.voice_cloud_claim(0).unwrap().unwrap();
+        db.voice_cloud_commit(&gap, 1000, &[]).unwrap();
+        assert!(!db.voice_minutes_enqueue_final(id).unwrap(), "repeated completion is idempotent");
+        let (job, _) = db.voice_minutes_claim_next().unwrap().unwrap();
+        let key: String = db.conn.query_row("SELECT request_key FROM voice_minutes_jobs WHERE id=?1", [job], |row| row.get(0)).unwrap();
+        assert_eq!(key, "final");
+        assert_eq!(db.voice_minutes_input(id).unwrap().segments.len(), 2);
+        db.voice_minutes_finish_job(job, None).unwrap();
+        assert!(db.voice_minutes_claim_next().unwrap().is_none());
+    }
+
+    #[test]
+    fn stopping_supersedes_in_flight_periodic_minutes_but_not_manual_requests() {
+        let root = tempfile::tempdir().unwrap();
+        let mut db = Database::open(&root.path().join("db.sqlite"), root.path(), None).unwrap();
+        let session = db.voice_session_create(&RecordTarget::Workspace, "in-flight", "in-flight", "Voice").unwrap();
+        let id = &session.session_id;
+        db.voice_transcript_append_final(id, "live", 0, 100, "fact", None).unwrap();
+        db.voice_minutes_enqueue(id, "auto:1").unwrap();
+        let (job, _) = db.voice_minutes_claim_next().unwrap().unwrap();
+        assert!(db.voice_minutes_job_can_apply(job).unwrap());
+        db.voice_session_transition(id, session.revision, "ended", None, 1000, 1).unwrap();
+        assert!(!db.voice_minutes_job_can_apply(job).unwrap());
+        db.voice_minutes_finish_job(job, None).unwrap();
+        db.voice_minutes_enqueue(id, "manual:1").unwrap();
+        let (manual, _) = db.voice_minutes_claim_next().unwrap().unwrap();
+        assert!(db.voice_minutes_job_can_apply(manual).unwrap());
+    }
+
+    #[test]
+    fn final_minutes_do_not_run_before_end_or_with_failed_recovery() {
+        let root = tempfile::tempdir().unwrap();
+        let mut db = Database::open(&root.path().join("db.sqlite"), root.path(), None).unwrap();
+        let session = db.voice_session_create(&RecordTarget::Workspace, "incomplete", "incomplete", "Voice").unwrap();
+        let id = &session.session_id;
+        db.voice_transcript_append_final(id, "live", 0, 100, "fact", None).unwrap();
+        assert!(!db.voice_minutes_enqueue_final(id).unwrap());
+        db.voice_local_epoch(id, 1, 0).unwrap();
+        db.voice_cloud_open_gap(id, 1, "recover").unwrap();
+        db.voice_cloud_connected(id, 1, 1000).unwrap();
+        db.voice_session_transition(id, session.revision, "ended", None, 1000, 1).unwrap();
+        db.conn.execute("UPDATE voice_cloud_epochs SET finalized=1 WHERE session_id=?1", [id]).unwrap();
+        db.conn.execute("UPDATE voice_cloud_gaps SET status='failed' WHERE session_id=?1", [id]).unwrap();
+        assert!(!db.voice_minutes_enqueue_final(id).unwrap());
+        assert!(db.voice_minutes_claim_next().unwrap().is_none());
+    }
+
     #[test]
     #[cfg(unix)]
     #[ignore = "requires private read-only WAV/model fixtures; set PROJECT_MIND_TEST_MIC_WAV, PROJECT_MIND_TEST_SYSTEM_WAV, PROJECT_MIND_TEST_MODEL_DIR"]

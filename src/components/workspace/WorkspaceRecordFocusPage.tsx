@@ -192,6 +192,19 @@ export function WorkspaceRecordFocusPage({
       if (editor.getPendingAiReviewCount() > 0) return "review_pending";
       return signature() === before ? "saved" : "busy";
     },
+    receiveMetadata: (state, previous) => {
+      const sameTags = [...tagIdsValueRef.current].sort((a, b) => a - b).join(",")
+        === [...previous.metadata.tagIds].sort((a, b) => a - b).join(",");
+      const alreadyReceivedTags = [...tagIdsValueRef.current].sort((a, b) => a - b).join(",")
+        === [...state.metadata.tagIds].sort((a, b) => a - b).join(",");
+      if ((titleValueRef.current !== (previous.metadata.title ?? "")
+          && titleValueRef.current !== (state.metadata.title ?? "")) || (!sameTags && !alreadyReceivedTags)) return false;
+      // A minutes title update does not replace the body, selection or AI review.
+      setTitle(state.metadata.title ?? ""); titleValueRef.current = state.metadata.title ?? "";
+      setTagIds(state.metadata.tagIds); tagIdsValueRef.current = state.metadata.tagIds;
+      lastSavedUpdatedAtRef.current = state.record.updatedAt;
+      return true;
+    },
     receiveIncoming: (state, previous) => {
       const sameTags = [...tagIdsValueRef.current].sort((a, b) => a - b).join(",")
         === [...previous.metadata.tagIds].sort((a, b) => a - b).join(",");

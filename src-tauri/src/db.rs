@@ -1719,7 +1719,7 @@ impl Database {
             .conn
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let job = transaction.query_row(
-            "SELECT id, session_id FROM voice_minutes_jobs j WHERE status = 'pending' AND NOT EXISTS (SELECT 1 FROM voice_minutes_jobs other WHERE other.session_id = j.session_id AND other.status = 'running') ORDER BY id LIMIT 1",
+            "SELECT id, session_id FROM voice_minutes_jobs j WHERE status = 'pending' AND NOT EXISTS (SELECT 1 FROM recording_sessions s WHERE s.id=j.session_id AND s.lifecycle IN ('ending','ended') AND (j.request_key='final' OR j.request_key LIKE 'auto:%' OR j.request_key LIKE 'recovery:%') AND (EXISTS(SELECT 1 FROM voice_cloud_epochs e WHERE e.session_id=s.id AND e.finalized=0) OR EXISTS(SELECT 1 FROM voice_cloud_gaps g WHERE g.session_id=s.id AND (g.end_ms IS NULL OR g.cursor_ms < g.end_ms)))) AND NOT EXISTS (SELECT 1 FROM voice_minutes_jobs other WHERE other.session_id = j.session_id AND other.status = 'running') ORDER BY id LIMIT 1",
             [], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)),
         ).optional()?;
         if let Some((id, _)) = &job {

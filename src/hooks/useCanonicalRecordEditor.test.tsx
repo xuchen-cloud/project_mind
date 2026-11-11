@@ -340,3 +340,92 @@ it.each(["project", "workspace"] as const)("hydrates the same %s snapshot when a
   expect(result.current.state).toEqual(next);
   expect(result.current.capture(result.current.state!.head.projection.document)).toMatchObject({ baseRevision: 5, document: nextDocument, metadataBase: metadata });
 });
+
+it("adopts metadata without applying a dirty body after its pending save finishes", async () => {
+  let finish!: () => void;
+  const incoming = { ...editor, metadata: { ...editor.metadata, title: "Minutes", revision: "minutes-2" }, record: { ...editor.record, title: "Minutes" } };
+  const saved = { ...incoming, head: { ...incoming.head, headRevision: 5 } };
+  const coordinator = new RecordSaveCoordinator({ adapter: { persist: async () => {
+    await new Promise<void>(resolve => { finish = resolve; });
+    vi.mocked(recordDocumentApi.editorGet).mockResolvedValue(saved);
+    return { updatedAt: "saved", headRevision: 5, metadata: saved.metadata };
+  } } });
+  const receiveIncoming = vi.fn(() => false);
+  const receiveMetadata = vi.fn(() => true);
+  const { result } = renderHook(() => useCanonicalRecordEditor({ target, coordinator, enabled: true, receiveIncoming, receiveMetadata }));
+  await waitFor(() => expect(result.current.ready).toBe(true));
+  act(() => { coordinator.submit({ scope: "project", projectId: 1, recordId: 7, workspaceKey: "/workspace", title: "Title", tagIds: [], defaultCodeLanguage: null,
+    committedContent: { html: "<p>Draft</p>", markdown: "Draft", text: "Draft" }, canonicalBody: result.current.capture(document)! }); });
+  vi.mocked(recordDocumentApi.editorGet).mockResolvedValue(incoming);
+  let refresh!: Promise<void>;
+  act(() => { refresh = result.current.refreshIncoming(); });
+  await waitFor(() => expect(finish).toBeTypeOf("function"));
+  expect(receiveMetadata).not.toHaveBeenCalled();
+  await act(async () => { finish(); await refresh; });
+  expect(receiveMetadata).toHaveBeenCalledWith(saved, { metadata: editor.metadata, codeLanguage: null });
+  expect(receiveIncoming).not.toHaveBeenCalled();
+  expect(result.current.capture(document)).toMatchObject({ baseRevision: 5, metadataBase: saved.metadata });
+  expect(result.current.incomingConflict).toBeNull();
+});
+
+it("retains metadata conflicts and never uses metadata-only reception for a changed body", async () => {
+  const coordinator = new RecordSaveCoordinator({ adapter: { persist: async () => ({ updatedAt: "saved" }) } });
+  const receiveIncoming = vi.fn(() => false);
+  const receiveMetadata = vi.fn(() => false);
+  const { result } = renderHook(() => useCanonicalRecordEditor({ target, coordinator, enabled: true, receiveIncoming, receiveMetadata }));
+  await waitFor(() => expect(result.current.ready).toBe(true));
+  const incoming = { ...editor, metadata: { ...editor.metadata, title: "Minutes", revision: "minutes-2" } };
+  vi.mocked(recordDocumentApi.editorGet).mockResolvedValue(incoming);
+  await act(async () => { await result.current.refreshIncoming(); });
+  expect(result.current.incomingConflict).toBe(incoming);
+  expect(result.current.capture(document)?.metadataBase).toEqual(editor.metadata);
+  receiveMetadata.mockClear();
+  vi.mocked(recordDocumentApi.editorGet).mockResolvedValue({ ...incoming, head: { ...incoming.head, headRevision: 5 } });
+  await act(async () => { await result.current.refreshIncoming(); });
+  expect(receiveMetadata).not.toHaveBeenCalled();
+  expect(receiveIncoming).toHaveBeenCalledOnce();
+});
+
+it("does not apply minutes metadata after switching records during a pending flush", async () => {
+  let finish!: () => void;
+  const coordinator = new RecordSaveCoordinator({ adapter: { persist: async () => {
+    await new Promise<void>(resolve => { finish = resolve; });
+    return { updatedAt: "saved", headRevision: 5 };
+  } } });
+  const receiveMetadata = vi.fn(() => true);
+  const { result, rerender } = renderHook(({ currentTarget }) => useCanonicalRecordEditor({ target: currentTarget, coordinator, enabled: true, receiveMetadata }), { initialProps: { currentTarget: target } });
+  await waitFor(() => expect(result.current.ready).toBe(true));
+  act(() => { coordinator.submit({ scope: "project", projectId: 1, recordId: 7, workspaceKey: "/workspace", title: "Title", tagIds: [], defaultCodeLanguage: null,
+    committedContent: { html: "<p>Draft</p>", markdown: "Draft", text: "Draft" }, canonicalBody: result.current.capture(document)! }); });
+  vi.mocked(recordDocumentApi.editorGet).mockResolvedValue({ ...editor, metadata: { ...editor.metadata, title: "Minutes", revision: "minutes-2" } });
+  let refresh!: Promise<void>;
+  act(() => { refresh = result.current.refreshIncoming(); });
+  await waitFor(() => expect(finish).toBeTypeOf("function"));
+  const nextTarget = { ...target, recordId: 8 };
+  vi.mocked(recordDocumentApi.editorGet).mockResolvedValue({ ...editor, head: { ...editor.head, target: nextTarget } });
+  rerender({ currentTarget: nextTarget });
+  await waitFor(() => expect(result.current.state?.head.target.recordId).toBe(8));
+  await act(async () => { finish(); await refresh; });
+  expect(receiveMetadata).not.toHaveBeenCalled();
+  expect(result.current.state?.head.target.recordId).toBe(8);
+  expect(result.current.incomingConflict).toBeNull();
+});
+
+it("does not hide a minutes title when its hint arrives after a body save acknowledgement", async () => {
+  const incoming = { ...editor, metadata: { ...editor.metadata, title: "Minutes", revision: "minutes-2" }, record: { ...editor.record, title: "Minutes" }, head: { ...editor.head, headRevision: 5 } };
+  const coordinator = new RecordSaveCoordinator({ adapter: { persist: async () => ({ updatedAt: "saved", headRevision: 5, metadata: incoming.metadata }) } });
+  const receiveMetadata = vi.fn(() => true);
+  const { result } = renderHook(() => useCanonicalRecordEditor({ target, coordinator, enabled: true, receiveMetadata }));
+  await waitFor(() => expect(result.current.ready).toBe(true));
+  await act(async () => {
+    coordinator.submit({ scope: "project", projectId: 1, recordId: 7, workspaceKey: "/workspace", title: "Title", tagIds: [], defaultCodeLanguage: null,
+      committedContent: { html: "<p>Draft</p>", markdown: "Draft", text: "Draft" }, canonicalBody: result.current.capture(document)! });
+    await coordinator.flush();
+  });
+  expect(result.current.capture(document)?.metadataBase).toEqual(editor.metadata);
+  vi.mocked(recordDocumentApi.editorGet).mockResolvedValue(incoming);
+  await act(async () => { await result.current.refreshIncoming(); });
+  expect(receiveMetadata).toHaveBeenCalledWith(incoming, { metadata: editor.metadata, codeLanguage: null });
+  expect(result.current.capture(document)?.metadataBase).toEqual(incoming.metadata);
+  expect(result.current.incomingConflict).toBeNull();
+});

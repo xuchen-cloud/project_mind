@@ -552,7 +552,11 @@ describe("ProjectNoteFocusPage keyboard flow", () => {
     recordMocks.editorGet.mockResolvedValue({ ...fixtureEditorState({ scope: { kind: "project", projectId: 1 }, recordId: 7 }, { ...currentNote, title: "纪要标题" }),
       metadata: { title: "纪要标题", tagIds: [], revision: "minutes-metadata", updatedAt: "now" } });
     fireEvent.click(screen.getByText("测试纪要已提交"));
-    expect(await screen.findByText(/这条记录已在别处更新/)).toBeInTheDocument();
+    if (field === "title") expect(await screen.findByText(/这条记录已在别处更新/)).toBeInTheDocument();
+    else {
+      await waitFor(() => expect(screen.getByPlaceholderText("记录标题")).toHaveValue("纪要标题"));
+      expect(screen.queryByText(/这条记录已在别处更新/)).not.toBeInTheDocument();
+    }
     expect(input).toHaveValue("用户未保存草稿");
     expect(persist).not.toHaveBeenCalled();
     view.unmount();

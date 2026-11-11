@@ -124,6 +124,11 @@ function freezeDocument<T>(value: T): T {
   return value;
 }
 
+function matchesMetadata(snapshot: Readonly<CommittedRecordSnapshot>, metadata: RecordMetadata) {
+  return (snapshot.title.trim() || null) === metadata.title
+    && JSON.stringify([...snapshot.tagIds].sort((a, b) => a - b)) === JSON.stringify([...metadata.tagIds].sort((a, b) => a - b));
+}
+
 function saveError(error: unknown) {
   return error instanceof Error ? error : new Error(String(error));
 }
@@ -340,10 +345,18 @@ export class RecordSaveCoordinator {
           || body.baseRevision !== savedBody.baseRevision
           || body.binding.workspaceId !== savedBody.binding.workspaceId
           || body.binding.generation !== savedBody.binding.generation) continue;
+        const sharedMetadataBase = result.metadata && savedBody.metadataBase
+          && body.metadataBase?.revision === savedBody.metadataBase.revision;
+        // A body-only save can acknowledge metadata changed elsewhere (for
+        // example a minutes title). Do not reinterpret the next old header as
+        // a user edit, or silently rebase an actual competing header edit.
+        const externalMetadata = sharedMetadataBase && matchesMetadata(task.snapshot, savedBody.metadataBase!)
+          && result.metadata!.revision !== savedBody.metadataBase!.revision;
+        const bodyOnlyQueued = sharedMetadataBase && matchesMetadata(queued.snapshot, body.metadataBase!);
         queued.snapshot = immutableSnapshot({ ...queued.snapshot,
+          ...(externalMetadata && bodyOnlyQueued ? { title: result.metadata!.title ?? "", tagIds: result.metadata!.tagIds } : {}),
           canonicalBody: { ...body, baseRevision: result.headRevision,
-            ...(result.metadata && savedBody.metadataBase
-              && body.metadataBase?.revision === savedBody.metadataBase.revision
+            ...(sharedMetadataBase && (!externalMetadata || bodyOnlyQueued)
               ? { metadataBase: result.metadata } : {}),
           },
         });

@@ -124,6 +124,9 @@ pub(crate) fn kick(
                         return Err(error);
                     }
                     worker.active(|| {
+                        // Stop supersedes a still-running periodic snapshot. Do
+                        // not publish its partial result while final replay drains.
+                        if !db.voice_minutes_job_can_apply(job_id)? { return Ok(()); }
                         db.voice_minutes_apply(
                             &session_id,
                             input.expected_version,

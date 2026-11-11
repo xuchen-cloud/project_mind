@@ -12,11 +12,12 @@ function targetKey(target: RecordTarget) {
   return target.scope.kind === "project" ? projectRecordSaveKey(target.scope.projectId, target.recordId) : workspaceRecordSaveKey(target.recordId);
 }
 
-export function useCanonicalRecordEditor({ target, coordinator, enabled, receiveIncoming, flushEditor }: {
+export function useCanonicalRecordEditor({ target, coordinator, enabled, receiveIncoming, receiveMetadata, flushEditor }: {
   target: RecordTarget | null;
   coordinator: RecordSaveCoordinator;
   enabled: boolean;
   receiveIncoming?: (state: RecordEditorState, previous: { metadata: RecordMetadata; codeLanguage: string | null }) => boolean;
+  receiveMetadata?: (state: RecordEditorState, previous: { metadata: RecordMetadata; codeLanguage: string | null }) => boolean;
   flushEditor?: () => Promise<RecordEditorFlushOutcome>;
 }) {
   const key = target ? targetKey(target) : null;
@@ -29,6 +30,8 @@ export function useCanonicalRecordEditor({ target, coordinator, enabled, receive
   const finishInitialLoad = useRef<(() => void) | null>(null);
   const incomingReceiver = useRef(receiveIncoming);
   incomingReceiver.current = receiveIncoming;
+  const metadataReceiver = useRef(receiveMetadata);
+  metadataReceiver.current = receiveMetadata;
   const editorFlusher = useRef(flushEditor);
   editorFlusher.current = flushEditor;
   const baseline = useRef<{ key: string; binding: AgentWorkspaceBinding; revision: number; metadata: RecordMetadata; codeLanguage: string | null; session: string } | null>(null);
@@ -133,7 +136,12 @@ export function useCanonicalRecordEditor({ target, coordinator, enabled, receive
       || body.baseRevision !== base.revision || result.headRevision === undefined) return;
     base.revision = result.headRevision;
     base.codeLanguage = snapshot.defaultCodeLanguage;
-    if (result.metadata && body.metadataBase?.revision === base.metadata.revision) base.metadata = result.metadata;
+    // A body-only acknowledgement may include a minutes title committed
+    // elsewhere. Keep the UI's old metadata baseline until it receives that
+    // title, otherwise the later hint looks unchanged and the old UI title
+    // becomes an unintended metadata edit on the next save.
+    if (result.metadata && body.metadataBase?.revision === base.metadata.revision
+      && result.metadata.title === (snapshot.title.trim() || null)) base.metadata = result.metadata;
   }), [coordinator]);
 
   const refreshIncoming = useCallback(async () => {
@@ -141,13 +149,31 @@ export function useCanonicalRecordEditor({ target, coordinator, enabled, receive
     const currentTarget = targetRef.current;
     if (!enabled || !key || !base || base.key !== key || !currentTarget) return;
     const sequence = ++refreshSequence.current;
+    const previous = { metadata: base.metadata, codeLanguage: base.codeLanguage };
     try {
-      const state = await recordDocumentApi.editorGet(base.binding, currentTarget);
-      if (sequence !== refreshSequence.current || baseline.current !== base || state.head.headRevision < base.revision) return;
+      let state = await recordDocumentApi.editorGet(base.binding, currentTarget);
+      if (sequence !== refreshSequence.current || baseline.current !== base) return;
+      // A local save may have completed while the read was in flight.
+      if (state.head.headRevision < base.revision) {
+        state = await recordDocumentApi.editorGet(base.binding, currentTarget);
+        if (sequence !== refreshSequence.current || baseline.current !== base || state.head.headRevision < base.revision) return;
+      }
       // A minutes panel can first observe a snapshot already present at load.
       // It is a committed-state hint, not a reason to reapply content or reject a draft.
-      if (state.head.headRevision === base.revision && state.metadata.revision === base.metadata.revision) return;
-      if (coordinator.getLatestSnapshot(base.key) || !incomingReceiver.current?.(state, { metadata: base.metadata, codeLanguage: base.codeLanguage })) {
+      if (state.head.headRevision === base.revision && state.metadata.revision === base.metadata.revision
+        && (!metadataReceiver.current || previous.metadata.revision === state.metadata.revision)) return;
+      const metadataOnly = () => state.head.headRevision === base.revision
+        && state.head.projection.codeLanguage === base.codeLanguage;
+      // Let immutable in-flight body saves finish rather than rebasing their
+      // metadata and accidentally turning the old title into a new edit.
+      if (metadataReceiver.current && metadataOnly() && coordinator.getLatestSnapshot(base.key)) {
+        await coordinator.flush(base.key);
+        if (sequence !== refreshSequence.current || baseline.current !== base) return;
+        state = await recordDocumentApi.editorGet(base.binding, currentTarget);
+        if (sequence !== refreshSequence.current || baseline.current !== base || state.head.headRevision < base.revision) return;
+      }
+      const receive = metadataOnly() && metadataReceiver.current ? metadataReceiver.current : incomingReceiver.current;
+      if (coordinator.getLatestSnapshot(base.key) || !receive?.(state, previous)) {
         setIncomingConflict(state);
         return;
       }
