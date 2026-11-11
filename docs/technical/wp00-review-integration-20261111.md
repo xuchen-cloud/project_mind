@@ -228,4 +228,5 @@ WP00 自行核对十包源提交与组合提交的 patch ID、共享文件 hunk�
 - 推送已审查的 `9de0349a08b2e3d3b70fb5942361dc01e70ec959` 时，GitHub 明确拒绝更新整合分支：`refusing to allow an OAuth App to create or update workflow .github/workflows/publish-beta.yml without workflow scope`。命令退出 1，日志 `push-rejected.log`；没有创建 PR 或执行合并。
 - 该拒绝是当前 OAuth App 缺少 `workflow` scope，不是本地测试失败。停止远端写入，未切换凭据、改写/剔除 workflow 提交、强推或重复尝试来绕过拒绝。
 - 拒绝后 `git ls-remote` 复核成功：远端 develop 仍是 `ca8ecfc4806ac0c9ce3736a97bd9de556717ab71`，目标整合分支不存在；推送未创建目标 ref，尚未合入 develop。
+- 用户要求复核此前推送方式后，通过官方会话记录确认上次 PR #316 使用普通 HTTPS `git push origin codex/review-combined` 成功，再用 `gh pr merge 316 --merge --match-head-commit ac8126b0c3d6083c1bf06204fdf93841c12ad6f8` 合并。该 PR 相对其 develop 父提交没有 workflow 文件改动；本轮 WP10 修改了 `publish-beta.yml`。当前 GitHub helper 使用 gh，`gh auth status` 实际 scopes 为 gist/read:org/repo，确实不含 workflow；此前普通推送成功不表示具备写 workflow 的授权。比较证据见外部 `previous-push-comparison.json`，没有记录 token 值，也没有重试远端写入。
 - 解锁条件：当前获准的 Git 凭据得到 workflow scope，或用户明确提供具备相应权限的凭据。恢复时先核对远端分支状态与 develop 最新 SHA，再按正常 push/PR/merge 流程执行；仍不部署或发布。远端复核结果和完整交接证据保存在外部 `handoff.json`。
