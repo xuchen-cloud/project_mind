@@ -225,4 +225,7 @@ WP00 自行核对十包源提交与组合提交的 patch ID、共享文件 hunk�
 
 - 目标仓库核实为 `xuchen-cloud/project_mind`。初次 fetch 的 TLS 连接失败，无远端写入；使用 HTTP/1.1 重试 fetch 成功。GitHub API 与 fetch 均核实当前远端 develop 为固定基线 `ca8ecfc4806ac0c9ce3736a97bd9de556717ab71`，当时无额外提交需要取舍。
 - 按 `docs/agents/publish-flow.md` 的实现分支 → PR → 合入 develop 流程执行。没有本轮专门集成 Issue；既有 #62/#304/#94/#118/#187 等仍含更大范围或平台缺口，PR 只引用，不使用 `Closes` 误关。
-- 远端 PR、最终完整 SHA 与十包包含关系：待实际执行后填写或记录于外部交接证据。
+- 推送已审查的 `9de0349a08b2e3d3b70fb5942361dc01e70ec959` 时，GitHub 明确拒绝更新整合分支：`refusing to allow an OAuth App to create or update workflow .github/workflows/publish-beta.yml without workflow scope`。命令退出 1，日志 `push-rejected.log`；没有创建 PR 或执行合并。
+- 该拒绝是当前 OAuth App 缺少 `workflow` scope，不是本地测试失败。停止远端写入，未切换凭据、改写/剔除 workflow 提交、强推或重复尝试来绕过拒绝。
+- 拒绝后 `git ls-remote` 复核成功：远端 develop 仍是 `ca8ecfc4806ac0c9ce3736a97bd9de556717ab71`，目标整合分支不存在；推送未创建目标 ref，尚未合入 develop。
+- 解锁条件：当前获准的 Git 凭据得到 workflow scope，或用户明确提供具备相应权限的凭据。恢复时先核对远端分支状态与 develop 最新 SHA，再按正常 push/PR/merge 流程执行；仍不部署或发布。远端复核结果和完整交接证据保存在外部 `handoff.json`。
