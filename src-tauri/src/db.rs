@@ -1789,15 +1789,20 @@ impl Database {
         if current_version != i64::try_from(expected_version)? {
             return Err(anyhow!("minutes version conflict"));
         }
-        let (project_note_id, workspace_note_id): (Option<i64>, Option<i64>) = transaction.query_row(
-            "SELECT vr.project_note_id, vr.workspace_note_id FROM recording_sessions s JOIN voice_records vr ON vr.id = s.voice_record_id WHERE s.id = ?1",
-            [session_id], |row| Ok((row.get(0)?, row.get(1)?))
+        let (project_note_id, workspace_note_id, started_at): (Option<i64>, Option<i64>, String) = transaction.query_row(
+            "SELECT vr.project_note_id, vr.workspace_note_id, s.started_at FROM recording_sessions s JOIN voice_records vr ON vr.id = s.voice_record_id WHERE s.id = ?1",
+            [session_id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))
         )?;
+        // Session timestamps are persisted in UTC. Keep the suffix independent
+        // of minutes generation time and the machine's current time zone.
+        let started_at = chrono::DateTime::parse_from_rfc3339(&started_at)
+            .context("Recording Session started_at is not valid RFC3339")?
+            .with_timezone(&Utc);
+        let titled = format!("{} · {}", title.trim(), started_at.format("%Y-%m-%d %H:%M"));
         transaction.execute(
             "INSERT INTO voice_minutes (session_id, version, source_max_rowid, content, generated_at) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT(session_id) DO UPDATE SET version = excluded.version, source_max_rowid = excluded.source_max_rowid, content = excluded.content, generated_at = excluded.generated_at",
             params![session_id, i64::try_from(expected_version + 1)?, source_max_rowid, content.trim(), now_iso()],
         )?;
-        let titled = title.trim();
         if let Some(id) = project_note_id {
             transaction.execute(
                 "UPDATE notes SET title = ?1, updated_at = ?2 WHERE id = ?3",
@@ -9192,7 +9197,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
     }
 
     #[test]
-    fn voice_minutes_replace_snapshot_and_overwrite_title() {
+    fn voice_minutes_replace_snapshot_and_overwrite_title_with_stable_started_at() {
         let (_harness, mut database) = setup_database();
         let session = database
             .voice_session_create(
@@ -9200,6 +9205,14 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
                 "minutes-request",
                 "minutes-session",
                 "语音记录 · 2026-09-24 09:30",
+            )
+            .unwrap();
+        // Freeze the recording start on an earlier day than minutes generation.
+        database
+            .conn
+            .execute(
+                "UPDATE recording_sessions SET started_at = ?2 WHERE id = ?1",
+                params![session.session_id, "2020-09-24T23:30:45-07:00"],
             )
             .unwrap();
         database
@@ -9236,6 +9249,13 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
         let first = database.voice_minutes_get(&target).unwrap().unwrap();
         assert_eq!(first.version, 1);
         assert_eq!(first.content, "## 摘要\n发布计划");
+        assert_eq!(first.title, "发布计划 · 2020-09-25 06:30");
+        assert!(
+            chrono::DateTime::parse_from_rfc3339(first.generated_at.as_deref().unwrap())
+                .unwrap()
+                .date_naive()
+                > chrono::NaiveDate::from_ymd_opt(2020, 9, 25).unwrap()
+        );
         assert!(!database
             .voice_minutes_enqueue(&session.session_id, "auto:2")
             .unwrap());
@@ -9244,7 +9264,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
             .unwrap()
             .title
             .unwrap()
-            .eq("发布计划"));
+            .eq("发布计划 · 2020-09-25 06:30"));
 
         database
             .workspace_record_upsert(WorkspaceRecordUpsertInput {
@@ -9278,6 +9298,11 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
                 "过期标题"
             )
             .is_err());
+        let unchanged = database.voice_minutes_get(&target).unwrap().unwrap();
+        assert_eq!(unchanged.version, first.version);
+        assert_eq!(unchanged.content, first.content);
+        assert_eq!(unchanged.generated_at, first.generated_at);
+        assert_eq!(unchanged.title, "我写的标题");
         database
             .voice_minutes_apply(
                 &session.session_id,
@@ -9300,7 +9325,106 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
             .unwrap()
             .title
             .unwrap()
-            .eq("新 AI 标题"));
+            .eq("新 AI 标题 · 2020-09-25 06:30"));
+    }
+
+    #[test]
+    fn voice_minutes_project_title_keeps_started_at_after_reopen_and_regeneration() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let session = database
+            .voice_session_create(
+                &RecordTarget::Project {
+                    project_id: project.id,
+                },
+                "project-minutes-request",
+                "project-minutes-session",
+                "Project Voice",
+            )
+            .unwrap();
+        database
+            .conn
+            .execute(
+                "UPDATE recording_sessions SET started_at = ?2 WHERE id = ?1",
+                params![session.session_id, "2020-01-01T23:59:59.999999+00:00"],
+            )
+            .unwrap();
+        let record_id = session.project_note_id.unwrap();
+        let target = VoiceRecordLookup::Project {
+            project_id: project.id,
+            record_id,
+        };
+        database
+            .voice_transcript_append_final(
+                &session.session_id,
+                "local:1",
+                0,
+                1_000,
+                "项目会议事实",
+                None,
+            )
+            .unwrap();
+        let input = database.voice_minutes_input(&session.session_id).unwrap();
+        database
+            .voice_minutes_apply(
+                &session.session_id,
+                input.expected_version,
+                input.source_max_rowid,
+                "项目纪要",
+                "  项目会议  ",
+            )
+            .unwrap();
+        assert_eq!(
+            database.voice_minutes_get(&target).unwrap().unwrap().title,
+            "项目会议 · 2020-01-01 23:59"
+        );
+
+        drop(database);
+        let mut database = Database::open(
+            &harness.root.join("app.sqlite3"),
+            &harness.workspace_root,
+            Some("test-secret".to_string()),
+        )
+        .unwrap();
+        database
+            .project_record_upsert(ProjectRecordUpsertInput {
+                project_id: project.id,
+                note_id: Some(record_id),
+                title: Some("用户改名".into()),
+                markdown: String::new(),
+                html: String::new(),
+                default_code_language: None,
+                tag_ids: vec![],
+            })
+            .unwrap();
+        let next = database.voice_minutes_input(&session.session_id).unwrap();
+        database
+            .voice_minutes_apply(
+                &session.session_id,
+                next.expected_version,
+                next.source_max_rowid,
+                "重新生成的项目纪要",
+                "项目会议",
+            )
+            .unwrap();
+        let snapshot = database.voice_minutes_get(&target).unwrap().unwrap();
+        assert_eq!(snapshot.version, 2);
+        assert_eq!(snapshot.title, "项目会议 · 2020-01-01 23:59");
+        assert_eq!(snapshot.content, "重新生成的项目纪要");
+        let page = database
+            .project_page_get(ProjectIdInput {
+                project_id: project.id,
+            })
+            .unwrap();
+        assert_eq!(
+            page.records
+                .iter()
+                .find(|record| record.id == record_id)
+                .unwrap()
+                .title
+                .as_deref(),
+            Some("项目会议 · 2020-01-01 23:59")
+        );
     }
 
     #[test]
