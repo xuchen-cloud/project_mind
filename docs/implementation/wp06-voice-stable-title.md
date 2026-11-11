@@ -1,5 +1,7 @@
 # WP06：Voice 稳定标题后缀
 
+本机路径以 `<temporary-root>` / `<original-checkout>` 占位；命令变量须按执行机设置。原始路径保留于各包源提交及 WP00 外部证据，验证结果未变。
+
 ## 范围与验收
 
 - 关联：VC-02；[Voice Record Issue #94](https://github.com/xuchen-cloud/project_mind/issues/94)、[D-13 标题](../requirements/voice-record-decisions.md#d-13-标题)。未另建修复 Issue，原审查关联 PR #316 不是本包 Issue。
@@ -13,7 +15,7 @@
 
 ## 隔离与执行记录
 
-独立 worktree `/private/tmp/project-mind-wp06-voice-stable-title-20261111`，分支 `codex/wp06-voice-stable-title`。原 checkout 的用户未提交工作和其他组工作树保持原样。修改前检查未发现 Tauri/Vite watcher。只做本地提交，由 WP00 统一集成。
+独立 worktree `<temporary-root>/project-mind-wp06-voice-stable-title-20261111`，分支 `codex/wp06-voice-stable-title`。原 checkout 的用户未提交工作和其他组工作树保持原样。修改前检查未发现 Tauri/Vite watcher。只做本地提交，由 WP00 统一集成。
 
 ## 实现
 
@@ -27,9 +29,9 @@ Project 新测试固定 UTC 午夜前最后一秒（含小数秒），通过真�
 
 源码基于上述固定基线，最终 `src-tauri/src/db.rs` blob 为 `218e7fc9d221aca02104978db5a0a98bba29a217`。以下检查全部对应此源码（red 阶段除外）；后续仅追加本报告，不重跑已有效的验证。
 
-构建环境为本机 macOS arm64，独立 Cargo target `/private/tmp/project-mind-wp06-target` 从 WP04 target 作 APFS clone 后独立使用；没有写入 WP04 target。沿用 `CARGO_PROFILE_DEV_DEBUG=0 CARGO_INCREMENTAL=0 TMPDIR=/private/tmp` 和锁定版本 Sherpa ONNX 1.13.8 本地静态库。依赖复用不代表 clean install；测试与编译没有打开应用窗口或录音设备。
+构建环境为本机 macOS arm64，独立 Cargo target `<temporary-root>/project-mind-wp06-target` 从 WP04 target 作 APFS clone 后独立使用；没有写入 WP04 target。沿用 `CARGO_PROFILE_DEV_DEBUG=0 CARGO_INCREMENTAL=0 TMPDIR="$BUILD_TMPDIR"` 和锁定版本 Sherpa ONNX 1.13.8 本地静态库。依赖复用不代表 clean install；测试与编译没有打开应用窗口或录音设备。
 
-| 检查 | 实际结果 | 日志（`/private/tmp/`） |
+| 检查 | 实际结果 | 日志（`<temporary-root>/`） |
 | --- | --- | --- |
 | 修复前 Workspace 回归 | 0 passed / 1 failed；实际 `发布计划`，期望 `发布计划 · 2020-09-25 06:30`，exit 101 | `wp06-red.log` |
 | 最小实现后的同一回归 | 1 passed / 0 failed | `wp06-green.log` |

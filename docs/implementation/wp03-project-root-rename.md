@@ -1,5 +1,7 @@
 # WP03: Project 根改名恢复与资源定位
 
+本机路径以 `<temporary-root>` / `<original-checkout>` 占位；命令变量须按执行机设置。原始路径保留于各包源提交及 WP00 外部证据，验证结果未变。
+
 ## 范围
 
 - 审查基准：`ca8ecfc4806ac0c9ce3736a97bd9de556717ab71`。
@@ -41,7 +43,7 @@
 
 ## 验证台账
 
-执行环境：macOS arm64，隔离 worktree 与临时 Workspace，不启动 Tauri 窗口；使用独立 Cargo target、`CARGO_PROFILE_DEV_DEBUG=0`、`CARGO_INCREMENTAL=0`、`TMPDIR=/private/tmp` 和与锁定依赖对应的 Sherpa ONNX 1.13.8 本地静态库。
+执行环境：macOS arm64，隔离 worktree 与临时 Workspace，不启动 Tauri 窗口；使用独立 Cargo target、`CARGO_PROFILE_DEV_DEBUG=0`、`CARGO_INCREMENTAL=0`、`TMPDIR="$BUILD_TMPDIR"` 和与锁定依赖对应的 Sherpa ONNX 1.13.8 本地静态库。
 
 ### 缺陷复现
 

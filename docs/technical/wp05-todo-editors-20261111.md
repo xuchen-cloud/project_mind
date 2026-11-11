@@ -1,5 +1,7 @@
 # WP05：Todo 编辑草稿、确认与日期展示
 
+本机路径以 `<temporary-root>` / `<original-checkout>` 占位；命令变量须按执行机设置。原始路径保留于各包源提交及 WP00 外部证据，验证结果未变。
+
 ## 工作包
 
 - 固定基线：`ca8ecfc4806ac0c9ce3736a97bd9de556717ab71`。
@@ -28,7 +30,7 @@
 
 ## 验证记录
 
-验证日志保存在本机 `/private/tmp/wp05-*.log`，依赖复用原 checkout 的 `node_modules`，不是 clean install。
+验证日志保存在本机 `<temporary-root>/wp05-*.log`，依赖复用原 checkout 的 `node_modules`，不是 clean install。
 
 - Q1 红测：`vitest run src/components/todo/TodoInlineProgressEditor.test.tsx -t 'keeps the full new subtask' --maxWorkers=1`：2 failed，2 unhandled errors。
 - Q2/正文草稿红测：`vitest run src/components/todo/TodoInlineContentEditor.test.tsx -t 'releases pending|keeps the original' --maxWorkers=1`：2 failed，1 unhandled error。
@@ -50,10 +52,10 @@
 ## WP01 最终组合验收
 
 - WP01 固定提交：`32ae379e946d24f93b2a0c0f2766863692a801c4`。已读取该提交 `todo-module.ts` 的明确确认契约：update-content resolve 返回原生规范 Todo，缓存已经协调或保留更新的同代 revision，失效 Workspace reject。
-- 验证工作树：`/private/tmp/project-mind-wp05-wp01-validation-20261111`，由 WP01 提交创建，应用本包同一补丁。两个编辑器、日期 formatter 及接入测试文件的 SHA-256 与 WP05 交付工作树一致；没有修改 WP01 源码或其工作树。
-- `node_modules/.bin/vitest run src/components/todo src/todo --maxWorkers=1`：**16 files / 168 tests passed**，无未消费 rejection。日志 `/private/tmp/wp05-wp01-combined-tests.log`。
+- 验证工作树：`<temporary-root>/project-mind-wp05-wp01-validation-20261111`，由 WP01 提交创建，应用本包同一补丁。两个编辑器、日期 formatter 及接入测试文件的 SHA-256 与 WP05 交付工作树一致；没有修改 WP01 源码或其工作树。
+- `node_modules/.bin/vitest run src/components/todo src/todo --maxWorkers=1`：**16 files / 168 tests passed**，无未消费 rejection。日志 `<temporary-root>/wp05-wp01-combined-tests.log`。
 - 其中 `TodoInlineEditors.integration.test.tsx` 5 项使用真实 TodoModuleRail、hook、Todo Module 与内存 QueryClient，仅控制 owned transport；覆盖规范 hashtag、标签、连续保存无旧正文闪回、后续远端 cache 更新，I/O/revision reject 的原文与日期重试、单一 toast，以及 A/B 同 ID/revision 下晚到成功和失败均不污染 B。Workspace 测试模拟 App 按 root 重挂载的生命周期，未冒充完整 App/跨窗口实机验收。
-- `node_modules/.bin/tsc --noEmit`：**通过**，日志 `/private/tmp/wp05-wp01-combined-tsc.log`。相对前次扩大到 WP01 组合的原因是绑定接入改变了真实调用路径和类型。
+- `node_modules/.bin/tsc --noEmit`：**通过**，日志 `<temporary-root>/wp05-wp01-combined-tsc.log`。相对前次扩大到 WP01 组合的原因是绑定接入改变了真实调用路径和类型。
 - `git diff --check`：通过。Q3 三时区结果沿用未变化的 formatter/组件测试，不重复执行。
 - 集成顺序：先应用 WP01，再应用 WP05。本包从固定审查基线单独交付；未包含 WP01 时，两条 Workspace 回归会继续揭示 VC-01，不能把基线上的这两条失败标成通过。
 
@@ -62,4 +64,4 @@
 - 未运行应用 GUI、真实跨窗口 IPC、Windows/WebView2、性能/p95、完整应用/Office 构建或全仓单测；jsdom 与本地类型检查不替代这些验收。
 - 不推送、创建 PR、合并 develop、关闭 Issue、部署或删除用户数据；原 checkout 的用户改动未被本包写入。
 - 主 agent 的已获准进程检查未发现 Tauri/Vite；Q3 子 agent 的额外进程枚举被沙箱拒绝：`zsh:1: operation not permitted: ps`，未重试或绕过。
-- 主 agent 首次暂存被沙箱拒绝，目标为 `/Users/xuchen/project_mind/.git/worktrees/project-mind-wp05-todo-editors-20261111/index.lock`，错误 `Operation not permitted`。检查确认未暂存后，按环境权限流程使用获准的 `git add` 完成指定文件暂存。
+- 主 agent 首次暂存被沙箱拒绝，目标为 `<original-checkout>/.git/worktrees/project-mind-wp05-todo-editors-20261111/index.lock`，错误 `Operation not permitted`。检查确认未暂存后，按环境权限流程使用获准的 `git add` 完成指定文件暂存。

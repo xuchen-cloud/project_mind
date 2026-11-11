@@ -1,5 +1,7 @@
 # WP04：跨卷 File 工作副本保存
 
+本机路径以 `<temporary-root>` / `<original-checkout>` 占位；命令变量须按执行机设置。原始路径保留于各包源提交及 WP00 外部证据，验证结果未变。
+
 ## 范围与验收
 
 - 关联：ARCH-04 / CD-02；既有 File 跨归属移动规格 [Issue #304](https://github.com/xuchen-cloud/project_mind/issues/304)（未另建 Issue）。
@@ -12,9 +14,9 @@
 
 ## 环境与继承限制
 
-独立 worktree `/private/tmp/project-mind-wp04-20261111`，分支 `codex/wp04-cross-volume-working-save`。没有修改原 checkout、WP03 worktree 或用户未提交文件。开始前检查无 Tauri/Vite 自动重启进程；编译与原生测试不启动窗口。
+独立 worktree `<temporary-root>/project-mind-wp04-20261111`，分支 `codex/wp04-cross-volume-working-save`。没有修改原 checkout、WP03 worktree 或用户未提交文件。开始前检查无 Tauri/Vite 自动重启进程；编译与原生测试不启动窗口。
 
-本机 `/Volumes` 只有指向 `/` 的 Macintosh HD，Workspace 与临时目录同为 `/dev/disk3s5`。没有可用的第二数据卷；真实第二卷验收尚缺。解锁需要既有、允许使用的第二数据卷在同一 Workspace 内提供合法 Project 目录挂载，并实际完成 move→文本/Office 保存→重开。不会为此创建/格式化磁盘、变更网络或安全设置。
+本机 macOS 卷挂载目录 只有指向 `/` 的 Macintosh HD，Workspace 与临时目录同为 系统数据卷设备。没有可用的第二数据卷；真实第二卷验收尚缺。解锁需要既有、允许使用的第二数据卷在同一 Workspace 内提供合法 Project 目录挂载，并实际完成 move→文本/Office 保存→重开。不会为此创建/格式化磁盘、变更网络或安全设置。
 
 继承 WP03 台账：[WP03 报告](wp03-project-root-rename.md)。`imported_file_legacy_registration_rejects_foreign_physical_owner_and_forged_scope` 的 forged-scope 错误码基线失败保留；WP03 GUI 多窗口、Windows/Linux 真机、第二卷和断电未验收。隔离依赖/本机 Sherpa 库不等于 clean install。本包只做本地交付，不据单测关闭真实产品验收。
 
@@ -22,7 +24,7 @@
 
 ### 缺陷复现与协议
 
-`moved_file_working_save_keeps_renames_on_live_volume_and_history_immutable` 通过真实 A→B owner move 形成 live/历史分离，再在现有 exclusive rename 的测试边界模拟两个卷。修复前同一断言报 `IoFailed: Cross-device link (os error 18)`（`/private/tmp/wp04-red.log`）；修复后通过（`/private/tmp/wp04-green.log`）。这是真实 DB/文件/归属移动与注入的 EXDEV，不能称为真实第二卷实测。
+`moved_file_working_save_keeps_renames_on_live_volume_and_history_immutable` 通过真实 A→B owner move 形成 live/历史分离，再在现有 exclusive rename 的测试边界模拟两个卷。修复前同一断言报 `IoFailed: Cross-device link (os error 18)`（`<temporary-root>/wp04-red.log`）；修复后通过（`<temporary-root>/wp04-green.log`）。这是真实 DB/文件/归属移动与注入的 EXDEV，不能称为真实第二卷实测。
 
 新保存与既有 directory restore 一样，在 live 的既有父目录创建随机、排他的新文件。journal 的可选 `placement.live_parent` 保存该父目录的物理身份；新路径限定为同一父目录的 `.pm-working-new/old-<32 hex>`，两者 token 必须相同。文件本身继续用 inode/volume identity 与内容 hash 核验，路径仍经 Workspace 范围与符号链接检查。使用现有 `move_exclusive`，不覆盖目标、不回退到 copy、不吞 EXDEV；临时文件只在身份/hash 均吻合时删除。
 
@@ -32,11 +34,11 @@ stage 文件和目录先同步，再持久化 journal；两个 rename 使用已�
 
 ### 构建与验证口径
 
-独立 Cargo target `/private/tmp/project-mind-wp04-target` 从 WP03 target 作 APFS clone 后独立编译；`CARGO_PROFILE_DEV_DEBUG=0 CARGO_INCREMENTAL=0 TMPDIR=/private/tmp`，使用 WP03 同版本 Sherpa ONNX 1.13.8 静态库。依赖与固定 Node 复用本机副本，不宣称 clean install。
+独立 Cargo target `<temporary-root>/project-mind-wp04-target` 从 WP03 target 作 APFS clone 后独立编译；`CARGO_PROFILE_DEV_DEBUG=0 CARGO_INCREMENTAL=0 TMPDIR="$BUILD_TMPDIR"`，使用 WP03 同版本 Sherpa ONNX 1.13.8 静态库。依赖与固定 Node 复用本机副本，不宣称 clean install。
 
 Office 实测前从本分支源码构建 DOCX、XLSX engine/native sidecar、PPTX，再用 `office-distribution.mjs` 和 `stage-office-runtime.mjs` 校验、组装。XLSX 仅构建原生服务所需 engine/sidecar，未重建无改动的 GUI renderer；补齐现有 notices/LICENSE/NOTICE。最初分发组装因 engine-only 不产出 notices 中止，未执行测试；生成现有 notices 后重新组装。没有把不匹配的原 checkout Office bundle 当成本分支验证结果。
 
-以下命令均使用上述独立 target/构建环境，日志在 `/private/tmp/`。
+以下命令均使用上述独立 target/构建环境，日志在 `<temporary-root>/`。
 
 | 验证 | 实际结果 | 日志 |
 | --- | --- | --- |
@@ -88,6 +90,6 @@ cargo test --manifest-path src-tauri/Cargo.toml --lib --quiet -j 2 \
 
 仅修改 `db/file_working.rs`、其现有/新增测试、`file_office_tests.rs` 与本报告。没有修改 `db.rs`、恢复入口或 schema，不与后续 WP06 争用这些文件；WP03 的根恢复顺序及 schema42 保持。
 
-一次 `ps` 管道读取被 sandbox 拒绝（`operation not permitted`）；改用已有批准的独立 `ps -axo pid,command` 后读取成功，确认无 Tauri/Vite watcher。首次 `git add` 被 sandbox 拒绝创建 `/Users/xuchen/project_mind/.git/worktrees/project-mind-wp04-20261111/index.lock`，没有暂存或提交；显式升级执行权限重试相同五文件暂存后成功。没有改变权限策略、安全或网络设置，没有未解决的执行审批。
+一次 `ps` 管道读取被 sandbox 拒绝（`operation not permitted`）；改用已有批准的独立 `ps -axo pid,command` 后读取成功，确认无 Tauri/Vite watcher。首次 `git add` 被 sandbox 拒绝创建 `<original-checkout>/.git/worktrees/project-mind-wp04-20261111/index.lock`，没有暂存或提交；显式升级执行权限重试相同五文件暂存后成功。没有改变权限策略、安全或网络设置，没有未解决的执行审批。
 
 交付为独立分支上的本地提交，基于已核实的 WP03；未推送、合并 develop、创建 PR、部署、发布或写外部 Issue，未向其他工作包的用户会话发送消息。集成者可只读获取本报告、最终完整提交及上述日志。产品第二卷验收保持开放，不将阶段提交当成 Issue 完成交付。
