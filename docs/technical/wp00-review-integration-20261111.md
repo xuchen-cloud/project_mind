@@ -28,7 +28,7 @@
 | WP07 | SEC-DEP-01/02 | `codex/wp07-security-dependencies` | 已整合 | 源 `54dda267066ba72716035be42375db945bacf7aa`；组合 `d55ab18` | 组合类型、宿主构建和受影响测试通过 |
 | WP08 | PERF-01 | `codex/wp08-file-path-index-20261111` | 已整合 | 源 `519b751e12d22d4c18285cdaa2824a54b99e2f3b`；组合 `a773178` | 受影响前端组合通过 |
 | WP09 | DOC-01/02、STD-01 | `codex/wp09-docs-rules-20261111` | 已整合 | 源 `04642d077d8c9b2c9c1cd7fd5e8425447a04013a`；组合 `80371ef` | 58/58、UI/路径标准、宿主构建通过；新增报告适配见下 |
-| WP10 | OPS-01 | `codex/wp10-beta-channel-20261111` | 已整合 | 源 `44d161c83451f1d72b8b510163ba6c779853ace3`；组合 `4cd251a` | 单包 39 项及最终受影响组合通过 |
+| WP10 | OPS-01 | `codex/wp10-beta-channel-20261111` | workflow 接入已按用户指令撤回；独立工具保留 | 源 `44d161c83451f1d72b8b510163ba6c779853ace3`；组合 `4cd251a`；后续撤回见末节 | 原始单包验证保留；当前 workflow 不具备该修复 |
 
 ## 共享文件与 Interface
 
@@ -211,7 +211,7 @@ WP00 自行核对十包源提交与组合提交的 patch ID、共享文件 hunk�
 
 整合时修复三类实际问题：`5e08db1` 的 ready/reset enqueue 窗口；`521b364` 的 QueryClient 和消费者 binding 测试适配；原生 fixture 的 manager binding 参数适配。新增行为均有失败或编译失败证据及定向通过结果，没有放宽产品门禁。
 
-当前十包的 19 个原始发现均已接收代码/文档修复，所需受影响组合检查已完成或复用有效证据，未发现新增代码层面阻塞。已有原生错误分类失败、真实第二卷与其他平台产品验收仍保留；代码整合完成不等于所有产品验收通过。用户后续明确授权保留这些缺口合入 develop，本次不关闭父 Issue、不部署或发布。
+十包曾接收 19 个原始发现的代码/文档修复并完成受影响检查；用户随后明确要求撤回 workflow 修改并停止，因此 OPS-01 的实际 workflow 接入不再交付，其余修复保留。已有原生错误分类失败、真实第二卷与其他平台产品验收仍保留；代码整合不等于所有产品验收通过。本次不关闭父 Issue、不部署或发布。
 
 ## 工具限制与待决定项
 
@@ -229,4 +229,12 @@ WP00 自行核对十包源提交与组合提交的 patch ID、共享文件 hunk�
 - 该拒绝是当前 OAuth App 缺少 `workflow` scope，不是本地测试失败。停止远端写入，未切换凭据、改写/剔除 workflow 提交、强推或重复尝试来绕过拒绝。
 - 拒绝后 `git ls-remote` 复核成功：远端 develop 仍是 `ca8ecfc4806ac0c9ce3736a97bd9de556717ab71`，目标整合分支不存在；推送未创建目标 ref，尚未合入 develop。
 - 用户要求复核此前推送方式后，通过官方会话记录确认上次 PR #316 使用普通 HTTPS `git push origin codex/review-combined` 成功，再用 `gh pr merge 316 --merge --match-head-commit ac8126b0c3d6083c1bf06204fdf93841c12ad6f8` 合并。该 PR 相对其 develop 父提交没有 workflow 文件改动；本轮 WP10 修改了 `publish-beta.yml`。当前 GitHub helper 使用 gh，`gh auth status` 实际 scopes 为 gist/read:org/repo，确实不含 workflow；此前普通推送成功不表示具备写 workflow 的授权。比较证据见外部 `previous-push-comparison.json`，没有记录 token 值，也没有重试远端写入。
-- 解锁条件：当前获准的 Git 凭据得到 workflow scope，或用户明确提供具备相应权限的凭据。恢复时先核对远端分支状态与 develop 最新 SHA，再按正常 push/PR/merge 流程执行；仍不部署或发布。远端复核结果和完整交接证据保存在外部 `handoff.json`。
+- 上述记录描述拒绝与诊断时的状态；用户最新的撤回并停止指令取代此前继续合并/推送安排，不再执行远端写入。远端复核结果和完整交接证据保存在外部 `handoff.json`。
+
+## 用户要求撤回 workflow 并停止
+
+将 `.github/workflows/publish-beta.yml` 精确恢复为已核实的 origin/develop 版本 `ca8ecfc4806ac0c9ce3736a97bd9de556717ab71`，未禁用或删除原 workflow。同步恢复原 workflow 配置测试；独立 channel CLI 仍保留，其入口测试直接运行 CLI，不再声称覆盖 workflow 接入。OPS-01 的自动发布接入恢复为原有行为，不能继续计为已修复。
+
+撤回后的三个 Beta 脚本测试文件共 37/37 通过（`workflow-revert-tests.log`）；路径标准、diff 空白通过。workflow blob 与 origin/develop 均为 `4b391d795ea14e81077e30d515dfd2b661450c18`，确认内容完全相同。其余源码未改，复用此前仍有效的验证。
+
+只进行本地撤回、受影响检查和提交，随后停止；未重试 push、创建 PR、合并或修改原 checkout。此前被拒绝的 Git 对象仍在本地历史中；没有改写历史，也不据最终树一致性推定未来推送一定不需要 workflow 权限。

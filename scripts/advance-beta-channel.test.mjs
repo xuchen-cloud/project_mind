@@ -164,19 +164,16 @@ describe("Beta channel advancement", () => {
     expect(fixture.current().version).toBe("1.0.0");
   });
 
-  it("runs the workflow entrypoint against only a local fixture and reports rejection", () => {
+  it("runs the standalone CLI against only a local fixture and reports rejection", () => {
     const fixture = channelFixture();
     mkdirSync(join(fixture.root, "scripts"));
     mkdirSync(join(fixture.root, "updater-channel"));
     for (const script of ["advance-beta-channel.mjs", "validate-updater-manifest.mjs"]) {
       copyFileSync(fileURLToPath(new URL(`./${script}`, import.meta.url)), join(fixture.root, "scripts", script));
     }
-    const workflow = readFileSync(new URL("../.github/workflows/publish-beta.yml", import.meta.url), "utf8");
-    const shell = workflow.split("      - name: Advance public Beta channel\n        run: |\n")[1]
-      .split("\n").map((line) => line.replace(/^          /u, "")).join("\n");
     const publish = (candidate) => {
       writeFileSync(join(fixture.root, "updater-channel/latest.json"), JSON.stringify(candidate));
-      return spawnSync("bash", ["-e", "-c", shell], { cwd: fixture.root, encoding: "utf8" });
+      return spawnSync(process.execPath, ["scripts/advance-beta-channel.mjs", "release-repository", "updater-channel/latest.json"], { cwd: fixture.root, encoding: "utf8" });
     };
 
     const first = publish(manifest("2.0.0"));
