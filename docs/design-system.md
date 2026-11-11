@@ -170,9 +170,11 @@
 
 CSS 分别使用 `--duration-fast`、`--duration-standard`、`--duration-deliberate`；JS 时序使用同名语义常量。`1ms` 只作为 reduced-motion 下关闭位移的技术值，不属于视觉时长档位。
 
+自绘文字光标使用独立节奏 token `--rhythm-caret-blink: 1.1s`，保持原有闪烁速度：仅 `.rich-editor__text-caret` 的 `rich-editor-caret-blink`、`step-end infinite`、只改变 opacity 的关键帧可以使用；reduced-motion 下取消动画并保持光标可见。这个周期不属于页面揭示/位移时长，不得用于普通 transition 或其他动画。
+
 共享 `Button`、`IconButton` 与 `ToolbarButton` 在指针按下时使用 `scale(0.97)`；reduced-motion 下取消位移。持续 loading spinner 使用线性旋转，并在 reduced-motion 下停止旋转。
 
-默认界面不添加动效。浮层与位移动效必须显式 opt-in，只允许 `transform`、`opacity`，单次揭示可使用 `clip-path`；禁止动画布局属性。键盘高频路径保持即时。凡使用 translate、scale 或 rotate，都必须提供 `prefers-reduced-motion` 或 `motion-reduce` 降级；持续 spinner 是唯一允许的长时线性动画，并在 reduced motion 下停止。
+默认界面不添加动效。浮层与位移动效必须显式 opt-in，只允许 `transform`、`opacity`，单次揭示可使用 `clip-path`；禁止动画布局属性。键盘高频路径保持即时。凡使用 translate、scale 或 rotate，都必须提供 `prefers-reduced-motion` 或 `motion-reduce` 降级；长时周期仅允许既有持续 spinner（线性旋转）及上述文字光标（阶跃闪烁），两者都在 reduced-motion 下停止。
 
 ## 5. 当前界面骨架
 

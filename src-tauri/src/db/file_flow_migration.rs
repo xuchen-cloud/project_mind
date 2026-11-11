@@ -9,7 +9,7 @@ impl Database {
         self.ensure_file_version_metadata_schema()?;
         self.ensure_record_owner_moves_schema()?;
         self.directory_schema()?;
-        self.set_schema_version(super::CURRENT_SCHEMA_VERSION)
+        self.migrate_project_root_schema()
     }
 }
 

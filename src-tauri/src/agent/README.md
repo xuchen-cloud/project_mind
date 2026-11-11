@@ -11,13 +11,17 @@ GUI 的原生功能通过 Tauri 命令进入当前 Workspace 的共享服务。�
 ```text
 mind CLI
   → 应用数据目录中的 agent-bridge.json（实例、端口、协议版本）
-  → OS credential store 读取连接 secret
+  → FileCredentialStore 从应用本地数据目录读取连接 secret
   → 127.0.0.1 HTTP JSON bridge
   → 当前应用内的连接 grant 和 Workspace binding 校验
   → 同一 Workspace 数据库与共享领域服务
 ```
 
-连接 grant 在 Workspace 数据库保存范围、操作权限与凭据摘要；明文 secret 仅由当前用户的 OS credential store 保存。bridge 仅监听本机随机端口，发现文件不存 secret。CLI 通过 `--workspace` 指定的规范路径握手取得 binding，后续调用固定该 binding；Workspace 关闭、重开或切换不会自动转到新 Workspace。每次调用重新核对 grant，撤销和停用随即生效。CLI 不另开数据库，也不自动启动模型。
+连接 grant 在 Workspace 数据库保存范围、操作权限、凭据摘要与 `localCredentialVersion`。应用与 CLI 共用 `FileCredentialStore`，在 `local_data_dir()/connection-credentials` 按 Scope Grant ID 保存明文 token，原子持久化并同步。Unix 目录/文件权限为 `0700`/`0600`，Windows 使用应用数据目录继承的 ACL；同一 OS 用户下能够读取该目录的进程也能读取 token，不提供钥匙串隔离。
+
+依据 [ADR-0011 的 2026-10-31 决策](../../../docs/adr/0011-open-workspaces-without-a-user-password.md)，不读写或删除旧钥匙串条目，也不以钥匙串回退。runtime 启动时对启用且未撤销的旧版本 `0` 授权先持久化新 token，再以 SQL CAS 轮换数据库哈希并标记版本 `1`；文件写入后、数据库提交前中断，重试复用待提交 token。授权身份、范围、权限和回执保留，旧 token 在数据库轮换后失效；已迁移凭据缺失或损坏显式失败，不静默再生。迁移与重启验收范围见 [#286 实现记录](../../../docs/implementation/passwordless-connections-286.md)。
+
+bridge 仅监听本机随机端口，发现文件不存 secret。CLI 通过 `--workspace` 指定的规范路径握手取得 binding，后续调用固定该 binding；Workspace 关闭、重开或切换不会自动转到新 Workspace。每次调用重新核对 grant，撤销和停用随即生效。CLI 不另开数据库，也不自动启动模型。
 
 ## 模块职责
 
@@ -26,7 +30,7 @@ mind CLI
 | `models.rs`、`errors.rs`、`access.rs` | Scope、Workspace binding、统一响应、授权与对象归属边界 |
 | `repository.rs`、`service.rs`、`context.rs`、`tools.rs` | 共享读取、上下文 DTO、业务工具定义与预算 |
 | `sessions.rs`、`runtime.rs`、`outputs.rs` 等 | 会话、run、来源与成果服务；实际开放范围由各适配器决定 |
-| `connections.rs`、`bridge/credentials.rs` | 连接 grant DTO 与 OS 凭据存取 |
+| `connections.rs`、`bridge/credentials.rs` | 连接 grant DTO 与 `FileCredentialStore` 私有文件凭据存取 |
 | `bridge/protocol.rs`、`bridge/transport.rs`、`bridge/dispatch.rs` | 本机协议、HTTP 边界与当前应用服务分发 |
 | `bridge/client.rs`、`bridge/cli.rs`、`bridge/registry.rs`、`../bin/mind.rs` | 本机客户端、参数/JSON 输出、外部方法注册和命令入口 |
 | `capabilities.rs` | 共享能力的实现状态；不等同于外部 bridge 的可调用清单 |
@@ -37,7 +41,7 @@ mind CLI
 
 运行中的应用可通过 `mind doctor --workspace PATH --connection ID --json` 检查连接；`mind project list` 和 `mind context get` 使用相同的 Workspace/connection 参数执行真实读取。`context get` 需显式选择 `--project ID` 或 `--workspace-scope`，可指定 query 与字符预算。JSON stdout 使用统一响应 envelope，诊断写入 stderr。连接 ID 只是索引，不是 secret。
 
-bridge 注册表当前包含 36 个方法（22 读 / 14 写）。读取包括原有上下文、来源、Record 正文/Todo、File 版本与源码、Record 历史、`operation.get/list`、`file.content.status`，原生 `reference.list`，以及 `record.patch.preview`、`record.create.preview`；写入包括 `record.create/patch/restore`、`todo.create/update`、`operation.undo/restore_created` 和下文八个 File 方法中的七个写方法。历史列表、比较和收据读取均有预算/分页；Record 版本 get 返回精确 source 目标，正文沿用 `source.read`。每个存储阶段重新核验当前连接和 Workspace binding。
+bridge 可调用方法以 [`bridge/registry.rs`](bridge/registry.rs) 的实际注册为准；用 `mind capabilities --json` 查询当前方法、`mind schema METHOD --json` 查询对应 DTO，不以固定方法数量或本页示例推断完整范围。当前包括上下文/来源、Record/Todo/File、引用、历史/收据、通讯录和定时任务等方法，各自要求明确的操作权限。历史列表、比较和收据读取均有预算/分页；Record 版本 get 返回精确 source 目标，正文沿用 `source.read`。每个存储阶段重新核验当前连接和 Workspace binding。
 
 `mind record get ID (--project ID | --workspace-scope) [--revision HASH] [--cursor TOKEN] [--budget-chars N] --workspace PATH --connection ID --json` 读取已提交 Record 正文；也可用 `record get --input-file PATH|-` 传 `record.get` 的完整 DTO。它和 `source.read` 共享 SourceReadPage、来源修订及分页，默认 4000、最多 12000 字符；继续阅读时传回 nextCursor，可同时固定返回的 SourceRef.revision（不同于正文 bodyHash）。CLI 不自动读取下一页，只有 complete=true 才读到末尾。需要块身份与修改基线时仍用 `record blocks get`。
 
@@ -49,7 +53,7 @@ bridge 注册表当前包含 36 个方法（22 读 / 14 写）。读取包括原
 
 设置预设已接通：默认「Workspace 协作」授予 Workspace 直属内容和所有当前未归档 Project（`workspaceContent: true`、`allProjects: true`），每次认证动态纳入新 Project；「单 Project 协作」仅授予所选 Project，「只读」覆盖同样的动态范围但无写权限，「自定义」使用显式 Project 子集及可选 Workspace 内容。会话依据 `session.read` 始终单独选择；任意历史版本恢复权限只在自定义预设中可选。旧 JSON 和旧 grant 的 `allProjects` 默认为 false，原有显式范围不会自动扩张。
 
-「自定义」可在显式范围内选择 1–50 个当前可读的 Record/File，设置中的对象选择器只列当前可见元信息。`objects: null` 或旧 grant 缺少 `objects` 时保留范围授权语义；非空列表才启用对象限制，旧连接不会自动扩权。对象限制不能与 `allProjects`、`session.read`、创建或 Todo 修改组合；范围级 `context.get`、Overview 和知识读取被拒绝。来源搜索及直接读取、Record/File 修改、引用和历史只返回或作用于被选对象，仍按真实归属、归档、来源排除与撤回状态复核；选中 Project 的名称仅作为父级元信息出现，不扩张内容读取。
+新建连接使用 [`ConnectionCreateInput`](connections.rs)，接受 Workspace 内容、Project 集合、`allProjects` 与显式操作权限，不接受 `objects`；当前设置不提供新建对象限制 grant 的入口。返回的 `ConnectionGrant.objects` 仍兼容旧授权：`null` 或缺省保留范围授权语义，已有对象列表继续参与对象白名单检查，不能据此扩权。对象读取仍须核对真实归属、归档、来源排除与撤回状态；对象限制授权不能使用范围级上下文读取，部分写入路径也会明确拒绝此类旧授权。兼容字段不表示所有当前方法均支持对象限制 grant，具体以服务授权检查为准。
 
 ## Record 写入与撤销
 
@@ -103,6 +107,6 @@ CLI 在应用可执行文件同目录检测，设置复制其绝对路径及 MCP
 
 ## 验收
 
-当前工作包和平台验收结果见[执行计划](../../../docs/requirements/ai-work-context-delivery.md)。本阶段已通过 CLI 安装、对象授权、搜索/引用过滤及前端定向验证；生产 CLI 与真实 Linux 系统凭据链路也已通过指定对象读写/撤销/重放验证。具体数量与命令范围见执行计划；macOS/Windows 原生实包与真实模型仍未验证。
+当前工作包和平台验收结果见[执行计划](../../../docs/requirements/ai-work-context-delivery.md)。执行计划保留此前 CLI 安装、对象授权、搜索/引用过滤、前端定向验证，以及生产 CLI 与真实 Linux 系统凭据链路的指定对象读写/撤销/重放历史证据；其中旧系统凭据结果不代表当前 FileCredentialStore 已完成同一平台矩阵。当前私有文件凭据、迁移与真实 CLI 的验证范围见 [#286 实现记录](../../../docs/implementation/passwordless-connections-286.md)，其 macOS 重启验证不等于完整 GUI 或 Windows 实机验收。macOS/Windows 最终原生实包及真实模型仍按执行计划单独验收。
 
 MCP SDK 依据：[Rust SDK](https://github.com/modelcontextprotocol/rust-sdk)、[rmcp 3.5.1](https://docs.rs/rmcp/3.5.1/rmcp/)、[MCP 2025-11-25 lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle)。工具参数来自与 CLI 相同的 Rust DTO schema；连接授权仍由应用服务执行，工具提示本身不授予权限。

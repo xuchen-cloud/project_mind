@@ -1,0 +1,31 @@
+### Result
+{"normal":{"duration":"1.1s","name":"rich-editor-caret-blink","easing":"steps(1)","iterations":"infinite","opacity":"1","width":1,"height":26},"phases":["1","0","1"],"reduced":{"duration":"0s","name":"none","easing":"ease","iterations":"1","opacity":"1","width":1,"height":26}}
+### Ran Playwright code
+```js
+await (async (page) => {
+  await page.goto("file:///private/tmp/project-mind-wp09-docs-rules-20261111/output/playwright/wp09-caret.html");
+  const measure = () => page.evaluate(() => {
+    const element=document.querySelector('.rich-editor__text-caret');
+    const style=getComputedStyle(element);
+    return {duration:style.animationDuration,name:style.animationName,easing:style.animationTimingFunction,iterations:style.animationIterationCount,opacity:style.opacity,width:element.getBoundingClientRect().width,height:element.getBoundingClientRect().height};
+  });
+  const normal=await measure();
+  if(normal.duration!=='1.1s'||normal.easing!=='steps(1)'||normal.iterations!=='infinite'||normal.width!==1) throw new Error(JSON.stringify(normal));
+  const phases=await page.evaluate(() => {
+    const caret=document.querySelector('.rich-editor__text-caret');
+    const animation=caret.getAnimations()[0];
+    animation.pause();
+    return [100,800,1200].map(time=>{animation.currentTime=time;return getComputedStyle(caret).opacity;});
+  });
+  if(JSON.stringify(phases)!==JSON.stringify(['1','0','1'])) throw new Error('phase mismatch '+JSON.stringify(phases));
+  await page.screenshot({path:'output/playwright/wp09-caret-normal.png'});
+  await page.emulateMedia({reducedMotion:'reduce'});
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const reduced=await measure();
+  if(reduced.name!=='none'||reduced.opacity!=='1') throw new Error(JSON.stringify(reduced));
+  await page.screenshot({path:'output/playwright/wp09-caret-reduced.png'});
+  return {normal,phases,reduced};
+})(page);
+```
+### Page
+- Page URL: file:///private/tmp/project-mind-wp09-docs-rules-20261111/output/playwright/wp09-caret.html

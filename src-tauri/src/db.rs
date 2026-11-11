@@ -64,6 +64,13 @@ mod source_transcript;
 pub(crate) mod source_index_queue;
 mod committed_changes;
 mod native_changes;
+mod project_root_rename;
+#[cfg(test)]
+mod project_root_rename_recovery_tests;
+#[cfg(test)]
+mod project_root_rename_record_tests;
+#[cfg(test)]
+mod project_root_rename_file_tests;
 pub(crate) mod source_registry;
 pub(crate) mod source_maintenance;
 pub(crate) mod file_versions;
@@ -170,7 +177,7 @@ const VOICE_RECOVERY_SCHEMA_VERSION: i64 = 25;
 const AGENT_FOUNDATION_SCHEMA_VERSION: i64 = 26;
 const RECORD_DOCUMENT_SCHEMA_VERSION: i64 = 28;
 const AGENT_RUNTIME_SCHEMA_VERSION: i64 = 29;
-const CURRENT_SCHEMA_VERSION: i64 = 41;
+const CURRENT_SCHEMA_VERSION: i64 = 42;
 const PROJECT_KIND_NORMAL: &str = "normal";
 const AI_CAPABILITIES: [&str; 2] = ["default", "image_default"];
 const RICH_TEXT_FONT_PRESETS: [&str; 4] = [
@@ -401,6 +408,7 @@ impl Database {
             db.bind_native_workspace(&crate::workspace::load_metadata(workspace_root)?.0.workspace_id)?;
         }
         db.migrate()?;
+        db.project_root_recover_pending()?;
         db.project_directory_recover_pending(None)?;
         db.file_working_recover_pending()?;
         db.voice_retry_asset_cleanup()?;
@@ -445,6 +453,9 @@ impl Database {
         // triggers. Reopening it must not rerun DDL or scan historical data.
         if initial_schema_version == CURRENT_SCHEMA_VERSION {
             return Ok(());
+        }
+        if initial_schema_version == 41 {
+            return self.migrate_project_root_schema();
         }
         if initial_schema_version == 40 {
             return self.migrate_file_flow_package();
@@ -1778,15 +1789,20 @@ impl Database {
         if current_version != i64::try_from(expected_version)? {
             return Err(anyhow!("minutes version conflict"));
         }
-        let (project_note_id, workspace_note_id): (Option<i64>, Option<i64>) = transaction.query_row(
-            "SELECT vr.project_note_id, vr.workspace_note_id FROM recording_sessions s JOIN voice_records vr ON vr.id = s.voice_record_id WHERE s.id = ?1",
-            [session_id], |row| Ok((row.get(0)?, row.get(1)?))
+        let (project_note_id, workspace_note_id, started_at): (Option<i64>, Option<i64>, String) = transaction.query_row(
+            "SELECT vr.project_note_id, vr.workspace_note_id, s.started_at FROM recording_sessions s JOIN voice_records vr ON vr.id = s.voice_record_id WHERE s.id = ?1",
+            [session_id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))
         )?;
+        // Session timestamps are persisted in UTC. Keep the suffix independent
+        // of minutes generation time and the machine's current time zone.
+        let started_at = chrono::DateTime::parse_from_rfc3339(&started_at)
+            .context("Recording Session started_at is not valid RFC3339")?
+            .with_timezone(&Utc);
+        let titled = format!("{} · {}", title.trim(), started_at.format("%Y-%m-%d %H:%M"));
         transaction.execute(
             "INSERT INTO voice_minutes (session_id, version, source_max_rowid, content, generated_at) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT(session_id) DO UPDATE SET version = excluded.version, source_max_rowid = excluded.source_max_rowid, content = excluded.content, generated_at = excluded.generated_at",
             params![session_id, i64::try_from(expected_version + 1)?, source_max_rowid, content.trim(), now_iso()],
         )?;
-        let titled = title.trim();
         if let Some(id) = project_note_id {
             transaction.execute(
                 "UPDATE notes SET title = ?1, updated_at = ?2 WHERE id = ?3",
@@ -2519,145 +2535,7 @@ impl Database {
         })
     }
 
-    fn rename_project_root(&self, current: &ProjectRecord, next_name: &str) -> Result<Option<native_changes::ProjectRootRename>> {
-        let current_dir = PathBuf::from(&current.root_path);
-        if !current_dir.exists() {
-            return Err(anyhow!(
-                "project folder does not exist at {}",
-                current_dir.display()
-            ));
-        }
-
-        let next_dir = self
-            .workspace_root
-            .join(project_directory_name(next_name.trim())?);
-        if current_dir == next_dir {
-            return Ok(None);
-        }
-        self.file_owner_require_unshared_root(&current_dir,Some(current.id))?;
-        if current_dir.exists() { self.record_owner_require_unshared_root(&current_dir, Some(current.id))?; }
-        self.file_working_require_owner_recovered(Some(current.id))
-            .map_err(|error| anyhow!(error.message))?;
-        self.file_project_root_available(&next_dir)?;
-
-        if next_dir.exists() {
-            return Err(anyhow!("文件夹名称已被占用，项目名称未保存"));
-        }
-
-        let documents = self.fetch_all_documents_for_project(current.id)?;
-        let mut document_path_updates = Vec::with_capacity(documents.len());
-        let mut version_path_updates = Vec::new();
-        for document in &documents {
-            let next_managed_path =
-                rebase_path_prefix(Path::new(&document.managed_path), &current_dir, &next_dir)
-                    .ok_or_else(|| {
-                        anyhow!(
-                            "document {} is outside project root: {}",
-                            document.id,
-                            document.managed_path
-                        )
-                    })?;
-            let next_history_dir = rebase_path_prefix(
-                Path::new(&document.history_dir_path),
-                &current_dir,
-                &next_dir,
-            )
-            .ok_or_else(|| {
-                anyhow!(
-                    "document history {} is outside project root: {}",
-                    document.id,
-                    document.history_dir_path
-                )
-            })?;
-            let next_original_path_ref = self.rewrite_path_ref_prefix_if_within(
-                &self.encode_path_ref(Path::new(&document.original_path)),
-                &current_dir,
-                &next_dir,
-            );
-
-            document_path_updates.push((
-                document.id,
-                self.encode_path_ref(&next_managed_path),
-                self.encode_path_ref(&next_history_dir),
-                next_original_path_ref,
-            ));
-
-            let versions = self.fetch_document_versions(document.id)?;
-            for version in &versions {
-                let next_managed_path =
-                    rebase_path_prefix(Path::new(&version.managed_path), &current_dir, &next_dir)
-                        .ok_or_else(|| {
-                        anyhow!(
-                            "document version {} is outside project root: {}",
-                            version.id,
-                            version.managed_path
-                        )
-                    })?;
-                let next_source_path_ref = self.rewrite_path_ref_prefix_if_within(
-                    &self.encode_path_ref(Path::new(&version.source_path)),
-                    &current_dir,
-                    &next_dir,
-                );
-                version_path_updates.push((
-                    version.id,
-                    self.encode_path_ref(&next_managed_path),
-                    next_source_path_ref,
-                ));
-            }
-        }
-
-        let next_root_path_ref = self.encode_path_ref(&next_dir);
-
-        fs::rename(&current_dir, &next_dir).with_context(|| {
-            format!(
-                "failed to rename project folder from {} to {}",
-                current_dir.display(),
-                next_dir.display()
-            )
-        })?;
-
-        let rename = native_changes::ProjectRootRename::new(current_dir, next_dir);
-        self.conn.execute(
-            "UPDATE projects SET root_path = ?1 WHERE id = ?2",
-            params![next_root_path_ref, current.id],
-        )?;
-
-        for (document_id, managed_path_ref, history_dir_ref, original_path_ref) in
-            &document_path_updates
-        {
-            self.conn.execute(
-                r#"
-                UPDATE documents
-                SET managed_path = ?1,
-                    history_dir_path = ?2,
-                    original_path = ?3
-                WHERE id = ?4
-                "#,
-                params![
-                    managed_path_ref,
-                    history_dir_ref,
-                    original_path_ref,
-                    document_id
-                ],
-            )?;
-        }
-
-        for (version_id, managed_path_ref, source_path_ref) in &version_path_updates {
-            self.conn.execute(
-                r#"
-                UPDATE document_versions
-                SET managed_path = ?1,
-                    source_path = ?2
-                WHERE id = ?3
-                "#,
-                params![managed_path_ref, source_path_ref, version_id],
-            )?;
-        }
-
-        Ok(Some(rename))
-    }
-
-    fn project_update_native(&self, input: ProjectUpdateInput) -> Result<(ProjectRecord, Option<native_changes::ProjectRootRename>)> {
+    fn project_update_native(&self, input: ProjectUpdateInput) -> Result<ProjectRecord> {
         let current = self.project_record(input.project_id)?;
         let project_name = match input.name.as_deref() {
             Some(value) => {
@@ -2704,9 +2582,9 @@ impl Database {
             .as_deref()
             .map(normalize_code_language)
             .unwrap_or_else(|| current.summary_code_language.clone());
-        let rename = if project_name != current.name {
-            self.rename_project_root(&current, &project_name)?
-        } else { None };
+        if project_name != current.name {
+            self.rename_project_root(&current, &project_name)?;
+        }
         self.conn.execute(
             "UPDATE projects SET name = ?1, summary = ?2, summary_markdown = ?3, summary_html = ?4, quick_note_code_language = ?5, status = ?6, updated_at = ?7 WHERE id = ?8",
             params![
@@ -2720,7 +2598,7 @@ impl Database {
                 input.project_id
             ],
         )?;
-        Ok((self.project_record(input.project_id)?, rename))
+        self.project_record(input.project_id)
     }
 
     fn project_set_archive_native(&self, input: ProjectArchiveInput) -> Result<ProjectRecord> {
@@ -9319,7 +9197,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
     }
 
     #[test]
-    fn voice_minutes_replace_snapshot_and_overwrite_title() {
+    fn voice_minutes_replace_snapshot_and_overwrite_title_with_stable_started_at() {
         let (_harness, mut database) = setup_database();
         let session = database
             .voice_session_create(
@@ -9327,6 +9205,14 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
                 "minutes-request",
                 "minutes-session",
                 "语音记录 · 2026-09-24 09:30",
+            )
+            .unwrap();
+        // Freeze the recording start on an earlier day than minutes generation.
+        database
+            .conn
+            .execute(
+                "UPDATE recording_sessions SET started_at = ?2 WHERE id = ?1",
+                params![session.session_id, "2020-09-24T23:30:45-07:00"],
             )
             .unwrap();
         database
@@ -9363,6 +9249,13 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
         let first = database.voice_minutes_get(&target).unwrap().unwrap();
         assert_eq!(first.version, 1);
         assert_eq!(first.content, "## 摘要\n发布计划");
+        assert_eq!(first.title, "发布计划 · 2020-09-25 06:30");
+        assert!(
+            chrono::DateTime::parse_from_rfc3339(first.generated_at.as_deref().unwrap())
+                .unwrap()
+                .date_naive()
+                > chrono::NaiveDate::from_ymd_opt(2020, 9, 25).unwrap()
+        );
         assert!(!database
             .voice_minutes_enqueue(&session.session_id, "auto:2")
             .unwrap());
@@ -9371,7 +9264,7 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
             .unwrap()
             .title
             .unwrap()
-            .eq("发布计划"));
+            .eq("发布计划 · 2020-09-25 06:30"));
 
         database
             .workspace_record_upsert(WorkspaceRecordUpsertInput {
@@ -9405,6 +9298,11 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
                 "过期标题"
             )
             .is_err());
+        let unchanged = database.voice_minutes_get(&target).unwrap().unwrap();
+        assert_eq!(unchanged.version, first.version);
+        assert_eq!(unchanged.content, first.content);
+        assert_eq!(unchanged.generated_at, first.generated_at);
+        assert_eq!(unchanged.title, "我写的标题");
         database
             .voice_minutes_apply(
                 &session.session_id,
@@ -9427,7 +9325,106 @@ ALTER TABLE agent_operation_receipts DROP COLUMN undo_operation_id;
             .unwrap()
             .title
             .unwrap()
-            .eq("新 AI 标题"));
+            .eq("新 AI 标题 · 2020-09-25 06:30"));
+    }
+
+    #[test]
+    fn voice_minutes_project_title_keeps_started_at_after_reopen_and_regeneration() {
+        let (harness, mut database) = setup_database();
+        let project = create_project(&mut database, &harness.workspace_root);
+        let session = database
+            .voice_session_create(
+                &RecordTarget::Project {
+                    project_id: project.id,
+                },
+                "project-minutes-request",
+                "project-minutes-session",
+                "Project Voice",
+            )
+            .unwrap();
+        database
+            .conn
+            .execute(
+                "UPDATE recording_sessions SET started_at = ?2 WHERE id = ?1",
+                params![session.session_id, "2020-01-01T23:59:59.999999+00:00"],
+            )
+            .unwrap();
+        let record_id = session.project_note_id.unwrap();
+        let target = VoiceRecordLookup::Project {
+            project_id: project.id,
+            record_id,
+        };
+        database
+            .voice_transcript_append_final(
+                &session.session_id,
+                "local:1",
+                0,
+                1_000,
+                "项目会议事实",
+                None,
+            )
+            .unwrap();
+        let input = database.voice_minutes_input(&session.session_id).unwrap();
+        database
+            .voice_minutes_apply(
+                &session.session_id,
+                input.expected_version,
+                input.source_max_rowid,
+                "项目纪要",
+                "  项目会议  ",
+            )
+            .unwrap();
+        assert_eq!(
+            database.voice_minutes_get(&target).unwrap().unwrap().title,
+            "项目会议 · 2020-01-01 23:59"
+        );
+
+        drop(database);
+        let mut database = Database::open(
+            &harness.root.join("app.sqlite3"),
+            &harness.workspace_root,
+            Some("test-secret".to_string()),
+        )
+        .unwrap();
+        database
+            .project_record_upsert(ProjectRecordUpsertInput {
+                project_id: project.id,
+                note_id: Some(record_id),
+                title: Some("用户改名".into()),
+                markdown: String::new(),
+                html: String::new(),
+                default_code_language: None,
+                tag_ids: vec![],
+            })
+            .unwrap();
+        let next = database.voice_minutes_input(&session.session_id).unwrap();
+        database
+            .voice_minutes_apply(
+                &session.session_id,
+                next.expected_version,
+                next.source_max_rowid,
+                "重新生成的项目纪要",
+                "项目会议",
+            )
+            .unwrap();
+        let snapshot = database.voice_minutes_get(&target).unwrap().unwrap();
+        assert_eq!(snapshot.version, 2);
+        assert_eq!(snapshot.title, "项目会议 · 2020-01-01 23:59");
+        assert_eq!(snapshot.content, "重新生成的项目纪要");
+        let page = database
+            .project_page_get(ProjectIdInput {
+                project_id: project.id,
+            })
+            .unwrap();
+        assert_eq!(
+            page.records
+                .iter()
+                .find(|record| record.id == record_id)
+                .unwrap()
+                .title
+                .as_deref(),
+            Some("项目会议 · 2020-01-01 23:59")
+        );
     }
 
     #[test]

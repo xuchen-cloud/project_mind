@@ -510,7 +510,10 @@ fn g15_upgrade_schema40_preserves_version_bytes_and_defaults() {
         fs::read(version.managed_path).unwrap(),
         b"retained original"
     );
-    assert_eq!(db.schema_version().unwrap(), 41);
+    assert_eq!(
+        db.schema_version().unwrap(),
+        crate::db::CURRENT_SCHEMA_VERSION
+    );
 }
 
 #[test]

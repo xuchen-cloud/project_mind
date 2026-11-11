@@ -1,3 +1,5 @@
+import { withWorkspaceBinding } from "../../lib/workspace-operation";
+import { useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState, type KeyboardEvent } from "react";
 import { Circle, Plus, X } from "lucide-react";
 
@@ -29,6 +31,7 @@ export function TagAutocompletePicker({
   onChange,
   onCreated,
 }: TagAutocompletePickerProps) {
+  const queryClient = useQueryClient();
   const [input, setInput] = useState("");
   const [creating, setCreating] = useState(false);
   const selectedIds = useMemo(() => new Set(selectedTagIds), [selectedTagIds]);
@@ -55,11 +58,11 @@ export function TagAutocompletePicker({
   const createTag = async (label: string) => {
     try {
       setCreating(true);
-      const tag = await projectMindApi.projectTagUpsert({
+      const tag = await withWorkspaceBinding(queryClient, binding => projectMindApi.projectTagUpsert({
         projectId,
         label,
         colorKey: colorKeyForTagLabel(label),
-      });
+      }, binding));
       onCreated?.(tag);
       return tag;
     } finally {

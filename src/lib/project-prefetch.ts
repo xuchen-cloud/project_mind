@@ -1,3 +1,4 @@
+import { withWorkspaceBinding } from "./workspace-operation";
 import type { QueryClient } from "@tanstack/react-query";
 
 import { projectMindApi } from "../services/projectMindApi";
@@ -12,7 +13,7 @@ export function prefetchProjectPageData(queryClient: QueryClient, projectId: num
     }),
     queryClient.prefetchQuery({
       queryKey: queryKeys.projectTags.project(projectId),
-      queryFn: () => projectMindApi.projectTagSettingsGet({ projectId }),
+      queryFn: () => withWorkspaceBinding(queryClient, binding => projectMindApi.projectTagSettingsGet({ projectId }, binding)),
     }),
   ]);
 }

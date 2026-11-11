@@ -460,8 +460,12 @@ fn working_save_crash_child() {
 #[cfg(unix)]
 fn sigkill_working_replacement_recovers_before_and_after_atomic_receipt() {
     use std::os::unix::process::ExitStatusExt;
-    for stage in 1..=4 {
-        let mut f = fixture();
+    for (moved, stage) in [false, true]
+        .into_iter()
+        .flat_map(|moved| [0, 1, 2, 3, 5, 4].map(|stage| (moved, stage)))
+    {
+        let mut f = if moved { moved_fixture() } else { fixture() };
+        let history_before = history(&mut f);
         let (session, initial) = session(&f);
         let input = WorkingSaveText {
             object: f.object.clone(),
@@ -504,10 +508,22 @@ fn sigkill_working_replacement_recovers_before_and_after_atomic_receipt() {
             }
         );
         assert_eq!(history(&mut f).len(), 1);
+        assert_eq!(
+            serde_json::to_value(history(&mut f)).unwrap(),
+            serde_json::to_value(&history_before).unwrap()
+        );
+        assert_eq!(
+            fs::read(&history_before[0].managed_path).unwrap(),
+            b"original"
+        );
         let saved = save(&f, &session, &initial, "after crash", "crash-save", 1000).unwrap();
         assert_eq!(saved.revision, 1);
         assert_eq!(fs::read(&f.path).unwrap(), b"after crash");
         assert_eq!(history(&mut f).len(), 1);
+        assert_eq!(
+            serde_json::to_value(history(&mut f)).unwrap(),
+            serde_json::to_value(history_before).unwrap()
+        );
     }
 }
 #[tokio::test]
@@ -661,6 +677,7 @@ fn inject_working_journal(f: &Fixture) -> Journal {
         pending: true,
     };
     let journal = Journal {
+        placement: None,
         object: f.object.clone(),
         target: f.db.encode_path_ref(&f.path),
         staged: f.db.encode_path_ref(&staged),
@@ -1113,3 +1130,86 @@ fn native_project_root_changes_cannot_orphan_an_isolated_working_journal() {
     );
     assert_eq!(fs::read(&f.path).unwrap(), b"external content");
 }
+
+fn moved_fixture() -> Fixture {
+    let mut f = fixture();
+    let target =
+        f.db.project_create(crate::models::ProjectCreateInput {
+            name: "Moved".into(),
+            summary: None,
+            status: None,
+        })
+        .unwrap();
+    let source = match f.object.scope {
+        Scope::Project { project_id } => project_id,
+        _ => unreachable!(),
+    };
+    f.request.scope_grant.project_ids.push(target.id);
+    f.request.scope_grant.operations.push("file.move".into());
+    let id = f.object.id.parse().unwrap();
+    let baseline =
+        f.db.file_owner_move_baseline(&f.request, &f.binding, id, Some(source))
+            .unwrap();
+    let moved =
+        f.db.file_owner_move(
+            &f.request,
+            &f.binding,
+            &super::super::file_owner_move::FileOwnerMove {
+                document_id: id,
+                source_owner: Some(source),
+                target_owner: Some(target.id),
+                expected_version: baseline.expected_version,
+                expected_working_revision: baseline.expected_working_revision,
+                expected_hash: baseline.expected_hash,
+            },
+        )
+        .unwrap();
+    f.object.scope = Scope::Project {
+        project_id: target.id,
+    };
+    f.path = PathBuf::from(moved.managed_path);
+    f
+}
+
+#[test]
+fn moved_file_working_save_keeps_renames_on_live_volume_and_history_immutable() {
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            WORKING_TEST_HISTORY_VOLUME.with(|v| *v.borrow_mut() = None);
+        }
+    }
+    let mut f = moved_fixture();
+    let before = history(&mut f);
+    let old_path = before[0].managed_path.clone();
+    let old_bytes = fs::read(&old_path).unwrap();
+    let old_hash = files::checksum(Path::new(&old_path)).unwrap();
+    let doc = f.db.document_record(f.object.id.parse().unwrap()).unwrap();
+    assert_ne!(Path::new(&doc.history_dir_path).parent(), f.path.parent());
+    let (session, initial) = session(&f);
+    WORKING_TEST_HISTORY_VOLUME
+        .with(|v| *v.borrow_mut() = Some(PathBuf::from(&doc.history_dir_path)));
+    let _reset = Reset;
+    let saved = save(&f, &session, &initial, "after move", "move-save", 1000)
+        .expect("ARCH-04: saving a legally moved File must not rename across the history/live volume boundary");
+    assert_eq!(saved.revision, initial.revision + 1);
+    assert_eq!(fs::read(&f.path).unwrap(), b"after move");
+    drop(f.db);
+    f.db = Database::open(&f.db_path, &f.root, None).unwrap();
+    f.db.bind_native_workspace(&f.binding.workspace_id).unwrap();
+    assert_eq!(
+        f.db.file_working_open_status(&f.request, &f.binding, &f.object)
+            .unwrap()
+            .content_hash,
+        saved.content_hash
+    );
+    assert_eq!(
+        serde_json::to_value(history(&mut f)).unwrap(),
+        serde_json::to_value(before).unwrap()
+    );
+    assert_eq!(fs::read(&old_path).unwrap(), old_bytes);
+    assert_eq!(files::checksum(Path::new(&old_path)).unwrap(), old_hash);
+}
+
+#[path = "file_working_volume_tests.rs"]
+mod volume_tests;

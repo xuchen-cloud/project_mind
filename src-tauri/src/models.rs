@@ -410,6 +410,7 @@ pub enum AiJobResult {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AiJobSnapshot {
+    pub binding: crate::agent::models::WorkspaceBinding,
     pub id: i64,
     pub kind: AiJobKind,
     pub target_key: String,

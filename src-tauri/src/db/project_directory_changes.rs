@@ -236,7 +236,7 @@ impl Drop for DirectoryDurability<'_> {
     }
 }
 
-fn directory_identity(path: &Path) -> Result<files::FileIdentity> {
+pub(super) fn directory_identity(path: &Path) -> Result<files::FileIdentity> {
     let metadata = fs::symlink_metadata(path)?;
     #[cfg(windows)]
     {

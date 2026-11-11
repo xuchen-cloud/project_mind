@@ -23,11 +23,12 @@ describe("prefetchProjectPageData", () => {
 
   it("warms the canonical project page and tag caches together", async () => {
     const queryClient = new QueryClient();
+    queryClient.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/workspace" } });
 
     await prefetchProjectPageData(queryClient, 7);
 
     expect(projectMindApi.projectPageGet).toHaveBeenCalledWith({ projectId: 7 });
-    expect(projectMindApi.projectTagSettingsGet).toHaveBeenCalledWith({ projectId: 7 });
+    expect(projectMindApi.projectTagSettingsGet).toHaveBeenCalledWith({ projectId: 7 }, { workspaceId: "w", generation: "g" });
     expect(queryClient.getQueryData(queryKeys.projectPage(7))).toEqual({ projectId: 7 });
     expect(queryClient.getQueryData(queryKeys.projectTags.project(7))).toEqual({ projectId: 7 });
   });

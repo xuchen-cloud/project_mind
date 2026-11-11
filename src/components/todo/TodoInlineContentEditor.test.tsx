@@ -1,8 +1,9 @@
-import { fireEvent, render as baseRender, screen } from "@testing-library/react";
+import { act, fireEvent, render as baseRender, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
+import { useState } from "react";
 
 import { projectMindApi } from "../../services/projectMindApi";
 import { TodoInlineContentEditor } from "./TodoInlineContentEditor";
@@ -14,13 +15,61 @@ function render(ui: ReactElement) {
 }
 
 describe("TodoInlineContentEditor", () => {
+  it("releases pending hashtag text on confirmation and shows later remote changes", async () => {
+    const user = userEvent.setup();
+    let resolveSave!: () => void;
+    const onSave = vi.fn(() => new Promise<void>((resolve) => { resolveSave = resolve; }));
+    const client = new QueryClient();
+    const view = (value: string) => (
+      <QueryClientProvider client={client}>
+        <TodoInlineContentEditor value={value} editable onSave={onSave} />
+      </QueryClientProvider>
+    );
+    const { rerender } = baseRender(view("原正文"));
+    await user.click(screen.getByRole("button", { name: "原正文" }));
+    const textbox = screen.getByRole("textbox");
+    textbox.textContent = "新正文 #work";
+    fireEvent.input(textbox);
+    await user.keyboard("{Enter}");
+    expect(screen.getByRole("button", { name: "新正文 #work" })).toBeInTheDocument();
+    rerender(view("新正文"));
+    await act(async () => { resolveSave(); });
+    expect(screen.getByRole("button", { name: "新正文" })).toBeInTheDocument();
+    rerender(view("远端更新"));
+    expect(screen.getByRole("button", { name: "远端更新" })).toBeInTheDocument();
+  });
+
+  it("keeps the original text and due date after a rejected save for retry", async () => {
+    const user = userEvent.setup();
+    let rejectSave!: (error: Error) => void;
+    const onSave = vi.fn()
+      .mockImplementationOnce(() => new Promise<void>((_resolve, reject) => { rejectSave = reject; }))
+      .mockResolvedValueOnce(undefined);
+    render(<TodoInlineContentEditor value="原正文" editable onSave={onSave} />);
+    await user.click(screen.getByRole("button", { name: "原正文" }));
+    const textbox = screen.getByRole("textbox");
+    textbox.textContent = "提交完整方案 @20270315";
+    fireEvent.input(textbox);
+    await user.keyboard("{Enter}");
+    await act(async () => { rejectSave(new Error("I/O failure")); });
+    expect(screen.getByRole("textbox")).toHaveTextContent("提交完整方案 @20270315");
+    await user.keyboard("{Enter}");
+    expect(onSave).toHaveBeenCalledTimes(2);
+    expect(onSave.mock.calls[1]).toEqual(onSave.mock.calls[0]);
+  });
+
   it("parses and displays an @ due date separately from the todo content", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn();
+    function ConfirmedEditor() {
+      const [todo, setTodo] = useState<{ content: string; dueDate: string | null }>({ content: "提交方案", dueDate: null });
+      return <TodoInlineContentEditor value={todo.content} dueDate={todo.dueDate} editable onSave={(content, dueDate) => {
+        onSave(content, dueDate);
+        setTodo({ content, dueDate: dueDate ?? null });
+      }} />;
+    }
 
-    render(
-      <TodoInlineContentEditor value="提交方案" editable onSave={onSave} />,
-    );
+    render(<ConfirmedEditor />);
 
     await user.click(screen.getByRole("button", { name: "提交方案" }));
     const textbox = screen.getByRole("textbox");

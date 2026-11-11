@@ -108,6 +108,8 @@ export default defineConfig({
     },
   },
   server: {
+    // LAN access requires an explicit --host override (npm run dev:lan).
+    host: "127.0.0.1",
     // File-provider backed worktrees can miss native filesystem events.
     // 本地真实磁盘用原生监听（空闲近 0 CPU）；worktree 环境设 VITE_WATCH_POLLING=1 开轮询。
     watch: {

@@ -12,7 +12,138 @@ import { createTodoModule, type TodoTransport } from "./todo-module";
 import { cacheWorkspaceTodoCollections, createTodoQueryCache } from "./todo-cache";
 import { queryKeys } from "../lib/queryKeys";
 
+const bindingA = { workspaceId: "workspace-a", generation: "open-a" };
+
+function setWorkspace(queryClient: QueryClient, rootPath = "/workspace-a") {
+  queryClient.setQueryData(queryKeys.workspaceStatus, {
+    currentWorkspace: { rootPath }, recentWorkspaces: [],
+  });
+}
+
+function createClient(options?: ConstructorParameters<typeof QueryClient>[0]) {
+  const client = new QueryClient(options);
+  setWorkspace(client);
+  return client;
+}
+
 const now = "2026-08-06T00:00:00.000Z";
+
+it.each([
+  ["update-content", "lookup"], ["create", "lookup"],
+  ["update-content", "upsert"], ["create", "upsert"],
+] as const)("rejects A's %s after a deferred tag %s and switch to B with the same Todo id/revision", async (kind, phase) => {
+  const { module, original, transport, queryClient } = await loadedProjectTodoModule();
+  const tag = { id: 1, label: "tag", colorKey: "blue", usageCount: 0, createdAt: now, updatedAt: now };
+  let release!: () => void;
+  const blocked = phase === "lookup" ? transport.projectTagSettingsGet : transport.projectTagUpsert;
+  if (phase === "lookup") vi.mocked(transport.projectTagSettingsGet).mockImplementationOnce(() => new Promise(resolve => { release = () => resolve({ tags: [tag] }); }));
+  else vi.mocked(transport.projectTagUpsert).mockImplementationOnce(() => new Promise(resolve => { release = () => resolve(tag); }));
+  vi.mocked(transport.todoUpdateContent).mockResolvedValue({ ...original, revision: 2, content: "A changed" });
+  vi.mocked(transport.todoCreate).mockResolvedValue({ ...original, revision: 1, content: "A created" });
+  const changed = module.change(kind === "update-content"
+    ? { type: kind, todoId: original.id, content: "A changed #tag" }
+    : { type: kind, ownership: { scope: "workspace" }, content: "A created #tag", priority: "not_urgent_important" });
+  const rejected = expect(changed).rejects.toThrow("工作区已切换");
+  await vi.waitFor(() => expect(blocked).toHaveBeenCalledOnce());
+  expect(blocked).toHaveBeenCalledWith(expect.anything(), bindingA);
+  for (const key of queryKeys.workspaceScoped) queryClient.removeQueries({ queryKey: key });
+  setWorkspace(queryClient, "/workspace-b");
+  const other = { ...original, content: "B original" };
+  cacheWorkspaceTodoCollections(queryClient, { quickNote: null, records: [], unfinishedTodos: [other], finishedTodos: [] });
+  const tagsB = { tags: [{ id: 1, label: "B tag", colorKey: "blue" }] };
+  const tagKey = kind === "create" ? queryKeys.projectTags.workspace : queryKeys.projectTags.project(original.projectId);
+  queryClient.setQueryData(tagKey, tagsB);
+  release();
+  await rejected;
+  expect(transport.todoUpdateContent).not.toHaveBeenCalled();
+  expect(transport.todoCreate).not.toHaveBeenCalled();
+  expect(transport.projectTagUpsert).toHaveBeenCalledTimes(phase === "lookup" ? 0 : 1);
+  expect(queryClient.getQueryData(queryKeys.todoCollections.workspaceRail)).toEqual([other]);
+  expect(queryClient.getQueryData(tagKey)).toEqual(tagsB);
+});
+
+it.each(["todoUpdateStatus", "todoDelete", "todoCreate"] as const)("does not publish, roll back or refresh B when A's pending %s settles", async method => {
+  for (const outcome of ["success", "error", "conflict"] as const) {
+    const { module, original, transport, queryClient } = await loadedProjectTodoModule();
+    let finish!: (value: TodoRecord) => void;
+    let fail!: (error: Error | string) => void;
+    vi.mocked(transport[method]).mockImplementationOnce(() => new Promise<TodoRecord>((resolve, reject) => { finish = resolve; fail = reject; }));
+    const pending = module.change(method === "todoCreate"
+      ? { type: "create", ownership: { scope: "project", projectId: 1 }, content: "A created", priority: "not_urgent_important" }
+      : method === "todoDelete" ? { type: "delete", todoId: original.id }
+        : { type: "update-status", todoId: original.id, status: "finished" });
+    const rejected = expect(pending).rejects.toBeDefined();
+    await vi.waitFor(() => expect(transport[method]).toHaveBeenCalledOnce());
+    expect(transport[method]).toHaveBeenCalledWith(expect.anything(), bindingA);
+    for (const key of queryKeys.workspaceScoped) queryClient.removeQueries({ queryKey: key });
+    setWorkspace(queryClient, "/workspace-b");
+    const other = { ...original, content: "B original" };
+    const page = { quickNote: null, records: [], unfinishedTodos: [other], finishedTodos: [] };
+    queryClient.setQueryData(queryKeys.workspacePage, page);
+    cacheWorkspaceTodoCollections(queryClient, page);
+    queryClient.setQueryData(queryKeys.projects.all, [{ ...project(1, "B project"), openTodoCount: 7 }]);
+    const before = queryClient.getQueriesData({});
+    if (outcome === "success") finish({ ...original, revision: 2, content: "A saved" });
+    else fail(outcome === "conflict" ? JSON.stringify({ code: "REVISION_CONFLICT" }) : new Error("A failed"));
+    await rejected;
+    expect(queryClient.getQueriesData({})).toEqual(before);
+    expect(transport.workspacePageGet).toHaveBeenCalledOnce();
+    expect(transport.projectPageGet).toHaveBeenCalledOnce();
+    queryClient.clear();
+  }
+});
+
+it("rejects a pending tag response when the same Workspace root is reopened with a new generation", async () => {
+  const { module, original, transport, queryClient } = await loadedProjectTodoModule();
+  let release!: (snapshot: { tags: [] }) => void;
+  vi.mocked(transport.projectTagSettingsGet).mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+  const changed = module.change({ type: "update-content", todoId: original.id, content: "A #tag" });
+  const rejected = expect(changed).rejects.toThrow("工作区已切换");
+  await vi.waitFor(() => expect(transport.projectTagSettingsGet).toHaveBeenCalledOnce());
+  for (const key of queryKeys.workspaceScoped) queryClient.removeQueries({ queryKey: key });
+  setWorkspace(queryClient);
+  queryClient.setQueryData(queryKeys.projectContentBinding("/workspace-a"), { ...bindingA, generation: "reopened-a" });
+  const newer = { ...original, content: "Reopened A" };
+  cacheWorkspaceTodoCollections(queryClient, { quickNote: null, records: [], unfinishedTodos: [newer], finishedTodos: [] });
+  release({ tags: [] });
+  await rejected;
+  expect(transport.todoUpdateContent).not.toHaveBeenCalled();
+  expect(transport.projectTagUpsert).not.toHaveBeenCalled();
+  expect(queryClient.getQueryData(queryKeys.todoCollections.workspaceRail)).toEqual([newer]);
+});
+
+it("confirms the canonical content and tags before update-content resolves", async () => {
+  const { module, original, transport, queryClient } = await loadedProjectTodoModule();
+  const tag = { id: 4, label: "work", colorKey: "blue", usageCount: 1, createdAt: now, updatedAt: now };
+  vi.mocked(transport.projectTagSettingsGet).mockResolvedValueOnce({ tags: [tag] });
+  const saved = { ...original, revision: 2, content: "next", tags: [tag] };
+  vi.mocked(transport.todoUpdateContent).mockResolvedValueOnce(saved);
+  const result = await module.change({ type: "update-content", todoId: original.id, content: "next #work" });
+  expect(result).toEqual(saved);
+  expect(transport.todoUpdateContent).toHaveBeenCalledWith({ todoId: original.id, expectedRevision: 1, content: "next", dueDate: undefined, tagIds: [4] }, bindingA);
+  expect(queryClient.getQueryData<TodoRecord[]>(queryKeys.todoCollections.workspaceRail)).toContainEqual(saved);
+});
+
+it.each(["workspace", "current-project"] as const)("does not project a retired %s load into B's cache", async kind => {
+  const { module, original, transport, queryClient, workspacePage, projectPage } = await loadedProjectTodoModule();
+  let release!: () => void;
+  const scope = kind === "workspace" ? { kind } : { kind, projectId: 1 };
+  if (kind === "workspace") vi.mocked(transport.workspacePageGet).mockImplementationOnce(() => new Promise(resolve => { release = () => resolve(workspacePage); }));
+  else vi.mocked(transport.projectPageGet).mockImplementationOnce(() => new Promise(resolve => { release = () => resolve(projectPage); }));
+  const pending = module.load(scope, { force: true });
+  const rejected = expect(pending).rejects.toBeDefined();
+  await vi.waitFor(() => expect(kind === "workspace" ? transport.workspacePageGet : transport.projectPageGet).toHaveBeenCalledTimes(2));
+  for (const key of queryKeys.workspaceScoped) queryClient.removeQueries({ queryKey: key });
+  setWorkspace(queryClient, "/workspace-b");
+  const other = { ...original, content: "B original" };
+  const page = { ...workspacePage, unfinishedTodos: [other] };
+  queryClient.setQueryData(queryKeys.workspacePage, page);
+  cacheWorkspaceTodoCollections(queryClient, page);
+  const before = queryClient.getQueriesData({});
+  release();
+  await rejected;
+  expect(queryClient.getQueriesData({})).toEqual(before);
+});
 
 function todo(
   id: number,
@@ -56,6 +187,7 @@ function testTransport(input: {
   projectPages: Record<number, ProjectPageData>;
 }): TodoTransport {
   return {
+    workspaceBindingGet: vi.fn().mockResolvedValue(bindingA),
     projectsList: vi.fn().mockResolvedValue(input.projects),
     workspacePageGet: vi.fn().mockResolvedValue(input.workspacePage),
     projectPageGet: vi.fn(({ projectId }) =>
@@ -75,7 +207,7 @@ function testTransport(input: {
   };
 }
 
-async function loadedProjectTodoModule(openTodoCount = 1, queryClient = new QueryClient()) {
+async function loadedProjectTodoModule(openTodoCount = 1, queryClient = createClient()) {
   const active = { ...project(1, "Alpha"), openTodoCount };
   const original = todo(30, { scope: "project", projectId: active.id }, "初始内容");
   const workspacePage: WorkspacePageData = {
@@ -96,6 +228,7 @@ async function loadedProjectTodoModule(openTodoCount = 1, queryClient = new Quer
     workspacePage,
     projectPages: { [active.id]: projectPage },
   });
+  setWorkspace(queryClient);
   const module = createTodoModule({ queryClient, transport });
   await module.load({ kind: "workspace" });
   await module.load({ kind: "current-project", projectId: active.id });
@@ -127,7 +260,7 @@ describe("Todo module", () => {
       finishedTodos: [],
     } satisfies ProjectPageData;
     const module = createTodoModule({
-      queryClient: new QueryClient(),
+      queryClient: createClient(),
       transport: testTransport({
         projects: [active, archived],
         workspacePage,
@@ -178,7 +311,7 @@ describe("Todo module", () => {
         resolveCreate = resolve;
       }),
     );
-    const module = createTodoModule({ queryClient: new QueryClient(), transport });
+    const module = createTodoModule({ queryClient: createClient(), transport });
     await module.load({ kind: "workspace" });
     await module.load({ kind: "current-project", projectId: active.id });
 
@@ -241,7 +374,7 @@ describe("Todo module", () => {
     };
     vi.mocked(transport.projectTagUpsert).mockResolvedValueOnce(tag);
     vi.mocked(transport.todoCreate).mockResolvedValueOnce(saved);
-    const module = createTodoModule({ queryClient: new QueryClient(), transport });
+    const module = createTodoModule({ queryClient: createClient(), transport });
     await module.load({ kind: "workspace" });
 
     await module.change({
@@ -254,7 +387,7 @@ describe("Todo module", () => {
     expect(transport.projectTagUpsert).toHaveBeenCalledWith({
       label: "发布",
       colorKey: expect.any(String),
-    });
+    }, bindingA);
     expect(transport.todoCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         scope: "workspace",
@@ -262,6 +395,7 @@ describe("Todo module", () => {
         content: "准备发布",
         tagIds: [tag.id],
       }),
+      bindingA,
     );
     expect(module.read({ kind: "workspace" }).unfinishedTodos).toEqual([saved]);
   });
@@ -298,7 +432,7 @@ describe("Todo module", () => {
       tags: [explicitTag, hashTag],
     });
     vi.mocked(transport.todoCreate).mockResolvedValueOnce(saved);
-    const module = createTodoModule({ queryClient: new QueryClient(), transport });
+    const module = createTodoModule({ queryClient: createClient(), transport });
     await module.load({ kind: "workspace" });
 
     await module.change({
@@ -315,6 +449,7 @@ describe("Todo module", () => {
         content: "准备发布",
         tagIds: [explicitTag.id, hashTag.id],
       }),
+      bindingA,
     );
   });
 
@@ -352,7 +487,7 @@ describe("Todo module", () => {
 
     await module.change({ type: "update-tags", todoId: original.id, tagIds: [12], tags });
 
-    expect(transport.todoUpdateTags).toHaveBeenCalledWith({ todoId: original.id, expectedRevision: original.revision, tagIds: [12] });
+    expect(transport.todoUpdateTags).toHaveBeenCalledWith({ todoId: original.id, expectedRevision: original.revision, tagIds: [12] }, bindingA);
     expect(module.read({ kind: "workspace" }).unfinishedTodos[0].tags).toEqual(tags);
   });
 
@@ -431,7 +566,7 @@ describe("Todo module", () => {
       progressDate: progress.progressDate,
     });
     expect(module.read({ kind: "workspace" }).unfinishedTodos[0].progresses).toEqual([progress]);
-    expect(transport.todoAddProgress).toHaveBeenCalledWith({ todoId: original.id, expectedRevision: original.revision, content: progress.content, progressDate: progress.progressDate, dueDate: undefined });
+    expect(transport.todoAddProgress).toHaveBeenCalledWith({ todoId: original.id, expectedRevision: original.revision, content: progress.content, progressDate: progress.progressDate, dueDate: undefined }, bindingA);
     expect(module.read({ kind: "workspace" }).unfinishedTodos[0].revision).toBe(progress.todoRevision);
 
     const completedProgress = {
@@ -452,13 +587,13 @@ describe("Todo module", () => {
     expect(module.read({ kind: "workspace" }).unfinishedTodos[0].progresses).toEqual([
       completedProgress,
     ]);
-    expect(transport.todoUpdateProgress).toHaveBeenCalledWith({ progressId: progress.id, expectedRevision: progress.todoRevision, content: completedProgress.content, progressDate: progress.progressDate, dueDate: undefined, status: "finished" });
+    expect(transport.todoUpdateProgress).toHaveBeenCalledWith({ progressId: progress.id, expectedRevision: progress.todoRevision, content: completedProgress.content, progressDate: progress.progressDate, dueDate: undefined, status: "finished" }, bindingA);
     expect(module.read({ kind: "workspace" }).unfinishedTodos[0].revision).toBe(7);
 
     vi.mocked(transport.todoDeleteProgress).mockResolvedValueOnce({ ...completedProgress, todoRevision: 10 });
     await module.change({ type: "delete-progress", progressId: progress.id });
     expect(module.read({ kind: "workspace" }).unfinishedTodos[0].progresses).toEqual([]);
-    expect(transport.todoDeleteProgress).toHaveBeenCalledWith({ progressId: progress.id, expectedRevision: 7 });
+    expect(transport.todoDeleteProgress).toHaveBeenCalledWith({ progressId: progress.id, expectedRevision: 7 }, bindingA);
     expect(module.read({ kind: "workspace" }).unfinishedTodos[0].revision).toBe(10);
   });
 
@@ -556,7 +691,7 @@ describe("Todo module", () => {
     });
     const rejection = new Error("Internal Reference 与最终归属不兼容");
     vi.mocked(transport.todoUpdateContent).mockRejectedValueOnce(rejection);
-    const module = createTodoModule({ queryClient: new QueryClient(), transport });
+    const module = createTodoModule({ queryClient: createClient(), transport });
     await module.load({ kind: "workspace" });
     await module.load({ kind: "current-project", projectId: active.id });
 
@@ -582,23 +717,23 @@ it("uses cached parent heads for GUI updates and deletes, keeping optimistic cre
   const edited = { ...original, revision: 4, content: "服务返回的新内容" };
   vi.mocked(transport.todoUpdateContent).mockResolvedValueOnce(edited);
   await module.change({ type: "update-content", todoId: original.id, content: edited.content });
-  expect(transport.todoUpdateContent).toHaveBeenCalledWith(expect.objectContaining({ todoId: original.id, expectedRevision: original.revision }));
+  expect(transport.todoUpdateContent).toHaveBeenCalledWith(expect.objectContaining({ todoId: original.id, expectedRevision: original.revision }), bindingA);
   vi.mocked(transport.todoUpdatePriority).mockResolvedValueOnce({ ...edited, revision: 5 });
   await module.change({ type: "update-priority", todoId: original.id, priority: "urgent_important" });
-  expect(transport.todoUpdatePriority).toHaveBeenCalledWith({ todoId: original.id, expectedRevision: 4, priority: "urgent_important" });
+  expect(transport.todoUpdatePriority).toHaveBeenCalledWith({ todoId: original.id, expectedRevision: 4, priority: "urgent_important" }, bindingA);
   vi.mocked(transport.todoUpdateStatus).mockResolvedValueOnce({ ...edited, revision: 6, status: "finished" });
   await module.change({ type: "update-status", todoId: original.id, status: "finished" });
-  expect(transport.todoUpdateStatus).toHaveBeenCalledWith({ todoId: original.id, expectedRevision: 5, status: "finished" });
+  expect(transport.todoUpdateStatus).toHaveBeenCalledWith({ todoId: original.id, expectedRevision: 5, status: "finished" }, bindingA);
   vi.mocked(transport.todoDelete).mockResolvedValueOnce({ ...edited, revision: 6 });
   await module.change({ type: "delete", todoId: original.id });
-  expect(transport.todoDelete).toHaveBeenCalledWith({ todoId: original.id, expectedRevision: 6 });
+  expect(transport.todoDelete).toHaveBeenCalledWith({ todoId: original.id, expectedRevision: 6 }, bindingA);
 });
 
 it.each([
   JSON.stringify({ code: "REVISION_CONFLICT", message: "Stale GUI revision" }),
   { code: "REVISION_CONFLICT", message: "Agent wrote a newer Todo" },
 ])("refreshes actual affected pages on revision conflict without retry or snapshot rollback: %j", async rejection => {
-  const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
+  const client = createClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
   const { module, original, active, transport, workspacePage, projectPage } = await loadedProjectTodoModule(1, client);
   const external = { ...original, revision: 8, content: "Agent 保存的真实内容", priority: "urgent_important" as const };
   vi.mocked(transport.workspacePageGet).mockResolvedValue({ ...workspacePage, unfinishedTodos: [external] });
@@ -682,7 +817,7 @@ it("removes stale subitems after a delete conflict refresh without retrying the 
   vi.mocked(transport.todoDeleteProgress).mockRejectedValueOnce(rejection);
   await expect(module.change({ type: "delete-progress", progressId: 40 })).rejects.toBe(rejection);
   expect(transport.todoDeleteProgress).toHaveBeenCalledOnce();
-  expect(transport.todoDeleteProgress).toHaveBeenCalledWith({ progressId: 40, expectedRevision: 1 });
+  expect(transport.todoDeleteProgress).toHaveBeenCalledWith({ progressId: 40, expectedRevision: 1 }, bindingA);
   expect(module.read({ kind: "workspace" }).unfinishedTodos[0]).toMatchObject({ revision: 4, progresses: [] });
 });
 
@@ -726,7 +861,7 @@ it("reuses a resident Project source page on ordinary Todo loads but refreshes i
 });
 
 it.each([false, true])("preserves the first projects request during Workspace Todo create (failure=%s)", async fail => {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const queryClient = createClient({ defaultOptions: { queries: { retry: false } } });
   const workspacePage = { quickNote: null, records: [], unfinishedTodos: [], finishedTodos: [] } satisfies WorkspacePageData;
   const transport = testTransport({projects:[],workspacePage,projectPages:{}});
   let finish!: (value: ProjectListItem[]) => void;

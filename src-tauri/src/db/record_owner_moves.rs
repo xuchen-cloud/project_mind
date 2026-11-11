@@ -733,12 +733,20 @@ impl Database {
         let root = std::fs::canonicalize(_root)?;
         let workspace = std::fs::canonicalize(&self.workspace_root)?;
         let owner = _owner.map_or_else(|| "workspace".to_string(), |id| format!("project:{id}"));
-        let mut statement = self.conn.prepare("SELECT a.asset_ref,i.logical_id FROM record_owner_move_assets a JOIN record_logical_identities i USING(logical_id) WHERE i.scope_key!=?1")?;
+        let mut statement = self.conn.prepare("SELECT a.asset_ref,i.logical_id,i.current_key FROM record_owner_move_assets a JOIN record_logical_identities i USING(logical_id) WHERE i.scope_key!=?1")?;
         for row in statement.query_map([owner], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+            ))
         })? {
-            let (asset, logical_id) = row?;
-            if workspace.join(&asset).starts_with(&root) {
+            let (asset, logical_id, key) = row?;
+            let locations = self.record_root_asset_paths(&key)?;
+            if workspace
+                .join(locations.get(&asset).unwrap_or(&asset))
+                .starts_with(&root)
+            {
                 anyhow::bail!("此路径仍保留已移到其他位置的 Record {logical_id} 使用的资源 {asset}，请先迁移或保留这些资源");
             }
         }

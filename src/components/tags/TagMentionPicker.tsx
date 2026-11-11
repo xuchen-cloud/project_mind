@@ -1,3 +1,5 @@
+import { withWorkspaceBinding } from "../../lib/workspace-operation";
+import { useQueryClient } from "@tanstack/react-query";
 import "../../ui/components/recommendation.css";
 import { useEffect, useState, type RefObject, type CSSProperties } from "react";
 import { AnchoredPicker } from "../../ui/components/AnchoredPicker";
@@ -27,6 +29,7 @@ export function useTagMentionSearch({
   selectedTagIds = EMPTY_SELECTED_TAG_IDS,
   limit = 8,
 }: UseTagMentionSearchOptions) {
+  const queryClient = useQueryClient();
   const [results, setResults] = useState<ProjectTagRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const selectedTagIdsKey = selectedTagIds.join(",");
@@ -52,8 +55,8 @@ export function useTagMentionSearch({
       try {
         const snapshot =
           typeof projectId === "number"
-            ? await projectMindApi.projectTagSettingsGet({ projectId })
-            : await projectMindApi.projectTagSettingsGet({});
+            ? await withWorkspaceBinding(queryClient, binding => projectMindApi.projectTagSettingsGet({ projectId }, binding))
+            : await withWorkspaceBinding(queryClient, binding => projectMindApi.projectTagSettingsGet({}, binding));
         const suggestions = buildTagSuggestions(
           snapshot.tags,
           new Set(selectedTagIds),
@@ -77,7 +80,7 @@ export function useTagMentionSearch({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [availableTags, limit, open, projectId, query, selectedTagIds, selectedTagIdsKey]);
+  }, [availableTags, limit, open, projectId, query, queryClient, selectedTagIds, selectedTagIdsKey]);
 
   return { results, loading };
 }

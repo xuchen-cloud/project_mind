@@ -477,7 +477,7 @@ impl Database {
             )
         })?;
         let metadata = self.record_metadata_get(target)?;
-        let record = match target.scope {
+        let mut record = match target.scope {
             Scope::Project { .. } => {
                 RecordEditorRecord::Project(self.note_record(target.record_id).map_err(|_| {
                     AgentError::new(ErrorCode::IoFailed, "Cannot read editor Record")
@@ -489,6 +489,22 @@ impl Database {
                 })?,
             ),
         };
+        if !self
+            .record_root_asset_paths(&target.key()?)
+            .map_err(|_| {
+                AgentError::new(
+                    ErrorCode::IoFailed,
+                    "Cannot resolve Record resource locations",
+                )
+            })?
+            .is_empty()
+        {
+            let html = self.record_version_editor_html(target, &head.projection)?;
+            match &mut record {
+                RecordEditorRecord::Project(record) => record.content_html = html,
+                RecordEditorRecord::Workspace(record) => record.content_html = html,
+            }
+        }
         Ok(RecordEditorState {
             head,
             metadata,
@@ -702,18 +718,36 @@ impl Database {
     ) -> AgentResult<Value> {
         source(&self.conn, target)?;
         let retained = self.record_move_retained_assets(target)?;
-        self.record_document_scope_from_gui_retained(&target.scope, document, &retained)
+        let locations = self.record_root_asset_paths(&target.key()?).map_err(|_| {
+            AgentError::new(
+                ErrorCode::IoFailed,
+                "Cannot resolve Record resource locations",
+            )
+        })?;
+        let retained = retained
+            .into_iter()
+            .map(|(asset, scope)| (locations.get(&asset).cloned().unwrap_or(asset), scope))
+            .collect();
+        self.record_document_scope_from_gui_retained(&target.scope, document, &retained, &locations)
     }
     pub(crate) fn record_document_scope_from_gui(
         &self,
         scope: &Scope,
         document: &Value,
     ) -> AgentResult<Value> {
-        self.record_document_scope_from_gui_retained(scope, document, &std::collections::BTreeMap::new())
+        self.record_document_scope_from_gui_retained(
+            scope,
+            document,
+            &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
+        )
     }
     fn record_document_scope_from_gui_retained(
-        &self, scope: &Scope, document: &Value,
+        &self,
+        scope: &Scope,
+        document: &Value,
         retained: &std::collections::BTreeMap<String, Scope>,
+        locations: &std::collections::BTreeMap<String, String>,
     ) -> AgentResult<Value> {
         scope.validate()?;
         if serde_json::to_vec(document)
@@ -744,6 +778,7 @@ impl Database {
             root: &std::path::Path,
             project: Option<&std::path::Path>,
             retained: &std::collections::BTreeMap<String, Scope>,
+            locations: &std::collections::BTreeMap<String, String>,
             depth: usize,
             count: &mut usize,
         ) -> AgentResult<()> {
@@ -775,10 +810,13 @@ impl Database {
                         } else {
                             path.to_string()
                         };
+                        let relative = locations.get(&relative).cloned().unwrap_or(relative);
                         if !relative_asset(&relative) {
                             return Err(invalid("Invalid managed editor asset path"));
                         }
-                        if !retained.contains_key(&relative) && project.is_some_and(|project| !root.join(&relative).starts_with(project))
+                        if !retained.contains_key(&relative)
+                            && project
+                                .is_some_and(|project| !root.join(&relative).starts_with(project))
                         {
                             return Err(AgentError::new(
                                 ErrorCode::ScopeDenied,
@@ -792,7 +830,7 @@ impl Database {
             }
             if let Some(children) = node.get_mut("content").and_then(Value::as_array_mut) {
                 for child in children {
-                    visit(child, root, project, retained, depth + 1, count)?;
+                    visit(child, root, project, retained, locations, depth + 1, count)?;
                 }
             }
             Ok(())
@@ -803,6 +841,7 @@ impl Database {
             &self.workspace_root,
             project_root.as_deref(),
             retained,
+            locations,
             0,
             &mut 0,
         )?;
@@ -1434,14 +1473,49 @@ impl Database {
         projection: &RecordDocumentProjection,
     ) -> AgentResult<String> {
         let assets = projection.validate()?;
-        let retained = self.record_move_retained_assets(target)?;
-        self.record_validate_assets(&target.scope, &projection.document, &retained)?;
+        let locations = self.record_root_asset_paths(&target.key()?).map_err(|_| {
+            AgentError::new(
+                ErrorCode::IoFailed,
+                "Cannot resolve Record resource locations",
+            )
+        })?;
+        let retained = self
+            .record_move_retained_assets(target)?
+            .into_iter()
+            .map(|(asset, scope)| (locations.get(&asset).cloned().unwrap_or(asset), scope))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        fn locate(node: &mut Value, locations: &std::collections::BTreeMap<String, String>) {
+            if matches!(
+                node.get("type").and_then(Value::as_str),
+                Some("image" | "attachment")
+            ) {
+                if let Some(path) = node
+                    .pointer("/attrs/path")
+                    .and_then(Value::as_str)
+                    .and_then(|path| locations.get(path))
+                    .cloned()
+                {
+                    node["attrs"]["path"] = json!(path);
+                }
+            }
+            if let Some(children) = node.get_mut("content").and_then(Value::as_array_mut) {
+                for child in children {
+                    locate(child, locations);
+                }
+            }
+        }
+        let mut located = projection.document.clone();
+        locate(&mut located, &locations);
+        self.record_validate_assets(&target.scope, &located, &retained)?;
         if let Scope::Project { project_id } = target.scope {
             let root = self
                 .project_root_path(project_id)
                 .map_err(|_| AgentError::new(ErrorCode::NotFound, "Project is missing"))?;
-            for asset in &assets {
-                if !retained.contains_key(asset) && !self.workspace_root.join(asset).starts_with(&root) {
+            for original in &assets {
+                let asset = locations.get(original).unwrap_or(original);
+                if !retained.contains_key(asset)
+                    && !self.workspace_root.join(asset).starts_with(&root)
+                {
                     return Err(AgentError::new(
                         ErrorCode::ScopeDenied,
                         "Record asset is outside this Project",
@@ -1463,7 +1537,10 @@ impl Database {
                 tag,
                 "data-path",
                 &super::escape_html_attribute(
-                    &self.workspace_root.join(relative).to_string_lossy(),
+                    &self
+                        .workspace_root
+                        .join(locations.get(&relative).unwrap_or(&relative))
+                        .to_string_lossy(),
                 ),
             )
         });

@@ -1,4 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
+import { withWorkspaceBinding } from "../../lib/workspace-operation";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 
 import { useContactMentionNavigation } from "../../hooks/useContactMentionNavigation";
@@ -19,6 +20,7 @@ export function WorkspaceTodoRail({
   workspaceRoot?: string;
   visible?: boolean;
 }) {
+  const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const projectTodoViewMode = useUiStore((state) => state.projectTodoViewMode);
   const setProjectTodoViewMode = useUiStore((state) => state.setProjectTodoViewMode);
@@ -34,9 +36,7 @@ export function WorkspaceTodoRail({
     queryKey: workspaceView
       ? queryKeys.projectTags.workspace
       : queryKeys.projectTags.project(projectId),
-    queryFn: () => projectMindApi.projectTagSettingsGet(
-      workspaceView ? {} : { projectId: projectId as number },
-    ),
+    queryFn: () => withWorkspaceBinding(queryClient, binding => projectMindApi.projectTagSettingsGet(workspaceView ? {} : { projectId: projectId as number }, binding)),
     enabled: visible,
     ...(workspaceView ? {} : RESIDENT_PROJECT_QUERY_OPTIONS),
   });

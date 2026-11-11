@@ -1,0 +1,51 @@
+
+ RUN  v4.1.2 /private/tmp/project-mind-wp09-docs-rules-20261111
+
+ ❯ scripts/check-ui-standards.test.mjs (32 tests | 1 failed) 15ms
+     × accepts the caret's existing opacity rhythm and actual stylesheet 11ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  scripts/check-ui-standards.test.mjs > UI motion standards > accepts the caret's existing opacity rhythm and actual stylesheet
+AssertionError: expected [ { …(4) }, { …(4) }, { …(4) } ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   {
++     "file": "src/styles/app.css",
++     "line": 80,
++     "rule": "caret-rhythm-contract",
++     "snippet": "--rhythm-caret-blink: 1.1s;",
++   },
++   {
++     "file": "src/styles/app.css",
++     "line": 80,
++     "rule": "no-raw-motion-duration",
++     "snippet": "--rhythm-caret-blink: 1.1s;",
++   },
++   {
++     "file": "src/styles/app.css",
++     "line": 80,
++     "rule": "no-long-ui-motion",
++     "snippet": "--rhythm-caret-blink: 1.1s;",
++   },
++ ]
+
+ ❯ scripts/check-ui-standards.test.mjs:17:64
+     15|     expect(collectMotionViolations("src/styles/app.css", caretSource))…
+     16|     const css = fs.readFileSync(new URL("../src/styles/app.css", impor…
+     17|     expect(collectMotionViolations("src/styles/app.css", css)).toEqual…
+       |                                                                ^
+     18|   });
+     19|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 57 passed (58)
+   Start at  02:20:49
+   Duration  930ms (transform 18ms, setup 0ms, import 31ms, tests 773ms, environment 0ms)

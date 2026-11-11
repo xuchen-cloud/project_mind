@@ -78,7 +78,11 @@ Project File 支持导入、搜索、Tag、重命名、标星、版本、打开�
 
 项目目录中的文件可通过扫描纳管。File 使用稳定 ID；同项目内改名或移动保持身份，File Version 保存已登记的不可变字节。旧导入位置未核对时先通过文件位置入口确认，不以同名文件替代原材料。
 
-File 在项目内容页签中预览文本、代码、Markdown、图片、PDF 或静态 HTML，可切换源码和固定历史版本。引用携带 File ID、版本与 hash，历史查看不跟随最新版本。相关图片和样式只能按同项目授权读取，历史依赖缺失会明确显示限制。Office 编辑与可执行 HTML 仍是独立需求。
+File 在项目内容页签中预览文本、代码、Markdown、图片和 PDF，可切换源码和固定历史版本。引用携带 File ID、版本与 hash，历史查看不跟随最新版本。
+
+项目 HTML 按[网页运行规格](requirements/html-webview-preview.md)使用独立 Wry 原生子 WebView，执行原始 JS/CSS，允许联网、HTTP(S) 导航和网络表单，遵循引擎 CORS 与权限规则；不开放 Tauri 命令或本机特权协议。本站点资源读取绑定 Workspace、根 File 身份与固定版本/hash，限制在同 Project 的 HTML 站点根内；固定历史缺少依赖快照时明确失败，不静默读取最新资源。下载管理暂不支持。
+
+HTML 的[实现与验证记录](implementation/html-webview-preview-20261023.md)与[当前待办](remaining-work.md)分别保留已验收证据及后续范围。Windows 部分 HTML/Office 编辑、保存重开已有证据，但完整项目壳的分栏/跨窗口拖移、安装包、多屏/DPI、安全矩阵和 Office 完整功能矩阵仍有验收缺口；HTML 源码编辑与历史依赖快照也未完整交付。旧静态 iframe 验证仅代表历史阶段。
 
 ### 3.7 Voice Record
 
@@ -112,7 +116,7 @@ Project 助手使用 DSH 原 Chat、Trajectory、输入框和插件组件，项�
 
 ## 5. 本地优先与数据边界
 
-- 业务主库为 `<workspace>/.project-mind/workspace.sqlite3`，当前 schema 为 v37。
+- 业务主库为 `<workspace>/.project-mind/workspace.sqlite3`，当前 schema 版本及迁移以 [`src-tauri/src/db.rs`](../src-tauri/src/db.rs) 为单一来源。
 - Project 对应 Workspace 根目录下的真实文件夹。
 - Workspace 自有资源使用相对路径持久化；机器相关绝对路径只允许存在于明确的外部来源字段和本地会话发现信息中。
 - Transcript 是不可编辑的语音事实来源；用户要修改时复制到 Record 正文。

@@ -1,13 +1,23 @@
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { projectMindApi } from "../services/projectMindApi";
+import { recordDocumentApi } from "../services/recordDocumentApi";
 import { queryKeys } from "../lib/queryKeys";
 import { useTodoModule } from "./use-todo-module";
 import type { ProjectListItem, TodoRecord } from "../lib/types";
 import { useFeedbackStore } from "../state/feedback-store";
 import { createBusinessChangeSync } from "../lib/business-change-sync";
+
+const binding = { workspaceId: "w1", generation: "g1" };
+beforeEach(() => { vi.spyOn(recordDocumentApi, "bindingGet").mockResolvedValue(binding); });
+function createClient(options?: ConstructorParameters<typeof QueryClient>[0]) {
+  const client = new QueryClient(options);
+  client.setQueryDefaults(queryKeys.workspaceStatus, { gcTime: Infinity });
+  client.setQueryData(queryKeys.workspaceStatus, { currentWorkspace: { rootPath: "/workspace-a" }, recentWorkspaces: [] });
+  return client;
+}
 
 const todo: TodoRecord = {
   revision: 1,
@@ -21,7 +31,7 @@ it("keeps visible todos through cache GC without requiring manual refresh", asyn
   vi.useFakeTimers();
   vi.spyOn(projectMindApi, "projectsList").mockResolvedValue([]);
   vi.spyOn(projectMindApi, "workspacePageGet").mockResolvedValue({ quickNote: null, records: [], unfinishedTodos: [todo], finishedTodos: [] });
-  const client = new QueryClient({ defaultOptions: { queries: { gcTime: 100, staleTime: Infinity, retry: false } } });
+  const client = createClient({ defaultOptions: { queries: { gcTime: 100, staleTime: Infinity, retry: false } } });
   const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
   const hook = renderHook(() => useTodoModule({ kind: "workspace" }), { wrapper });
   await act(async () => { await vi.advanceTimersByTimeAsync(10); });
@@ -38,11 +48,40 @@ it("keeps visible todos through cache GC without requiring manual refresh", asyn
   hook.unmount(); client.clear();
 });
 
+it("does not publish feedback or Todo data from a retired Workspace save", async () => {
+  vi.spyOn(projectMindApi, "projectsList").mockResolvedValue([]);
+  vi.spyOn(projectMindApi, "workspacePageGet").mockResolvedValue({ quickNote: null, records: [], unfinishedTodos: [todo], finishedTodos: [] });
+  let finish!: (value: TodoRecord) => void;
+  const update = vi.spyOn(projectMindApi, "todoUpdateContent").mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  const client = createClient({ defaultOptions: { queries: { retry: false } } });
+  const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+  const hook = renderHook(() => useTodoModule({ kind: "workspace" }), { wrapper });
+  await waitFor(() => expect(hook.result.current.ready).toBe(true));
+  const feedback = useFeedbackStore.getState();
+  let save!: Promise<unknown>;
+  await act(async () => {
+    save = hook.result.current.change({ type: "update-content", todoId: 1, content: "A saved" });
+    // Observe the rejection immediately, before releasing the transport.
+    void save.catch(() => {});
+  });
+  await waitFor(() => expect(update).toHaveBeenCalledOnce());
+  hook.unmount();
+  for (const key of queryKeys.workspaceScoped) client.removeQueries({ queryKey: key });
+  client.setQueryData(queryKeys.workspaceStatus, { currentWorkspace: { rootPath: "/workspace-b" } });
+  const other = { ...todo, content: "B original" };
+  client.setQueryData(queryKeys.todoCollections.workspaceRail, [other]);
+  finish({ ...todo, revision: 2, content: "A saved" });
+  await expect(save).rejects.toThrow("工作区已切换");
+  expect(client.getQueryData(queryKeys.todoCollections.workspaceRail)).toEqual([other]);
+  expect(useFeedbackStore.getState()).toBe(feedback);
+  client.clear();
+});
+
 it.each(["collection", "projects"])("reloads missing %s data when returning to a cached view", async (missing) => {
   vi.useFakeTimers();
   vi.spyOn(projectMindApi, "projectsList").mockResolvedValue([]);
   const load = vi.spyOn(projectMindApi, "workspacePageGet").mockResolvedValue({ quickNote: null, records: [], unfinishedTodos: [todo], finishedTodos: [] });
-  const client = new QueryClient({ defaultOptions: { queries: { gcTime: 100, staleTime: Infinity, refetchOnMount: false, retry: false } } });
+  const client = createClient({ defaultOptions: { queries: { gcTime: 100, staleTime: Infinity, refetchOnMount: false, retry: false } } });
   client.setQueryDefaults(queryKeys.todoViews.all, { gcTime: 1000 });
   if (missing === "projects") client.setQueryDefaults(queryKeys.todoCollections.all, { gcTime: 1000 });
   const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
@@ -74,7 +113,7 @@ it("retains project tasks and project metadata across GC, including while a page
   vi.spyOn(projectMindApi, "projectsList").mockResolvedValue([project]);
   vi.spyOn(projectMindApi, "workspacePageGet").mockResolvedValue({ quickNote: null, records: [], unfinishedTodos: [projectTodo], finishedTodos: [] });
   vi.spyOn(projectMindApi, "projectPageGet").mockResolvedValue({ project, projectDocuments: [], records: [], unfinishedTodos: [projectTodo], finishedTodos: [] });
-  const client = new QueryClient({ defaultOptions: { queries: { gcTime: 100, staleTime: Infinity, retry: false } } });
+  const client = createClient({ defaultOptions: { queries: { gcTime: 100, staleTime: Infinity, retry: false } } });
   const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
   const workspace = renderHook(({ enabled }) => useTodoModule({ kind: "workspace" }, enabled), { wrapper, initialProps: { enabled: true } });
   const projectView = renderHook(() => useTodoModule({ kind: "current-project", projectId: 7 }), { wrapper });
@@ -94,13 +133,13 @@ it("shows a readable GUI conflict after refreshing the actual Todo head and neve
     .mockResolvedValue({ quickNote: null, records: [], unfinishedTodos: [current], finishedTodos: [] });
   const conflict = JSON.stringify({ code: "REVISION_CONFLICT", message: "Todo head changed" });
   const update = vi.spyOn(projectMindApi, "todoUpdateContent").mockRejectedValueOnce(conflict);
-  const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
+  const client = createClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
   const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
   const hook = renderHook(() => useTodoModule({ kind: "workspace" }), { wrapper });
   await waitFor(() => expect(hook.result.current.ready).toBe(true));
   await act(async () => { await expect(hook.result.current.change({ type: "update-content", todoId: 1, content: "过期输入" })).rejects.toBe(conflict); });
   expect(update).toHaveBeenCalledOnce(); expect(load).toHaveBeenCalledTimes(2);
-  expect(update).toHaveBeenCalledWith(expect.objectContaining({ expectedRevision: todo.revision }));
+  expect(update).toHaveBeenCalledWith(expect.objectContaining({ expectedRevision: todo.revision }), binding);
   expect(hook.result.current.view.unfinishedTodos[0]).toMatchObject(current);
   const toasts = useFeedbackStore.getState().toasts;
   expect(toasts[toasts.length - 1].detail).toBe("Todo 已变化，已刷新最新数据。请核对后重新操作。");
@@ -121,7 +160,7 @@ it.each(["workspace", "current-project"] as const)("refreshes the visible %s rai
   vi.spyOn(projectMindApi, "projectsList").mockResolvedValue([project]);
   const pageGet = kind === "workspace" ? vi.spyOn(projectMindApi, "workspacePageGet") : vi.spyOn(projectMindApi, "projectPageGet");
   pageGet.mockResolvedValueOnce(before).mockReturnValueOnce(pending);
-  const client = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
+  const client = createClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false } } });
   const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
   const scope = kind === "workspace" ? { kind } as const : { kind, projectId: 7 } as const;
   const pageKey = kind === "workspace" ? queryKeys.workspacePage : queryKeys.projectPage(7);

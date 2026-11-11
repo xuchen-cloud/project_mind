@@ -1,3 +1,4 @@
+import { withWorkspaceBinding } from "../../lib/workspace-operation";
 import { HomeSaveIndicator } from "../home/HomeSaveIndicator";
 import { HomeNoteSidebar } from "../home/HomeNoteSidebar";
 import { HomeRecordHeader } from "../home/HomeRecordHeader";
@@ -139,7 +140,7 @@ export function WorkspaceRecordFocusPage({
 
   const workspacePageQuery = useQuery({
     queryKey: queryKeys.workspacePage,
-    queryFn: projectMindApi.workspacePageGet,
+    queryFn: () => projectMindApi.workspacePageGet(),
     enabled: visible && recordId !== null && loadedNoteId === null,
   });
   const workspaceStatusQuery = useQuery({
@@ -150,7 +151,7 @@ export function WorkspaceRecordFocusPage({
 
   const tagSettingsQuery = useQuery({
     queryKey: queryKeys.projectTags.workspace,
-    queryFn: () => projectMindApi.projectTagSettingsGet({}),
+    queryFn: () => withWorkspaceBinding(queryClient, binding => projectMindApi.projectTagSettingsGet({}, binding)),
     enabled: visible,
   });
   const aiSettingsQuery = useQuery({
@@ -684,10 +685,10 @@ export function WorkspaceRecordFocusPage({
                   projectId: null,
                   availableTags,
                   onCreateTag: async (label) => {
-                    const tag = await projectMindApi.projectTagUpsert({
+                    const tag = await withWorkspaceBinding(queryClient, binding => projectMindApi.projectTagUpsert({
                       label,
                       colorKey: colorKeyForTagLabel(label),
-                    });
+                    }, binding));
                     syncWorkspaceTagCache(tag);
                     return tag;
                   },

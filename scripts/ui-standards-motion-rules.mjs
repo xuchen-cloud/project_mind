@@ -75,7 +75,8 @@ function includesIndex(ranges, index) {
 function cssRules(content) {
   const rules = [];
   for (const match of content.matchAll(/([^{}]+)\{([^{}]*)\}/gu)) {
-    const selector = match[1].trim();
+    // Statement at-rules can precede the first selector (app.css imports Tailwind).
+    const selector = match[1].replace(/^(?:\s*@(?:import|charset|namespace)\b[^;]*;)+/u, "").trim();
     if (!selector || selector.startsWith("@") || /^(?:from|to|\d+(?:\.\d+)?%)$/u.test(selector)) {
       continue;
     }
@@ -151,6 +152,39 @@ function isAllowedContinuousSpinner(rules, index) {
   );
 }
 
+// A caret's repeating opacity rhythm is not a page transition. Keep this
+// contract local to the actual caret, including its reduced-motion override.
+function caretRhythmRanges(file, content, parsedRules, reducedRanges, keyframeRanges) {
+  if (file.replaceAll("\\", "/") !== "src/styles/app.css") return [];
+  const caretSelector = ".rich-editor__text-caret";
+  const hasReducedMotion = parsedRules.some((rule) =>
+    rule.selector === caretSelector && includesIndex(reducedRanges, rule.index) &&
+    /(?:^|;)\s*animation\s*:\s*none\s*;/u.test(rule.body),
+  );
+  const hasOpacityKeyframe = keyframeRanges.some((range) =>
+    range.name === "rich-editor-caret-blink" &&
+    /^\s*50%\s*\{\s*opacity\s*:\s*0\s*;\s*\}\s*$/u.test(content.slice(range.open + 1, range.end)),
+  );
+  if (!hasReducedMotion || !hasOpacityKeyframe) return [];
+
+  const ranges = [];
+  for (const rule of parsedRules) {
+    if (includesIndex(reducedRanges, rule.index)) continue;
+    const pattern = rule.selector === ":root"
+      ? /--rhythm-caret-blink\s*:\s*1\.1s\s*;/gu
+      : rule.selector === caretSelector
+        ? /\banimation\s*:\s*rich-editor-caret-blink\s+var\(--rhythm-caret-blink\)\s+step-end\s+infinite\s*;/gu
+        : null;
+    if (!pattern) continue;
+    const bodyStart = content.indexOf("{", rule.index) + 1;
+    for (const match of rule.body.matchAll(pattern)) {
+      const start = bodyStart + match.index;
+      ranges.push({ start, end: start + match[0].length });
+    }
+  }
+  return ranges;
+}
+
 export function collectMotionViolations(file, content) {
   const violations = [];
   const add = (name, index, snippet = snippetAt(content, index)) => {
@@ -180,6 +214,19 @@ export function collectMotionViolations(file, content) {
 
   if (file.endsWith(".css")) {
     const parsedRules = cssRules(content);
+    const reducedRanges = atRuleRanges(
+      content,
+      /@media\s*\(\s*prefers-reduced-motion\s*:\s*reduce\s*\)/gu,
+    );
+    const keyframeRanges = atRuleRanges(
+      content,
+      /@(?:-webkit-)?keyframes\s+([-_a-zA-Z0-9]+)/gu,
+    );
+    const caretRanges = caretRhythmRanges(file, content, parsedRules, reducedRanges, keyframeRanges);
+    const isCaretRhythm = (index) => caretRanges.some((range) => index >= range.start && index < range.end);
+    for (const match of content.matchAll(/--rhythm-caret-blink\b/gu)) {
+      if (!isCaretRhythm(match.index)) add("caret-rhythm-contract", match.index);
+    }
     for (const match of content.matchAll(/\b(\d+)ms\b/gu)) {
       const duration = Number(match[1]);
       const line = snippetAt(content, match.index ?? 0);
@@ -196,19 +243,12 @@ export function collectMotionViolations(file, content) {
     for (const match of content.matchAll(/\b(\d+(?:\.\d+)?)s\b/gu)) {
       const line = snippetAt(content, match.index ?? 0);
       if (Number(match[1]) === 0) continue;
+      if (isCaretRhythm(match.index)) continue;
       if (isAllowedContinuousSpinner(parsedRules, match.index ?? 0)) continue;
       add("no-raw-motion-duration", match.index ?? 0, line);
       if (Number(match[1]) * 1000 > 300) add("no-long-ui-motion", match.index ?? 0, line);
     }
 
-    const reducedRanges = atRuleRanges(
-      content,
-      /@media\s*\(\s*prefers-reduced-motion\s*:\s*reduce\s*\)/gu,
-    );
-    const keyframeRanges = atRuleRanges(
-      content,
-      /@(?:-webkit-)?keyframes\s+([-_a-zA-Z0-9]+)/gu,
-    );
     const transformKeyframes = new Set(
       keyframeRanges
         .filter((range) =>

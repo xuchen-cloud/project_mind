@@ -260,7 +260,12 @@ impl WorkspaceRuntime {
         let execution = db.ai_execution_settings_get()?;
         let secret_state = Arc::new(Mutex::new(secret_password));
         let app_handle = app_handle.clone();
+        let agent_binding = agent::models::WorkspaceBinding {
+            workspace_id: metadata.workspace_id.clone(),
+            generation: format!("{:032x}", rand::random::<u128>()),
+        };
         let ai_jobs = AiJobManager::new(
+            agent_binding.clone(),
             paths.db_path.clone(),
             paths.root_path.clone(),
             secret_state.clone(),
@@ -270,10 +275,6 @@ impl WorkspaceRuntime {
             }),
         );
 
-        let agent_binding = agent::models::WorkspaceBinding {
-                workspace_id: metadata.workspace_id.clone(),
-                generation: format!("{:032x}", rand::random::<u128>()),
-            };
         let connection_credentials = agent::bridge::credentials::FileCredentialStore::local()
             .map_err(|error| anyhow!(error.message))?;
         db.agent_connection_migrate_local_credentials(
@@ -642,6 +643,19 @@ async fn with_db_async<T: Send + 'static>(
     }).await
 }
 
+async fn with_optional_bound_db_async<T: Send + 'static>(
+    app: tauri::AppHandle,
+    binding: Option<agent::models::WorkspaceBinding>,
+    task: impl FnOnce(&mut Database) -> Result<T> + Send + 'static,
+) -> CommandResult<T> {
+    match binding {
+        Some(binding) => spawn_bound_db_worker(binding, move |binding| {
+            with_bound_db(app.state::<AppState>(), Some(binding), task)
+        }).await,
+        None => with_db_async(app, task).await,
+    }
+}
+
 async fn spawn_bound_db_worker<T: Send + 'static>(
     binding: agent::models::WorkspaceBinding,
     task: impl FnOnce(&agent::models::WorkspaceBinding) -> CommandResult<T> + Send + 'static,
@@ -667,19 +681,7 @@ fn with_bound_db<T>(
     let runtime = state
         .current_workspace()
         .map_err(|error| error.to_string())?;
-    let request_id = format!("gui:{:032x}", rand::random::<u128>());
-    let (result, changes) = {
-        let current = lock_mutex(&state.current_workspace);
-        if !current.as_ref().is_some_and(|current| Arc::ptr_eq(current, &runtime)) {
-            return Err("Workspace changed before the command acquired storage".into());
-        }
-        if let Some(expected) = binding {
-            require_workspace_binding(expected, &runtime.agent_binding)?;
-        }
-        let mut db = lock_mutex(&runtime.db);
-        committed_changes::capture_native_committed(&runtime.agent_binding, &mut db, &request_id, task)
-            .map_err(|error| error.to_string())?
-    };
+    let (result, changes) = with_bound_db_storage(&state.current_workspace, &runtime, binding, task)?;
     // Both the transaction and storage lock are released before event delivery.
     if let Some(changes) = changes {
         use committed_changes::CommittedChangePublisher;
@@ -687,6 +689,30 @@ fn with_bound_db<T>(
     }
     result.map_err(|error| error.to_string())
 }
+
+// Keep current-workspace identity and binding validation under the same lock as
+// storage acquisition. This window-free seam is also used by the SQLite tests.
+fn with_bound_db_storage<T>(
+    current_workspace: &Mutex<Option<Arc<WorkspaceRuntime>>>,
+    runtime: &Arc<WorkspaceRuntime>,
+    binding: Option<&agent::models::WorkspaceBinding>,
+    task: impl FnOnce(&mut Database) -> Result<T>,
+) -> CommandResult<(Result<T>, Option<committed_changes::CommittedChanges>)> {
+    let request_id = format!("gui:{:032x}", rand::random::<u128>());
+    let current = lock_mutex(current_workspace);
+    if !current.as_ref().is_some_and(|current| Arc::ptr_eq(current, runtime)) {
+        return Err("Workspace changed before the command acquired storage".into());
+    }
+    if let Some(expected) = binding {
+        require_workspace_binding(expected, &runtime.agent_binding)?;
+    }
+    let mut db = lock_mutex(&runtime.db);
+    committed_changes::capture_native_committed(&runtime.agent_binding, &mut db, &request_id, task)
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(test)]
+mod todo_workspace_binding_tests;
 
 fn with_workspace_runtime<T>(
     state: State<'_, AppState>,
@@ -1074,9 +1100,10 @@ async fn workspace_close(state: State<'_, AppState>) -> CommandResult<WorkspaceS
 #[tauri::command]
 async fn projects_list(
     state: State<'_, AppState>,
+    binding: Option<agent::models::WorkspaceBinding>,
     input: Option<ProjectsListInput>,
 ) -> CommandResult<Vec<ProjectListItem>> {
-    with_db_async(state.app_handle.clone(), move |db| {
+    with_optional_bound_db_async(state.app_handle.clone(), binding, move |db| {
         db.projects_list(input.unwrap_or(ProjectsListInput {
             include_archived: Some(false),
         }))
@@ -1094,14 +1121,18 @@ fn project_create(
 #[tauri::command]
 async fn project_page_get(
     state: State<'_, AppState>,
+    binding: Option<agent::models::WorkspaceBinding>,
     input: ProjectIdInput,
 ) -> CommandResult<ProjectPageData> {
-    with_db_async(state.app_handle.clone(), move |db| db.project_page_get(input)).await
+    with_optional_bound_db_async(state.app_handle.clone(), binding, move |db| db.project_page_get(input)).await
 }
 
 #[tauri::command]
-async fn workspace_page_get(state: State<'_, AppState>) -> CommandResult<WorkspacePageData> {
-    with_db_async(state.app_handle.clone(), |db| db.workspace_page_get()).await
+async fn workspace_page_get(
+    state: State<'_, AppState>,
+    binding: Option<agent::models::WorkspaceBinding>,
+) -> CommandResult<WorkspacePageData> {
+    with_optional_bound_db_async(state.app_handle.clone(), binding, |db| db.workspace_page_get()).await
 }
 
 #[tauri::command]
@@ -1131,25 +1162,28 @@ fn project_delete(
 #[tauri::command]
 fn file_tag_settings_get(
     state: State<'_, AppState>,
+    binding: agent::models::WorkspaceBinding,
     input: FileTagSettingsGetInput,
 ) -> CommandResult<FileTagSettingsSnapshot> {
-    with_db(state, |db| db.file_tag_settings_get(input))
+    with_bound_db(state, Some(&binding), |db| db.file_tag_settings_get(input))
 }
 
 #[tauri::command]
 fn file_tag_option_upsert(
     state: State<'_, AppState>,
+    binding: agent::models::WorkspaceBinding,
     input: FileTagOptionUpsertInput,
 ) -> CommandResult<FileTagRecord> {
-    with_db(state, |db| db.file_tag_option_upsert(input))
+    with_bound_db(state, Some(&binding), |db| db.file_tag_option_upsert(input))
 }
 
 #[tauri::command]
 fn file_tag_option_delete(
     state: State<'_, AppState>,
+    binding: agent::models::WorkspaceBinding,
     input: FileTagOptionDeleteInput,
 ) -> CommandResult<FileTagSettingsSnapshot> {
-    with_db(state, |db| db.file_tag_option_delete(input))
+    with_bound_db(state, Some(&binding), |db| db.file_tag_option_delete(input))
 }
 
 #[tauri::command]
@@ -1217,77 +1251,93 @@ fn project_record_delete(
 }
 
 #[tauri::command]
-fn todo_create(state: State<'_, AppState>, input: TodoCreateInput) -> CommandResult<TodoRecord> {
-    with_db(state, |db| db.todo_create(input))
+fn todo_create(
+    state: State<'_, AppState>,
+    binding: agent::models::WorkspaceBinding,
+    input: TodoCreateInput,
+) -> CommandResult<TodoRecord> {
+    with_bound_db(state, Some(&binding), |db| db.todo_create(input))
 }
 
 #[tauri::command]
 fn todo_update_status(
     state: State<'_, AppState>,
+    binding: agent::models::WorkspaceBinding,
     input: TodoUpdateStatusInput,
 ) -> CommandResult<TodoRecord> {
-    with_db(state, |db| db.todo_update_status(input))
+    with_bound_db(state, Some(&binding), |db| db.todo_update_status(input))
 }
 
 #[tauri::command]
 fn todo_update_priority(
     state: State<'_, AppState>,
+    binding: agent::models::WorkspaceBinding,
     input: TodoUpdatePriorityInput,
 ) -> CommandResult<TodoRecord> {
-    with_db(state, |db| db.todo_update_priority(input))
+    with_bound_db(state, Some(&binding), |db| db.todo_update_priority(input))
 }
 
 #[tauri::command]
 fn todo_update_content(
     state: State<'_, AppState>,
+    binding: agent::models::WorkspaceBinding,
     input: TodoUpdateContentInput,
 ) -> CommandResult<TodoRecord> {
-    with_db(state, |db| db.todo_update_content(input))
+    with_bound_db(state, Some(&binding), |db| db.todo_update_content(input))
 }
 
 #[tauri::command]
 fn todo_update_tags(
     state: State<'_, AppState>,
+    binding: agent::models::WorkspaceBinding,
     input: TodoUpdateTagsInput,
 ) -> CommandResult<TodoRecord> {
-    with_db(state, |db| db.todo_update_tags(input))
+    with_bound_db(state, Some(&binding), |db| db.todo_update_tags(input))
 }
 
 #[tauri::command]
 fn todo_add_progress(
     state: State<'_, AppState>,
+    binding: agent::models::WorkspaceBinding,
     input: TodoAddProgressInput,
 ) -> CommandResult<TodoProgressRecord> {
-    with_db(state, |db| db.todo_add_progress(input))
+    with_bound_db(state, Some(&binding), |db| db.todo_add_progress(input))
 }
 
 #[tauri::command]
 fn todo_update_progress(
     state: State<'_, AppState>,
+    binding: agent::models::WorkspaceBinding,
     input: TodoUpdateProgressInput,
 ) -> CommandResult<TodoProgressRecord> {
-    with_db(state, |db| db.todo_update_progress(input))
+    with_bound_db(state, Some(&binding), |db| db.todo_update_progress(input))
 }
 
 #[tauri::command]
 fn todo_delete_progress(
     state: State<'_, AppState>,
+    binding: agent::models::WorkspaceBinding,
     input: TodoDeleteProgressInput,
 ) -> CommandResult<TodoProgressRecord> {
-    with_db(state, |db| db.todo_delete_progress(input))
+    with_bound_db(state, Some(&binding), |db| db.todo_delete_progress(input))
 }
 
 #[tauri::command]
-fn todo_delete(state: State<'_, AppState>, input: TodoDeleteInput) -> CommandResult<TodoRecord> {
-    with_db(state, |db| db.todo_delete(input))
+fn todo_delete(
+    state: State<'_, AppState>,
+    binding: agent::models::WorkspaceBinding,
+    input: TodoDeleteInput,
+) -> CommandResult<TodoRecord> {
+    with_bound_db(state, Some(&binding), |db| db.todo_delete(input))
 }
 
 #[tauri::command]
 fn todo_list_open(
     state: State<'_, AppState>,
+    binding: agent::models::WorkspaceBinding,
     input: ProjectIdInput,
 ) -> CommandResult<Vec<TodoRecord>> {
-    with_db(state, |db| db.todo_list_open(input))
+    with_bound_db(state, Some(&binding), |db| db.todo_list_open(input))
 }
 
 #[tauri::command]
@@ -1498,21 +1548,44 @@ fn ai_editor_skill_reorder(
 }
 
 #[tauri::command]
+fn ai_job_binding_get(state: State<'_, AppState>) -> CommandResult<agent::models::WorkspaceBinding> {
+    with_workspace_runtime(state, |runtime| Ok(runtime.agent_binding.clone()))
+}
+
+// Hold the current runtime lock through the job operation so a stale request
+// cannot address the same numeric job ID in a newly opened Workspace.
+fn with_bound_ai_jobs<T>(
+    state: State<'_, AppState>,
+    binding: &agent::models::WorkspaceBinding,
+    task: impl FnOnce(&AiJobManager) -> T,
+) -> CommandResult<T> {
+    let current = lock_mutex(&state.current_workspace);
+    let runtime = current.as_ref().ok_or("No Workspace is open")?;
+    require_workspace_binding(binding, &runtime.agent_binding)?;
+    Ok(task(&runtime.ai_jobs))
+}
+
+#[tauri::command]
 fn ai_job_enqueue(
     state: State<'_, AppState>,
     input: AiJobEnqueueInput,
+    binding: agent::models::WorkspaceBinding,
 ) -> CommandResult<AiJobSnapshot> {
-    with_workspace_runtime(state, |runtime| Ok(runtime.ai_jobs.enqueue(input)))
+    with_bound_ai_jobs(state, &binding, |jobs| jobs.enqueue(input))
 }
 
 #[tauri::command]
-fn ai_job_get(state: State<'_, AppState>, job_id: i64) -> CommandResult<Option<AiJobSnapshot>> {
-    with_workspace_runtime(state, |runtime| Ok(runtime.ai_jobs.get(job_id)))
+fn ai_job_get(
+    state: State<'_, AppState>, job_id: i64, binding: agent::models::WorkspaceBinding,
+) -> CommandResult<Option<AiJobSnapshot>> {
+    with_bound_ai_jobs(state, &binding, |jobs| jobs.get(job_id))
 }
 
 #[tauri::command]
-fn ai_job_cancel(state: State<'_, AppState>, job_id: i64) -> CommandResult<Option<AiJobSnapshot>> {
-    with_workspace_runtime(state, |runtime| Ok(runtime.ai_jobs.cancel(job_id)))
+fn ai_job_cancel(
+    state: State<'_, AppState>, job_id: i64, binding: agent::models::WorkspaceBinding,
+) -> CommandResult<Option<AiJobSnapshot>> {
+    with_bound_ai_jobs(state, &binding, |jobs| jobs.cancel(job_id))
 }
 
 #[tauri::command]
@@ -1525,8 +1598,10 @@ fn ai_image_target_signature(
 }
 
 #[tauri::command]
-fn ai_jobs_list_active(state: State<'_, AppState>) -> CommandResult<Vec<AiJobSnapshot>> {
-    with_workspace_runtime(state, |runtime| Ok(runtime.ai_jobs.list_active()))
+fn ai_jobs_list_active(
+    state: State<'_, AppState>, binding: agent::models::WorkspaceBinding,
+) -> CommandResult<Vec<AiJobSnapshot>> {
+    with_bound_ai_jobs(state, &binding, |jobs| jobs.list_active())
 }
 
 #[tauri::command]
@@ -2034,6 +2109,7 @@ pub fn run() {
             ai_editor_skill_upsert,
             ai_editor_skill_delete,
             ai_editor_skill_reorder,
+            ai_job_binding_get,
             ai_job_enqueue,
             ai_job_get,
             ai_job_cancel,

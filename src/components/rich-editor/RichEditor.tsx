@@ -69,6 +69,8 @@ import {
   aiEditorSkillJobTargetKey,
   editorSkillJobInput,
   ensureAiJobSync,
+  enqueueAiJob,
+  cancelAiJob,
   readEditorSkillJobResult,
 } from "../../lib/aiJobs";
 import { fileUriToPath } from "../../lib/formatters";
@@ -87,6 +89,7 @@ import {
   trimTrailingCodeBlockNewline,
 } from "../../lib/richTextContent";
 import type {
+  AiJobIdentity,
   AiEditorSkillResultMode,
   AiSettingsSnapshot,
   ContactRecord,
@@ -323,7 +326,7 @@ interface EditorSkillSessionState {
   resolvedModel?: string | null;
   resolvedProfileName?: string | null;
   usedDefaultFallback?: boolean;
-  jobId?: number | null;
+  job?: AiJobIdentity | null;
   contentIdentity: string | null;
   contextStale?: boolean;
   parseError?: string | null;
@@ -633,7 +636,7 @@ export function RichEditor({
   const tagResultsRef = useRef<ProjectTagRecord[]>([]);
   const rewriteSessionRef = useRef<EditorSkillSessionState | null>(null);
   const rewriteSessionsRef = useRef<EditorSkillSessionState[]>([]);
-  const editorSkillJobIdsRef = useRef(new Map<string, number>());
+  const editorSkillJobsRef = useRef(new Map<string, AiJobIdentity>());
   const internalEditorCommitInFlightRef = useRef(false);
   const abandonedEditorSkillTargetsRef = useRef(new Set<string>());
   const rewriteWidgetStateRef = useRef<EditorSkillWidgetState | null>(null);
@@ -2201,10 +2204,10 @@ export function RichEditor({
             aiPreviewMutationRef.current = false;
           }
         }
-        const jobId = session.jobId ?? editorSkillJobIdsRef.current.get(session.targetKey);
-        if (!jobId) abandonedEditorSkillTargetsRef.current.add(session.targetKey);
-        if (jobId) void projectMindApi.aiJobCancel(jobId).catch(() => undefined);
-        editorSkillJobIdsRef.current.delete(session.targetKey);
+        const job = session.job ?? editorSkillJobsRef.current.get(session.targetKey);
+        if (!job) abandonedEditorSkillTargetsRef.current.add(session.targetKey);
+        if (job) void cancelAiJob(job).catch(() => undefined);
+        editorSkillJobsRef.current.delete(session.targetKey);
       }
       setEditorRewriteProtectedRange(editor, null);
       rewriteSessionRef.current = null;
@@ -2561,10 +2564,10 @@ export function RichEditor({
         if (!editor) return;
         replacementGenerationRef.current += 1;
         for (const session of rewriteSessionsRef.current) {
-          const jobId = session.jobId ?? editorSkillJobIdsRef.current.get(session.targetKey);
-          if (!jobId) abandonedEditorSkillTargetsRef.current.add(session.targetKey);
-          if (jobId) void projectMindApi.aiJobCancel(jobId).catch(() => undefined);
-          editorSkillJobIdsRef.current.delete(session.targetKey);
+          const job = session.job ?? editorSkillJobsRef.current.get(session.targetKey);
+          if (!job) abandonedEditorSkillTargetsRef.current.add(session.targetKey);
+          if (job) void cancelAiJob(job).catch(() => undefined);
+          editorSkillJobsRef.current.delete(session.targetKey);
         }
         setEditorRewriteProtectedRange(editor, null);
         rewriteSessionRef.current = null;
@@ -3127,14 +3130,14 @@ export function RichEditor({
   const closeRewriteSession = useCallback(() => {
     const session = rewriteSessionRef.current;
     rollbackRewritePreview(session);
-    const jobId = session?.jobId ?? (session ? editorSkillJobIdsRef.current.get(session.targetKey) : null);
-    if (session && !jobId) abandonedEditorSkillTargetsRef.current.add(session.targetKey);
-    if (jobId) {
-      const currentJob = useAiJobStore.getState().jobsById[jobId];
-      editorSkillJobIdsRef.current.delete(session?.targetKey ?? "");
-      void projectMindApi.aiJobCancel(jobId).then((snapshot) => {
-        if (snapshot) useAiJobStore.getState().upsertJob(snapshot);
-      }).catch(() => undefined);
+    const job = session?.job ?? (session ? editorSkillJobsRef.current.get(session.targetKey) : null);
+    if (session && !job) abandonedEditorSkillTargetsRef.current.add(session.targetKey);
+    if (job) {
+      const state = useAiJobStore.getState();
+      const currentJob = state.binding?.workspaceId === job.binding.workspaceId
+        && state.binding.generation === job.binding.generation ? state.jobsById[job.id] : null;
+      editorSkillJobsRef.current.delete(session?.targetKey ?? "");
+      void cancelAiJob(job).catch(() => undefined);
       if (currentJob?.status === "queued" || currentJob?.status === "running") {
         pushToast({
           tone: "info",
@@ -3167,10 +3170,10 @@ export function RichEditor({
     const session = rewriteSessionsRef.current.find((item) => item.targetKey === targetKey);
     if (!session) return;
     rollbackRewritePreview(session);
-    const jobId = session.jobId ?? editorSkillJobIdsRef.current.get(targetKey);
-    if (!jobId) abandonedEditorSkillTargetsRef.current.add(targetKey);
-    if (jobId) void projectMindApi.aiJobCancel(jobId).catch(() => undefined);
-    editorSkillJobIdsRef.current.delete(targetKey);
+    const job = session.job ?? editorSkillJobsRef.current.get(targetKey);
+    if (!job) abandonedEditorSkillTargetsRef.current.add(targetKey);
+    if (job) void cancelAiJob(job).catch(() => undefined);
+    editorSkillJobsRef.current.delete(targetKey);
     if (editor) setEditorRewriteProtectedRange(editor, null, targetKey);
     setRewriteSessions((current) => current.filter((item) => item.targetKey !== targetKey));
     if (editor) releaseEditorViewportPreservation(editor, 1_000);
@@ -3180,12 +3183,12 @@ export function RichEditor({
     const sessions = rewriteSessionsRef.current;
     for (const session of [...sessions].reverse()) {
       rollbackRewritePreview(session);
-      const jobId = session.jobId ?? editorSkillJobIdsRef.current.get(session.targetKey);
-      if (!jobId) abandonedEditorSkillTargetsRef.current.add(session.targetKey);
-      if (jobId) {
-        void projectMindApi.aiJobCancel(jobId).catch(() => undefined);
+      const job = session.job ?? editorSkillJobsRef.current.get(session.targetKey);
+      if (!job) abandonedEditorSkillTargetsRef.current.add(session.targetKey);
+      if (job) {
+        void cancelAiJob(job).catch(() => undefined);
       }
-      editorSkillJobIdsRef.current.delete(session.targetKey);
+      editorSkillJobsRef.current.delete(session.targetKey);
     }
     if (editor) setEditorRewriteProtectedRange(editor, null);
     if (editor) releaseEditorViewportPreservation(editor);
@@ -3204,10 +3207,10 @@ export function RichEditor({
     }
     for (const session of [...sessions].reverse()) {
       rollbackRewritePreview(session);
-      const jobId = session.jobId ?? editorSkillJobIdsRef.current.get(session.targetKey);
-      if (!jobId) abandonedEditorSkillTargetsRef.current.add(session.targetKey);
-      if (jobId) void projectMindApi.aiJobCancel(jobId).catch(() => undefined);
-      editorSkillJobIdsRef.current.delete(session.targetKey);
+      const job = session.job ?? editorSkillJobsRef.current.get(session.targetKey);
+      if (!job) abandonedEditorSkillTargetsRef.current.add(session.targetKey);
+      if (job) void cancelAiJob(job).catch(() => undefined);
+      editorSkillJobsRef.current.delete(session.targetKey);
     }
     if (editor) setEditorRewriteProtectedRange(editor, null);
     if (editor) releaseEditorViewportPreservation(editor, 1_000);
@@ -3328,7 +3331,7 @@ export function RichEditor({
         answer: null,
         targetType,
         imageTarget: options.imageTarget,
-        jobId: null,
+        job: null,
         contentIdentity: contentIdentity ?? null,
         contextStale: false,
       };
@@ -3345,7 +3348,8 @@ export function RichEditor({
       setContextMenu(null);
 
       try {
-        await ensureAiJobSync();
+        const binding = await ensureAiJobSync();
+        if (!binding) throw new Error("工作区已切换，AI 请求已停止等待");
         const imagePath = targetType === "image"
           ? resolveImageTargetPath(options.imageTarget?.attrs)
           : null;
@@ -3359,7 +3363,7 @@ export function RichEditor({
         const nearby = targetType === "image" && options.imageTarget
           ? buildImageEditorContext(editor, options.imageTarget.nodePos)
           : null;
-        const queuedJob = await projectMindApi.aiJobEnqueue(
+        const queuedJob = await enqueueAiJob(
           editorSkillJobInput(targetKey, {
             skillId: options.skillId ?? null,
             skillName: options.skillName,
@@ -3381,21 +3385,21 @@ export function RichEditor({
                 }
               : null,
           }),
+          binding,
         );
-        editorSkillJobIdsRef.current.set(targetKey, queuedJob.id);
-        useAiJobStore.getState().upsertJob(queuedJob);
+        const job: AiJobIdentity = { id: queuedJob.id, binding: queuedJob.binding };
+        editorSkillJobsRef.current.set(targetKey, job);
         if (abandonedEditorSkillTargetsRef.current.delete(targetKey)) {
-          const cancelled = await projectMindApi.aiJobCancel(queuedJob.id).catch(() => null);
-          editorSkillJobIdsRef.current.delete(targetKey);
-          if (cancelled) useAiJobStore.getState().upsertJob(cancelled);
+          await cancelAiJob(job).catch(() => null);
+          editorSkillJobsRef.current.delete(targetKey);
           return;
         }
         updateRewriteSessionByTarget(targetKey, (current) => ({
           ...current,
-          jobId: queuedJob.id,
+          job,
         }));
       } catch (error) {
-        editorSkillJobIdsRef.current.delete(targetKey);
+        editorSkillJobsRef.current.delete(targetKey);
         rollbackRewritePreview(nextSession);
         setEditorRewriteProtectedRange(editor, null, targetKey);
         updateRewriteSessionByTarget(targetKey, () => null);
@@ -3698,7 +3702,7 @@ export function RichEditor({
       });
       return;
     }
-    editorSkillJobIdsRef.current.delete(rewriteSession.targetKey);
+    editorSkillJobsRef.current.delete(rewriteSession.targetKey);
     publishAiEditorSnapshot();
     onAiCommit?.(captureCommittedValue(editor));
     releaseEditorViewportPreservation(editor, 1_000);
@@ -3716,10 +3720,10 @@ export function RichEditor({
     const protectedRange = editor
       ? getEditorRewriteProtectedRange(editor, rewriteSession.targetKey)
       : null;
-    const jobId = rewriteSession.jobId ?? editorSkillJobIdsRef.current.get(rewriteSession.targetKey);
-    if (jobId) void projectMindApi.aiJobCancel(jobId).catch(() => undefined);
+    const job = rewriteSession.job ?? editorSkillJobsRef.current.get(rewriteSession.targetKey);
+    if (job) void cancelAiJob(job).catch(() => undefined);
     if (editor) setEditorRewriteProtectedRange(editor, null, rewriteSession.targetKey);
-    editorSkillJobIdsRef.current.delete(rewriteSession.targetKey);
+    editorSkillJobsRef.current.delete(rewriteSession.targetKey);
     void startEditorSkill({
       skillId: rewriteSession.skill.id ?? null,
       skillName: rewriteSession.skill.name,

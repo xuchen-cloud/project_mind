@@ -1,4 +1,4 @@
-import { fireEvent, render as baseRender, screen } from "@testing-library/react";
+import { act, fireEvent, render as baseRender, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -14,6 +14,27 @@ function render(ui: ReactElement) {
 }
 
 describe("TodoInlineProgressEditor", () => {
+  it.each(["I/O failure", "REVISION_CONFLICT"])("keeps the full new subtask draft after %s and retries it", async (message) => {
+    const user = userEvent.setup();
+    let rejectSave!: (error: Error) => void;
+    const onSave = vi.fn()
+      .mockImplementationOnce(() => new Promise<void>((_resolve, reject) => { rejectSave = reject; }))
+      .mockResolvedValueOnce(undefined);
+    render(<TodoInlineProgressEditor latestProgress={null} editable onSave={onSave} />);
+
+    await user.click(screen.getByRole("button", { name: "添加子任务" }));
+    await user.type(screen.getByRole("textbox"), "@20270315 提交完整方案");
+    await user.keyboard("{Enter}");
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    await act(async () => { rejectSave(new Error(message)); });
+
+    expect(screen.getByRole("textbox")).toHaveTextContent("@20270315 提交完整方案");
+    await user.keyboard("{Enter}");
+    expect(onSave).toHaveBeenCalledTimes(2);
+    expect(onSave.mock.calls[1]).toEqual(onSave.mock.calls[0]);
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+  });
+
   it("returns to display mode immediately while editing save is pending", async () => {
     const user = userEvent.setup();
     let resolveSave: (() => void) | null = null;

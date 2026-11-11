@@ -1,0 +1,8 @@
+
+ RUN  v4.1.2 /private/tmp/project-mind-wp09-docs-rules-20261111
+
+
+ Test Files  2 passed (2)
+      Tests  58 passed (58)
+   Start at  08:19:08
+   Duration  421ms (transform 19ms, setup 0ms, import 31ms, tests 252ms, environment 0ms)

@@ -1,3 +1,5 @@
+import { withWorkspaceBinding } from "../../lib/workspace-operation";
+import { useQueryClient } from "@tanstack/react-query";
 import "./entity-tags.css";
 import "../../ui/components/recommendation.css";
 import { useMemo, useRef, useState, type KeyboardEvent, type Ref } from "react";
@@ -42,6 +44,7 @@ export function EntityTagEditor({
   onCommitSettled,
   onCommitNavigation,
 }: EntityTagEditorProps) {
+  const queryClient = useQueryClient();
   const [input, setInput] = useState("");
   const [creating, setCreating] = useState(false);
   const localInputRef = useRef<HTMLInputElement | null>(null);
@@ -88,11 +91,11 @@ export function EntityTagEditor({
   };
 
   const createTag = async (label: string) => {
-    const tag = await projectMindApi.projectTagUpsert({
+    const tag = await withWorkspaceBinding(queryClient, binding => projectMindApi.projectTagUpsert({
       projectId: projectId ?? null,
       label,
       colorKey: colorKeyForTagLabel(label),
-    });
+    }, binding));
     onCreated?.(tag);
     return tag;
   };

@@ -1,5 +1,5 @@
 import { directoryQueryRelativePath, matchesDirectoryQueryBinding, projectDirectoryQueryKey } from "../../lib/project-directory-query";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, Trash2 } from "lucide-react";
@@ -10,7 +10,7 @@ import { projectMindApi } from "../../services/projectMindApi";
 import type { WorkspaceStatusSnapshot } from "../../lib/types";
 import { queryKeys } from "../../lib/queryKeys";
 import { getErrorMessage } from "../../lib/errors";
-import { projectFilePathMatches, openProjectFilePreview } from "../../lib/project-file-navigation";
+import { indexProjectFiles, openProjectFilePreview, type ProjectFileIndex } from "../../lib/project-file-navigation";
 import { projectDirectoryApi, type ProjectDirectoryEntry } from "../../services/projectDirectoryApi";
 import { desktopApi } from "../../services/desktopApi";
 import type { AgentWorkspaceBinding } from "../../lib/agent-types";
@@ -104,13 +104,13 @@ export function useProjectDirectoryListing({ projectId, workspaceRoot, binding, 
   return directory;
 }
 
-function DirectoryBranch({ projectId, workspaceRoot, binding, rootPath, relativePath, depth, enabled, activeRelativePath, selection, onContextMenu, renderRenameInput, renderDirectoryRenameInput, documents }: {
+function DirectoryBranch({ projectId, workspaceRoot, binding, rootPath, relativePath, depth, enabled, activeRelativePath, selection, onContextMenu, renderRenameInput, renderDirectoryRenameInput, fileIndex }: {
   projectId: number | null; workspaceRoot?: string; binding?: AgentWorkspaceBinding; rootPath: string; relativePath: string; depth: number; enabled: boolean; activeRelativePath?: string | null;
   selection: ReturnType<typeof useFileSelection>;
   onContextMenu: (item: FileSelectionItem, x: number, y: number, event?: Parameters<ReturnType<typeof useFileSelection>["onContextMenu"]>[1]) => void;
   renderRenameInput?: (path: string) => ReactNode;
   renderDirectoryRenameInput: (path: string) => ReactNode;
-  documents: ProjectSidebarDocumentItem[];
+  fileIndex: ProjectFileIndex<ProjectSidebarDocumentItem>;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   useEffect(() => {
@@ -131,7 +131,7 @@ function DirectoryBranch({ projectId, workspaceRoot, binding, rootPath, relative
     {directory.isError ? <div className="project-directory__message" style={indentation} role="alert">{getErrorMessage(directory.error, "无法读取项目目录")}<button type="button" onClick={() => void directory.refetch()}>重试读取目录</button></div> : null}
     {directory.data?.length === 0 ? <p className="project-directory__message" style={indentation}>此目录为空</p> : null}
     {directory.data?.map(entry => {
-      const dropDocument = entry.kind === "file" ? documents.find(document => projectFilePathMatches(document.managedPath, rootPath, entry.relativePath)) : undefined;
+      const dropDocument = entry.kind === "file" ? fileIndex.findByRelativePath(entry.relativePath) : undefined;
       const starred = dropDocument?.isStarred;
       const item: FileSelectionItem = { key: `${entry.kind}:${entry.relativePath}`, relativePath: entry.relativePath, kind: entry.kind, ...(dropDocument ? { fileId: dropDocument.id } : {}) };
       const selected = selection.selected.has(item.key);
@@ -167,18 +167,21 @@ function DirectoryBranch({ projectId, workspaceRoot, binding, rootPath, relative
         {starred ? <ListPinIndicator label="标星" /> : null}
       </button>}
       {entry.kind === "directory" && expanded.has(entry.relativePath) ? <div className="project-directory__children" style={{ "--directory-guide-left": `${4 + depth * 12 + 6}px` } as CSSProperties}>
-        <DirectoryBranch workspaceRoot={workspaceRoot} binding={binding} rootPath={rootPath} projectId={projectId} relativePath={entry.relativePath} depth={depth + 1} enabled={enabled} activeRelativePath={activeRelativePath} selection={selection} onContextMenu={onContextMenu} renderRenameInput={renderRenameInput} renderDirectoryRenameInput={renderDirectoryRenameInput} documents={documents} />
+        <DirectoryBranch workspaceRoot={workspaceRoot} binding={binding} rootPath={rootPath} projectId={projectId} relativePath={entry.relativePath} depth={depth + 1} enabled={enabled} activeRelativePath={activeRelativePath} selection={selection} onContextMenu={onContextMenu} renderRenameInput={renderRenameInput} renderDirectoryRenameInput={renderDirectoryRenameInput} fileIndex={fileIndex} />
       </div> : null}
     </div>; })}
   </>;
 }
 
+const EMPTY_DOCUMENTS: ProjectSidebarDocumentItem[] = [];
+
 /** One scroll viewport for the entire expanded physical file hierarchy. */
-export function ProjectDirectoryBrowser({ projectId, workspaceRoot, rootPath, binding: navigationBinding, activeRelativePath, documents = [], fileMenu }: {
+export function ProjectDirectoryBrowser({ projectId, workspaceRoot, rootPath, binding: navigationBinding, activeRelativePath, documents = EMPTY_DOCUMENTS, fileMenu }: {
   projectId: number | null; workspaceRoot?: string; rootPath: string; binding?: AgentWorkspaceBinding; activeRelativePath?: string | null;
   documents?: ProjectSidebarDocumentItem[]; fileMenu?: ProjectFileMenuControls;
 }) {
   const queryClient = useQueryClient();
+  const fileIndex = useMemo(() => indexProjectFiles({ rootPath, documents }), [rootPath, documents]);
   const element = useRef<HTMLDivElement>(null);
   const { enabled, isVisible } = useDirectoryVisibility(element, JSON.stringify([rootPath, projectId]));
   const [menuError, setMenuError] = useState("");
@@ -358,7 +361,7 @@ export function ProjectDirectoryBrowser({ projectId, workspaceRoot, rootPath, bi
       if (actualBinding && directoryBinding && (actualBinding.workspaceId !== directoryBinding.workspaceId || actualBinding.generation !== directoryBinding.generation)) {
         throw new Error("工作区已切换，请刷新后重试文件操作。");
       }
-      let document = documents.find(item => projectFilePathMatches(item.managedPath, rootPath, relativePath));
+      let document = fileIndex.findByRelativePath(relativePath);
       if (!document) {
         const activeWorkspaceRoot = workspaceRoot ?? queryClient.getQueryData<WorkspaceStatusSnapshot>(queryKeys.workspaceStatus)?.currentWorkspace?.rootPath;
         if (!activeWorkspaceRoot) throw new Error("工作区信息尚未就绪，请稍后重试。");
@@ -395,7 +398,7 @@ export function ProjectDirectoryBrowser({ projectId, workspaceRoot, rootPath, bi
     }
   };
   return <div ref={element} className="project-directory">{menuError || directoryActions.error ? <p role="alert">{menuError || directoryActions.error}</p> : null}<HomeSidebarList label={projectId === null ? "工作区目录内容" : "项目目录内容"}>
-    <DirectoryBranch workspaceRoot={activeWorkspaceRoot} binding={directoryBinding} key={`${activeWorkspaceRoot}:${rootPath}:${projectId}:${directoryBinding?.workspaceId}:${directoryBinding?.generation}`} rootPath={rootPath} projectId={projectId} relativePath="" depth={0} enabled={enabled && (!bindingRequired || !!directoryBinding)} activeRelativePath={activeRelativePath} selection={selection} onContextMenu={onContextMenu} renderRenameInput={fileMenu?.renderRenameInput} renderDirectoryRenameInput={directoryActions.renderRenameInput} documents={documents} />
+    <DirectoryBranch workspaceRoot={activeWorkspaceRoot} binding={directoryBinding} key={`${activeWorkspaceRoot}:${rootPath}:${projectId}:${directoryBinding?.workspaceId}:${directoryBinding?.generation}`} rootPath={rootPath} projectId={projectId} relativePath="" depth={0} enabled={enabled && (!bindingRequired || !!directoryBinding)} activeRelativePath={activeRelativePath} selection={selection} onContextMenu={onContextMenu} renderRenameInput={fileMenu?.renderRenameInput} renderDirectoryRenameInput={directoryActions.renderRenameInput} fileIndex={fileIndex} />
   </HomeSidebarList>{directoryActions.panel}{bulkMenu?.scope === selectionScope ? createPortal(<ActionContextMenu
     x={bulkMenu.x} y={bulkMenu.y} ariaLabel="所选文件操作" onClose={() => setBulkMenu(null)} actions={[
       { key: "trash-selected", label: `删除所选 ${bulkMenu.keys.length} 项`, icon: Trash2, tone: "danger", disabled: bulkBlocked,

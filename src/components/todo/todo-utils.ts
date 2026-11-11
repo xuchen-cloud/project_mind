@@ -79,8 +79,16 @@ export function sortTodos(todos: TodoRecord[], mode: TodoSortMode) {
   });
 }
 
+function parseTodoDisplayDate(value: string) {
+  const calendarDate = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(value);
+  // Date-only values represent a local calendar day, not midnight UTC.
+  return calendarDate
+    ? new Date(Number(calendarDate[1]), Number(calendarDate[2]) - 1, Number(calendarDate[3]))
+    : new Date(value);
+}
+
 export function formatMonthDay(value: string) {
-  const date = new Date(value);
+  const date = parseTodoDisplayDate(value);
   if (Number.isNaN(date.getTime())) {
     return value;
   }
@@ -88,7 +96,7 @@ export function formatMonthDay(value: string) {
 }
 
 export function formatFullDate(value: string) {
-  const date = new Date(value);
+  const date = parseTodoDisplayDate(value);
   if (Number.isNaN(date.getTime())) {
     return value;
   }

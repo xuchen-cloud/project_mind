@@ -63,4 +63,15 @@ describe("validateUpdaterManifest", () => {
 
     expect(() => validateUpdaterManifest(manifest)).not.toThrow();
   });
+
+  it.each([
+    "01.0.0",
+    "1.0.0-beta.01",
+    "1.0.0-beta..1",
+    "1.0.0+build..1",
+    "1.0.0\n",
+  ])("rejects %j before using its SemVer precedence", (version) => {
+    expect(() => validateUpdaterManifest({ version, platforms: {} }))
+      .toThrow("updater manifest version must be valid SemVer");
+  });
 });

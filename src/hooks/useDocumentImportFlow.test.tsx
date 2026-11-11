@@ -9,8 +9,9 @@ it("imports a Workspace File with a null owner and Workspace tags through the sh
   vi.mocked(projectMindApi.projectTagSettingsGet).mockResolvedValue({ tags: [], defaultTagId: null } as never);
   vi.mocked(projectMindApi.documentImport).mockResolvedValue({ id: 9, projectId: null, name: "plan.md" } as never);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/workspace" } });
   const { result } = renderHook(() => useDocumentImportFlow({ projectId: null, workspaceRoot: "/workspace" }), { wrapper: ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> });
-  await waitFor(() => expect(projectMindApi.projectTagSettingsGet).toHaveBeenCalledWith({ projectId: null }));
+  await waitFor(() => expect(projectMindApi.projectTagSettingsGet).toHaveBeenCalledWith({ projectId: null }, { workspaceId: "w", generation: "g" }));
   await act(async () => { await result.current.requestImportPaths(["/incoming/plan.md"]); });
   expect(projectMindApi.documentImport).toHaveBeenCalledWith({ projectId: null, sourcePath: "/incoming/plan.md", isStarred: false }, { workspaceId: "w", generation: "g" });
 });
@@ -21,6 +22,7 @@ it("does not import after its Workspace owner changes while the binding request 
   let resolve!: (binding: { workspaceId: string; generation: string }) => void;
   vi.mocked(recordDocumentApi.bindingGet).mockReturnValueOnce(new Promise(done => { resolve = done; }));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client.setQueryData(["workspace-status"], { currentWorkspace: { rootPath: "/workspace/one" } });
   const { result, rerender } = renderHook(({ root }) => useDocumentImportFlow({ projectId: null, workspaceRoot: root }), { initialProps: { root: "/workspace/one" }, wrapper: ({ children }) => <QueryClientProvider client={client}>{children}</QueryClientProvider> });
   let request!: Promise<unknown>;
   act(() => { request = result.current.requestImportPaths(["/incoming/old.md"]); });

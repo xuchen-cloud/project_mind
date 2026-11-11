@@ -26,6 +26,30 @@ const documents: ProjectSidebarDocumentItem[] = [41, 42].map((id, index) => ({
   managedPath: `/project/generated/${index ? "other.txt" : "result.txt"}`, originalPath: "", historyDirPath: "", isStarred: false,
   currentVersionNumber: 1, versionCount: 0, health: "normal", tags: index ? [] : [{ id: 9, label: "交付", colorKey: "blue" }],
 }));
+
+it("feeds updated visible File snapshots into the expanded tree after metadata and root changes", async () => {
+  const client = new QueryClient();
+  const wrap = (snapshot: ProjectSidebarDocumentItem[], rootPath = "/project") => <QueryClientProvider client={client}><HomeProjectFiles
+    fileScope={{ projectId: 7, rootPath, name: "Project" }} documents={snapshot} /></QueryClientProvider>;
+  const initial = documents[0];
+  const view = render(wrap([initial]));
+  fireEvent.click(screen.getByRole("button", { name: "文件树展示" }));
+  fireEvent.click(await screen.findByRole("button", { name: "generated" }));
+  const row = await screen.findByRole("button", { name: "result.txt", exact: true });
+  expect(row).toHaveAttribute("data-file-selection-id", "41");
+  view.rerender(wrap([{ ...initial, isStarred: true, currentVersionNumber: 4 }]));
+  expect(JSON.parse(row.getAttribute("data-file-drop-target")!)).toMatchObject({ id: 41, expectedVersionNumber: 4 });
+  expect(within(row).getByLabelText("标星")).toBeVisible();
+  view.rerender(wrap([{ ...initial, health: "missing" }]));
+  expect(row).not.toHaveAttribute("data-file-drop-target");
+  view.rerender(wrap([initial], "/other"));
+  fireEvent.click(await screen.findByRole("button", { name: "generated" }));
+  const otherRow = await screen.findByRole("button", { name: "result.txt", exact: true });
+  expect(otherRow).not.toHaveAttribute("data-file-drop-target");
+  view.rerender(wrap([{ ...initial, managedPath: "/other/generated/result.txt" }], "/other"));
+  expect(otherRow).toHaveAttribute("data-file-selection-id", "41");
+});
+
 beforeEach(() => {
   vi.clearAllMocks();
   native.bindingGet.mockReset();

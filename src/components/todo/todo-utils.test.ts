@@ -1,6 +1,29 @@
 import { describe, expect, it } from "vitest";
 
-import { parseProgressInput } from "./todo-utils";
+import { formatFullDate, formatMonthDay, parseProgressInput } from "./todo-utils";
+
+describe("Todo date formatting", () => {
+  it.each([
+    ["2026-11-11", "11月11日"],
+    ["2026-01-01", "1月1日"],
+    ["2024-02-29", "2月29日"],
+    ["2026-03-08", "3月8日"],
+  ])("preserves the calendar date %s in the process timezone", (value, monthDay) => {
+    expect(formatMonthDay(value)).toBe(monthDay);
+    expect(formatFullDate(value)).toBe(value);
+  });
+
+  it("continues to format timestamps in local time", () => {
+    const value = new Date(2026, 10, 11, 12).toISOString();
+    expect(formatMonthDay(value)).toBe("11月11日");
+    expect(formatFullDate(value)).toBe("2026-11-11");
+  });
+
+  it("preserves unparseable input", () => {
+    expect(formatMonthDay("invalid")).toBe("invalid");
+    expect(formatFullDate("invalid")).toBe("invalid");
+  });
+});
 
 describe("parseProgressInput", () => {
   const now = new Date(2026, 6, 14);

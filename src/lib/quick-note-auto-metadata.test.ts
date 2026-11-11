@@ -10,7 +10,7 @@ const binding = { workspaceId: "workspace", generation: "opened" };
 const record: WorkspaceRecord = { id: 7, title: "Quick note", tags: [], contentHtml: "<p>Body</p>", contentMarkdown: "Body", createdAt: "now", updatedAt: "now" };
 const baseline = { title: record.title!, tagIds: [], revision: "metadata-1", updatedAt: "now" };
 const aiSettings: AiSettingsSnapshot = { profiles: [], bindings: [], hasUsableDefault: true, hasUsableImageDefault: false, securityMode: "workspace", aiSecretsUnlocked: true, execution: { maxConcurrency: 1 }, network: { mode: "system", proxyUrl: null, username: null, hasStoredPassword: false }, editorSkills: [] };
-const job: AiJobSnapshot = { id: 1, kind: "record_metadata", targetKey: "fixture", status: "succeeded", queuedAt: "now", result: { kind: "record_metadata", metadata: { title: "AI title", existingTagIds: [9], newTags: ["New"] } } };
+const job: AiJobSnapshot = { id: 1, binding, kind: "record_metadata", targetKey: "fixture", status: "succeeded", queuedAt: "now", result: { kind: "record_metadata", metadata: { title: "AI title", existingTagIds: [9], newTags: ["New"] } } };
 const args = { binding, record, aiSettings, availableTags: [] };
 
 beforeEach(() => {
@@ -22,6 +22,7 @@ beforeEach(() => {
 
 it("pins the transferred Workspace and applies AI metadata with its original revision", async () => {
   await completeQuickNoteRecordMetadata(args);
+  expect(enqueueAndWait).toHaveBeenCalledWith(expect.any(Object), binding);
   expect(recordDocumentApi.metadataGet).toHaveBeenCalledWith(binding, { scope: { kind: "workspace" }, recordId: 7 });
   expect(recordDocumentApi.metadataApply).toHaveBeenCalledWith(binding, {
     metadata: { target: { scope: { kind: "workspace" }, recordId: 7 }, title: "AI title", tagIds: [9], expectedRevision: baseline.revision },

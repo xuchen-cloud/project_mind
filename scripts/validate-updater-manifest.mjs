@@ -2,7 +2,42 @@ import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
 const REQUIRED_TARGETS = ["windows-x86_64", "darwin-x86_64", "darwin-aarch64"];
-const SEMVER_PATTERN = /^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/u;
+const SEMVER_PATTERN = /^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/u;
+
+function parseUpdaterVersion(version) {
+  const match = typeof version === "string" ? SEMVER_PATTERN.exec(version) : null;
+  const prerelease = match?.[4]?.split(".") ?? [];
+  if (!match || prerelease.some((part) => /^0\d+$/u.test(part))) {
+    throw new Error("updater manifest version must be valid SemVer");
+  }
+  return { core: match.slice(1, 4).map(BigInt), prerelease };
+}
+
+// SemVer precedence ignores build metadata. BigInt preserves numeric ordering
+// without rounding large core or prerelease identifiers.
+export function compareUpdaterVersions(left, right) {
+  const a = parseUpdaterVersion(left);
+  const b = parseUpdaterVersion(right);
+  for (let index = 0; index < a.core.length; index += 1) {
+    if (a.core[index] !== b.core[index]) return a.core[index] > b.core[index] ? 1 : -1;
+  }
+  if (a.prerelease.length === 0 || b.prerelease.length === 0) {
+    return Number(b.prerelease.length > 0) - Number(a.prerelease.length > 0);
+  }
+  for (let index = 0; index < Math.max(a.prerelease.length, b.prerelease.length); index += 1) {
+    const x = a.prerelease[index];
+    const y = b.prerelease[index];
+    if (x === y) continue;
+    if (x === undefined) return -1;
+    if (y === undefined) return 1;
+    const xNumeric = /^\d+$/u.test(x);
+    const yNumeric = /^\d+$/u.test(y);
+    if (xNumeric && yNumeric) return BigInt(x) > BigInt(y) ? 1 : -1;
+    if (xNumeric !== yNumeric) return xNumeric ? -1 : 1;
+    return x > y ? 1 : -1;
+  }
+  return 0;
+}
 
 function isPublicReleaseAssetUrl(value) {
   try {
@@ -30,9 +65,7 @@ export function validateUpdaterManifest(manifest) {
   if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
     throw new Error("updater manifest must be an object");
   }
-  if (typeof manifest.version !== "string" || !SEMVER_PATTERN.test(manifest.version)) {
-    throw new Error("updater manifest version must be valid SemVer");
-  }
+  parseUpdaterVersion(manifest.version);
   if (!manifest.platforms || typeof manifest.platforms !== "object") {
     throw new Error("updater manifest platforms must be an object");
   }

@@ -255,7 +255,7 @@ describe("ProjectSidebar", () => {
     expect(screen.getByRole("region", { name: "工作区文件列表" })).toHaveTextContent("workspace.md");
     fireEvent.click(screen.getByText("workspace.md"));
     await waitFor(() => expect(useFilePreviewStore.getState().request).toMatchObject({ workspaceRoot: "/tmp/workspace", projectId: null, documentId: 29 }));
-    expect(projectMindApiMocks.projectTagSettingsGet).toHaveBeenCalledWith({ projectId: null });
+    expect(projectMindApiMocks.projectTagSettingsGet).toHaveBeenCalledWith({ projectId: null }, { workspaceId: "w", generation: "g" });
   });
   it("keeps the tree toggle and file import together in the title row in either presentation", async () => {
     const view = renderWithProviders(<ProjectSidebar filesOnly resident fileFilter={{ query: "", tagId: null }}

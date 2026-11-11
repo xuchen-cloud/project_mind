@@ -39,7 +39,7 @@ export async function completeQuickNoteRecordMetadata({ record, projectId, avail
     targetKey: `quick-note-metadata:${projectId ?? "workspace"}:${record.id}`,
     markdown: record.contentMarkdown,
     availableTags,
-  }));
+  }), binding);
   if (operation.cancelled) return;
   if (job.status !== "succeeded") throw new Error(job.errorMessage || "AI 元信息填写未完成");
   const suggestion = readRecordMetadataJobResult(job);

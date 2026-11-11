@@ -215,6 +215,7 @@ export type AiJobResult =
   | AiRecordMetadataJobResult;
 
 export interface AiJobSnapshot {
+  binding: import("./agent-types").AgentWorkspaceBinding;
   id: number;
   kind: AiJobKind;
   targetKey: string;
@@ -226,6 +227,8 @@ export interface AiJobSnapshot {
   streamText?: string | null;
   result?: AiJobResult | null;
 }
+
+export type AiJobIdentity = Pick<AiJobSnapshot, "binding" | "id">;
 
 export interface AiProfileTestJobInput {
   kind: "profile_test";

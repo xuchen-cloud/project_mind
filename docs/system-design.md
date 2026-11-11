@@ -45,13 +45,15 @@ flowchart LR
     .project-mind/embedded-note-assets/
 ```
 
-- 当前数据库 schema 为 v37：v22～25 为 Voice Record；后续迁移加入原生 AI、canonical Record、成果/文件版本、会话检索与来源证明，v36～37 为 Workspace Overview 和长期记忆存储。
+- 当前数据库 schema 版本及迁移以 [`src-tauri/src/db.rs`](../src-tauri/src/db.rs) 为单一来源。以下仅为历史迁移说明：v22～25 为 Voice Record；后续迁移加入原生 AI、canonical Record、成果/文件版本、会话检索与来源证明，v36～37 为 Workspace Overview 和长期记忆存储。
 - Workspace 自有文件使用 `workspace:<relative-path>` 或作用域相对路径持久化。
 - 外部导入源可显式记录 `absolute:` 原路径；受管副本必须保持可迁移。
 - `Local Session` 可以记录本机最近 Workspace 根目录，但不能写入 Workspace 数据。
 - 升级前按 schema 版本创建备份。v21 负责将仍存在的旧 Brief 与结论复制为 Record，不删除原始行。
 
-路径规则由 `npm run check:portable-paths` 自动检查。
+文档中的机器路径由 `npm run check:portable-paths` 检查；这不是 Workspace 持久化路径的运行时校验。检查覆盖 Git 已跟踪及未忽略的新 Markdown，Git 忽略的构建/依赖物化文件与根目录 `.full-review/` 生成报告不作为当前文档检查。
+
+[`portable-path-evidence.json`](../scripts/portable-path-evidence.json) 保留固定审查基线的逐文件、逐原文行例外，以基线行号、整行 SHA-256 与出现次数定位，分别标明历史实施/验收证据、固定上游、Windows 协议示例及 macOS 临时目录别名说明。不屏蔽整个历史目录或 vendor：在同一文件新增机器路径、复制例外行、改变原文或挪到另一文件，仍按规则报告。当前操作命令使用仓库相对路径、PATH 工具及明确传入的路径变量；需要新增例外时先核对来源与类别，不能用例外掩盖当前个人 checkout 命令。历史结果仍只代表当时的平台与范围。
 
 ## 3. 前端结构
 

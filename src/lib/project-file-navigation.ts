@@ -28,6 +28,23 @@ export function projectFilePathMatches(managedPath: string, rootPath: string, re
   return managedPath.replaceAll("\\", "/") === `${rootPath.replaceAll("\\", "/").replace(/\/$/, "")}/${relativePath}`;
 }
 
+export interface ProjectFileIndex<T> {
+  findByRelativePath: (relativePath: string) => T | undefined;
+}
+
+/** O(D) per root/documents snapshot; O(1) lookups preserve the first path match. */
+export function indexProjectFiles<T extends { managedPath: string }>({ rootPath, documents }: {
+  rootPath: string; documents: readonly T[];
+}): ProjectFileIndex<T> {
+  const prefix = `${rootPath.replaceAll("\\", "/").replace(/\/$/, "")}/`;
+  const paths = new Map<string, T>();
+  for (const document of documents) {
+    const path = document.managedPath.replaceAll("\\", "/");
+    if (!paths.has(path)) paths.set(path, document);
+  }
+  return { findByRelativePath: relativePath => paths.get(prefix + relativePath) };
+}
+
 export function fileNavigationScopeKey(projectId: number | null, workspaceRoot = useAgentPanelStore.getState().workspaceRoot ?? "") {
   return JSON.stringify([workspaceRoot, projectId]);
 }
